@@ -156,14 +156,18 @@ function assertWellFormedInternalNode<K, V, NodeId>(
 }
 
 it("Starts out empty", () => {
-  const btree = BTree.inMemory<number, { name: string }>((a, b) => a - b)
+  const btree = BTree.inMemory<number, { name: string }>({
+    compare: (a, b) => a - b,
+  })
   assertWellFormedBtree(btree)
   btree.insert(1, { name: "Paul" })
   assertWellFormedBtree(btree)
 })
 
 it("Does basic operations", () => {
-  const btree = BTree.inMemory<number, { name: string }>((a, b) => a - b)
+  const btree = BTree.inMemory<number, { name: string }>({
+    compare: (a, b) => a - b,
+  })
   expect(btree.has(1)).toBe(false)
   expect(btree.get(1)).toEqual([])
 
@@ -184,7 +188,7 @@ it("Does basic operations", () => {
 })
 
 it("Inserting multiple values with the same key will return multiple values", () => {
-  const btree = BTree.inMemory<number, string>((a, b) => a - b)
+  const btree = BTree.inMemory<number, string>({ compare: (a, b) => a - b })
   btree.insert(1, "Paul")
   btree.insert(1, "Meghan")
   expect(btree.get(1)).toEqual(["Paul", "Meghan"])
@@ -195,7 +199,7 @@ describe("Inserting nodes", () => {
   const order = 1
   let btree: ReturnType<typeof BTree.inMemory<number, string>>
   beforeEach(() => {
-    btree = BTree.inMemory<number, string>((a, b) => a - b, { order })
+    btree = BTree.inMemory<number, string>({ order, compare: (a, b) => a - b })
   })
   it("starts with only two nodes in the tree", () => {
     expect(btree.nodes.size).toBe(2)
@@ -255,7 +259,7 @@ describe("Inserting nodes", () => {
           }
         })
 
-        describe("After inerting another 2 node", () => {
+        describe("After inserting another 2 entries", () => {
           beforeEach(() => {
             btree.insert(5, `Person 5`)
             btree.insert(6, `Person 6`)
@@ -269,9 +273,40 @@ describe("Inserting nodes", () => {
   })
 })
 
+describe("Removing items", () => {
+  let btree: ReturnType<typeof BTree.inMemory<number, string>>
+  beforeEach(() => {
+    btree = BTree.inMemory<number, string>({
+      order: 3,
+      compare: (a, b) => a - b,
+    })
+    for (let i = 0; i < 10; i++) {
+      btree.insert(i, `Person ${i}`)
+    }
+    btree.insert(5, "foo")
+    btree.insert(5, "bar")
+    btree.insert(5, "baz")
+  })
+  it("Can remove all items", () => {
+    expect(btree.get(5)).toEqual(["Person 5", "foo", "bar", "baz"])
+    btree.removeAll(5)
+    expect(btree.get(5)).toEqual([])
+    assertWellFormedBtree(btree)
+  })
+  it("Can remove an individual entry for a particular key", () => {
+    expect(btree.get(5)).toEqual(["Person 5", "foo", "bar", "baz"])
+    btree.remove(5, "bar")
+    expect(btree.get(5)).toEqual(["Person 5", "foo", "baz"])
+    assertWellFormedBtree(btree)
+  })
+})
+
 describe("Bulk tests", () => {
   it("lots of nodes inserted in ascending order", () => {
-    const btree = BTree.inMemory<number, string>((a, b) => a - b, { order: 3 })
+    const btree = BTree.inMemory<number, string>({
+      order: 3,
+      compare: (a, b) => a - b,
+    })
 
     for (let i = 0; i < 40; i++) {
       btree.insert(i, `Person ${i}`)
@@ -287,7 +322,8 @@ describe("Bulk tests", () => {
   })
 
   it("lots of nodes inserted in descending order", () => {
-    const btree = BTree.inMemory<number, string>((a, b) => a - b, {
+    const btree = BTree.inMemory<number, string>({
+      compare: (a, b) => a - b,
       order: 3,
     })
 
@@ -307,9 +343,9 @@ describe("Bulk tests", () => {
   })
 
   it("lots of nodes inserted in random order", () => {
-    const btree = BTree.inMemory<number, string>((a, b) => a - b, {
+    const btree = BTree.inMemory<number, string>({
+      compare: (a, b) => a - b,
       order: 3,
-      // shouldLog: true,
     })
 
     const prng = randomSeeded(0n)

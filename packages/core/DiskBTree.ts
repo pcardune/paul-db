@@ -110,14 +110,28 @@ export class BTree<
   public nodes: NodeListT
   private rootNodeId: NodeId
   public readonly order: number
+  public readonly compare: (a: K, b: K) => number
+  public readonly isEqual: (a: V, b: V) => boolean
 
   get rootNode(): InternalBTreeNode<K, NodeId> {
     return this.nodes.get(this.rootNodeId) as InternalBTreeNode<K, NodeId>
   }
 
-  static inMemory<K, V>(compare: (a: K, b: K) => number, { order = 2 } = {}) {
-    return new BTree<K, V, number, NodeList<K, V>>(compare, {
+  static inMemory<K, V>(
+    {
+      order = 2,
+      compare = (a, b) => a < b ? -1 : a > b ? 1 : 0,
+      isEqual = (a, b) => a === b,
+    }: {
+      order?: number
+      compare?: (a: K, b: K) => number
+      isEqual?: (a: V, b: V) => boolean
+    } = {},
+  ) {
+    return new BTree<K, V, number, NodeList<K, V>>({
       order,
+      compare,
+      isEqual,
       nodes: new NodeList<K, V>([]),
     })
   }
@@ -127,12 +141,20 @@ export class BTree<
   }
 
   constructor(
-    public readonly compare: (a: K, b: K) => number,
-    { order = 2, nodes }: {
+    {
+      order = 2,
+      compare,
+      isEqual,
+      nodes,
+    }: {
       order?: number
+      compare: (a: K, b: K) => number
+      isEqual: (a: V, b: V) => boolean
       nodes: NodeListT
     },
   ) {
+    this.compare = compare
+    this.isEqual = isEqual
     this.nodes = nodes
     this.order = order
     this.rootNodeId = this.nodes.getNextNodeId()
@@ -378,11 +400,19 @@ export class BTree<
 
   removeAll(key: K) {
     const found = this._get(this.rootNodeId, key)
-    if (found.keyval === undefined) {
+    if (found.keyval == null) {
       return
     }
     const { node, keyIndex } = found
     node.keyvals.splice(keyIndex, 1)
+  }
+
+  remove(key: K, value: V) {
+    const found = this._get(this.rootNodeId, key)
+    if (found.keyval == null) {
+      return
+    }
+    found.keyval.vals = found.keyval.vals.filter((v) => !this.isEqual(v, value))
   }
 
   has(key: K): boolean {
