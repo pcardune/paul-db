@@ -423,4 +423,91 @@ export class BTree<
   get(key: K): V[] {
     return this._get(this.rootNodeId, key).keyval?.vals ?? []
   }
+
+  private getMinNode(
+    node: BTreeNode<K, V, NodeId> = this.rootNode,
+  ): LeafBTreeNode<K, V, NodeId> {
+    if (node.type === "leaf") {
+      return node
+    }
+    return this.getMinNode(this.nodes.get(node.childrenNodeIds[0]))
+  }
+
+  getRange(
+    { gt, gte, lte, lt }: { gte?: K; gt?: K; lte?: K; lt?: K },
+  ): { key: K; vals: V[] }[] {
+    const results: { key: K; vals: V[] }[] = []
+
+    let current: LeafBTreeNode<K, V, NodeId>
+    let isGt: ((k: K) => boolean) | null = null
+    let ltCheck: ((k: K) => boolean) | null = null
+    if (gt !== undefined) {
+      if (gte !== undefined) {
+        throw new Error("Cannot have both gt and gte")
+      }
+      isGt = (k) => this.compare(k, gt) > 0
+      current = this._get(this.rootNodeId, gt).node
+    } else if (gte !== undefined) {
+      isGt = (k) => this.compare(k, gte) >= 0
+      current = this._get(this.rootNodeId, gte).node
+    } else {
+      current = this.getMinNode()
+    }
+
+    if (lt !== undefined) {
+      if (lte !== undefined) {
+        throw new Error("Cannot have both lt and lte")
+      }
+      ltCheck = (k) => this.compare(k, lt) >= 0
+    } else if (lte !== undefined) {
+      ltCheck = (k) => this.compare(k, lte) > 0
+    }
+
+    if (isGt != null) {
+      for (const keyval of current.keyvals) {
+        if (!isGt(keyval.key)) {
+          continue
+        }
+        if (ltCheck != null && ltCheck(keyval.key)) {
+          return results
+        }
+        results.push(keyval)
+      }
+      if (current.nextLeafNodeId == null) return results
+      current = this.nodes.get(current.nextLeafNodeId) as LeafBTreeNode<
+        K,
+        V,
+        NodeId
+      >
+    }
+
+    if (ltCheck == null) {
+      while (true) {
+        results.push(...current.keyvals)
+        if (current.nextLeafNodeId == null) break
+        current = this.nodes.get(current.nextLeafNodeId) as LeafBTreeNode<
+          K,
+          V,
+          NodeId
+        >
+      }
+      return results
+    }
+
+    while (true) {
+      for (const keyval of current.keyvals) {
+        if (ltCheck != null && ltCheck(keyval.key)) {
+          return results
+        }
+        results.push(keyval)
+      }
+      if (current.nextLeafNodeId == null) break
+      current = this.nodes.get(current.nextLeafNodeId) as LeafBTreeNode<
+        K,
+        V,
+        NodeId
+      >
+    }
+    return results
+  }
 }

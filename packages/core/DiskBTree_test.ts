@@ -301,6 +301,72 @@ describe("Removing items", () => {
   })
 })
 
+describe("Range requests", () => {
+  let btree: ReturnType<typeof BTree.inMemory<number, string>>
+  beforeEach(() => {
+    btree = BTree.inMemory<number, string>({
+      order: 3,
+      compare: (a, b) => a - b,
+    })
+    for (let i = 0; i < 10; i++) {
+      btree.insert(i, `Person ${i}`)
+    }
+  })
+  it("Can get all values in a range", () => {
+    expect(btree.getRange({ gte: 3, lte: 7 })).toEqual([
+      { key: 3, vals: ["Person 3"] },
+      { key: 4, vals: ["Person 4"] },
+      { key: 5, vals: ["Person 5"] },
+      { key: 6, vals: ["Person 6"] },
+      { key: 7, vals: ["Person 7"] },
+    ])
+  })
+  it("exclusive lower bound", () => {
+    expect(btree.getRange({ gt: 3, lte: 7 })).toEqual([
+      { key: 4, vals: ["Person 4"] },
+      { key: 5, vals: ["Person 5"] },
+      { key: 6, vals: ["Person 6"] },
+      { key: 7, vals: ["Person 7"] },
+    ])
+  })
+  it("exclusive upper bound", () => {
+    expect(btree.getRange({ gt: 3, lt: 7 })).toEqual([
+      { key: 4, vals: ["Person 4"] },
+      { key: 5, vals: ["Person 5"] },
+      { key: 6, vals: ["Person 6"] },
+    ])
+  })
+  it("no lower bound", () => {
+    expect(btree.getRange({ lte: 3 })).toEqual([
+      { key: 0, vals: ["Person 0"] },
+      { key: 1, vals: ["Person 1"] },
+      { key: 2, vals: ["Person 2"] },
+      { key: 3, vals: ["Person 3"] },
+    ])
+  })
+  it("no upper bound", () => {
+    expect(btree.getRange({ gte: 7 })).toEqual([
+      { key: 7, vals: ["Person 7"] },
+      { key: 8, vals: ["Person 8"] },
+      { key: 9, vals: ["Person 9"] },
+    ])
+  })
+  it("no bounds", () => {
+    expect(btree.getRange({})).toEqual([
+      { key: 0, vals: ["Person 0"] },
+      { key: 1, vals: ["Person 1"] },
+      { key: 2, vals: ["Person 2"] },
+      { key: 3, vals: ["Person 3"] },
+      { key: 4, vals: ["Person 4"] },
+      { key: 5, vals: ["Person 5"] },
+      { key: 6, vals: ["Person 6"] },
+      { key: 7, vals: ["Person 7"] },
+      { key: 8, vals: ["Person 8"] },
+      { key: 9, vals: ["Person 9"] },
+    ])
+  })
+})
+
 describe("Bulk tests", () => {
   it("lots of nodes inserted in ascending order", () => {
     const btree = BTree.inMemory<number, string>({
