@@ -85,9 +85,7 @@ class NodeList<K, V> {
  */
 export class BTree<K, V> {
   public nodes: NodeList<K, V>
-  private maxKeys: number
   private rootNodeId: number
-  private shouldLog: boolean
   public readonly order: number
 
   get rootNode(): BTreeNode<K, V> {
@@ -100,12 +98,10 @@ export class BTree<K, V> {
 
   constructor(
     public readonly compare: (a: K, b: K) => number,
-    { shouldLog = false, order = 2, nodes = new NodeList<K, V>([]) } = {},
+    { order = 2, nodes = new NodeList<K, V>([]) } = {},
   ) {
     this.nodes = nodes
-    this.shouldLog = shouldLog
     this.order = order
-    this.maxKeys = order * 2
     this.rootNodeId = 0
     this.nodes.push(
       {
@@ -165,7 +161,6 @@ export class BTree<K, V> {
     keyval: { key: K; vals: V[] } | null
     keyIndex: number
   } {
-    this.shouldLog && console.log(">".repeat(depth), "_get(", nodeId, key, ")")
     const node = this.nodes.get(nodeId)
     if (node.type === "leaf") {
       const keyIndex = indexOfInSortedArray(
@@ -182,14 +177,6 @@ export class BTree<K, V> {
           keyval: null,
         }
       }
-      const values = node.keyvals[keyIndex].vals
-      this.shouldLog && console.log(
-        ">".repeat(depth),
-        "Found",
-        values,
-        "in",
-        this.dumpNode(nodeId),
-      )
       return {
         nodeId,
         node,
@@ -199,7 +186,6 @@ export class BTree<K, V> {
       }
     }
     if (node.keys.length === 0) {
-      this.shouldLog && console.log(">".repeat(depth), "No Keys")
       return this._get(node.childrenNodeIds[0], key, depth + 1)
     }
     const i = findIndexInSortedArray(node.keys, key, this.compare)
@@ -207,8 +193,6 @@ export class BTree<K, V> {
   }
 
   insert(key: K, value: V) {
-    this.shouldLog &&
-      console.log("\n===== insert(", key, JSON.stringify(value), ")")
     const found = this._get(this.rootNodeId, key)
     if (found.keyval != null) {
       found.keyval.vals.push(value)
@@ -218,7 +202,7 @@ export class BTree<K, V> {
 
     node.keyvals.push({ key, vals: [value] })
     node.keyvals.sort((a, b) => this.compare(a.key, b.key))
-    if (node.keyvals.length <= this.maxKeys) {
+    if (node.keyvals.length <= this.order * 2) {
       return
     }
     this.splitNode(found.nodeId)
@@ -237,7 +221,7 @@ export class BTree<K, V> {
     )
     parent.keys.splice(index, 0, key)
     parent.childrenNodeIds.splice(index + 1, 0, node.nodeId)
-    if (parent.keys.length <= this.maxKeys) {
+    if (parent.keys.length <= this.order * 2) {
       return
     }
     this.splitNode(parent.nodeId, depth + 1)
@@ -313,14 +297,12 @@ export class BTree<K, V> {
     )
     parentNode.keys.splice(i, 0, keyToMove)
     parentNode.childrenNodeIds.splice(i + 1, 0, L2.nodeId)
-    if (parentNode.keys.length > this.maxKeys) {
+    if (parentNode.keys.length > this.order * 2) {
       this.splitNode(parentNode.nodeId, depth + 1)
     }
   }
 
   private splitNode(nodeId: number, depth = 1) {
-    this.shouldLog && console.log(">".repeat(depth), "Splitting node", nodeId)
-    this.shouldLog && console.dir(this.dump(), { depth: 100 })
     const node = this.nodes.get(nodeId)
     if (node.type === "leaf") {
       this.splitLeafNode(node, depth)
@@ -344,7 +326,6 @@ export class BTree<K, V> {
   }
 
   get(key: K): V[] {
-    this.shouldLog && console.log("get(", key, ")")
     return this._get(this.rootNodeId, key).keyval?.vals ?? []
   }
 }
