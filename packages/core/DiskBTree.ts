@@ -53,6 +53,30 @@ export function findIndexInSortedArray<T>(
   return i
 }
 
+class NodeList<K, V> {
+  constructor(private nodes: BTreeNode<K, V>[]) {}
+
+  get length() {
+    return this.nodes.length
+  }
+
+  get(nodeId: number): BTreeNode<K, V> {
+    return this.nodes[nodeId]
+  }
+
+  set(nodeId: number, node: BTreeNode<K, V>) {
+    this.nodes[nodeId] = node
+  }
+
+  push(...node: BTreeNode<K, V>[]) {
+    this.nodes.push(...node)
+  }
+
+  splice(start: number, deleteCount: number, ...nodes: BTreeNode<K, V>[]) {
+    this.nodes.splice(start, deleteCount, ...nodes)
+  }
+}
+
 /**
  * A BTree implementation that stores key-value pairs.
  *
@@ -60,29 +84,30 @@ export function findIndexInSortedArray<T>(
  * about how a BTree works.
  */
 export class BTree<K, V> {
-  public nodes: BTreeNode<K, V>[]
+  public nodes: NodeList<K, V>
   private maxKeys: number
   private rootNodeId: number
   private shouldLog: boolean
   public readonly order: number
 
   get rootNode(): BTreeNode<K, V> {
-    return this.nodes[this.rootNodeId]
+    return this.nodes.get(this.rootNodeId)
   }
 
   getNodeWithId(nodeId: number): BTreeNode<K, V> {
-    return this.nodes[nodeId]
+    return this.nodes.get(nodeId)
   }
 
   constructor(
     public readonly compare: (a: K, b: K) => number,
-    { shouldLog = false, order = 2 } = {},
+    { shouldLog = false, order = 2, nodes = new NodeList<K, V>([]) } = {},
   ) {
+    this.nodes = nodes
     this.shouldLog = shouldLog
     this.order = order
     this.maxKeys = order * 2
     this.rootNodeId = 0
-    this.nodes = [
+    this.nodes.push(
       {
         nodeId: 0,
         type: "internal",
@@ -96,18 +121,18 @@ export class BTree<K, V> {
         keyvals: [],
         nextLeafNodeId: -1,
       },
-    ]
+    )
   }
 
   childrenForNode(node: BTreeNode<K, V>): BTreeNode<K, V>[] {
     if (node.type === "leaf") {
       return []
     }
-    return node.childrenNodeIds.map((id) => this.nodes[id])
+    return node.childrenNodeIds.map((id) => this.nodes.get(id))
   }
 
   dumpNode(nodeId: number): DumpedNode<K, V> {
-    const node = this.nodes[nodeId]
+    const node = this.nodes.get(nodeId)
     if (node.type === "leaf") {
       return {
         type: "leaf",
@@ -141,7 +166,7 @@ export class BTree<K, V> {
     keyIndex: number
   } {
     this.shouldLog && console.log(">".repeat(depth), "_get(", nodeId, key, ")")
-    const node = this.nodes[nodeId]
+    const node = this.nodes.get(nodeId)
     if (node.type === "leaf") {
       const keyIndex = indexOfInSortedArray(
         node.keyvals,
@@ -235,9 +260,9 @@ export class BTree<K, V> {
       keyvals: node.keyvals.slice(0, this.order),
       nextLeafNodeId: L2.nodeId,
     }
-    this.nodes[L1.nodeId] = L1
+    this.nodes.set(L1.nodeId, L1)
     this.insertIntoParent(
-      this.nodes[node.parentNodeId] as InternalBTreeNode<K>,
+      this.nodes.get(node.parentNodeId) as InternalBTreeNode<K>,
       L2,
       L2.keyvals[0].key,
       depth,
@@ -258,7 +283,7 @@ export class BTree<K, V> {
       this.rootNodeId = parentNode.nodeId
       node.parentNodeId = parentNode.nodeId
     } else {
-      parentNode = this.nodes[node.parentNodeId] as InternalBTreeNode<K>
+      parentNode = this.nodes.get(node.parentNodeId) as InternalBTreeNode<K>
     }
 
     const keyToMove = node.keys[this.order]
@@ -271,7 +296,7 @@ export class BTree<K, V> {
     }
     this.nodes.push(L2)
     for (const childId of L2.childrenNodeIds) {
-      this.nodes[childId].parentNodeId = L2.nodeId
+      this.nodes.get(childId).parentNodeId = L2.nodeId
     }
     const L1: InternalBTreeNode<K> = {
       nodeId: node.nodeId,
@@ -280,7 +305,7 @@ export class BTree<K, V> {
       childrenNodeIds: node.childrenNodeIds.slice(0, this.order + 1),
       parentNodeId: parentNode.nodeId,
     }
-    this.nodes[L1.nodeId] = L1
+    this.nodes.set(L1.nodeId, L1)
     const i = binarySearch(
       parentNode.keys,
       keyToMove,
@@ -296,7 +321,7 @@ export class BTree<K, V> {
   private splitNode(nodeId: number, depth = 1) {
     this.shouldLog && console.log(">".repeat(depth), "Splitting node", nodeId)
     this.shouldLog && console.dir(this.dump(), { depth: 100 })
-    const node = this.nodes[nodeId]
+    const node = this.nodes.get(nodeId)
     if (node.type === "leaf") {
       this.splitLeafNode(node, depth)
     } else {
