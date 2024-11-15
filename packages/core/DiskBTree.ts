@@ -3,14 +3,12 @@ import { binarySearch } from "./binarySearch.ts"
 export type InternalBTreeNode<K, NodeId> = {
   type: "internal"
   nodeId: NodeId
-  parentNodeId?: NodeId
   keys: K[]
   childrenNodeIds: NodeId[]
 }
 
 export type LeafBTreeNode<K, V, NodeId> = {
   nodeId: NodeId
-  parentNodeId: NodeId
   type: "leaf"
   keyvals: { key: K; vals: V[] }[]
   nextLeafNodeId: NodeId | null
@@ -28,6 +26,13 @@ type DumpedNode<K, V, NodeId> =
     keys: K[]
     children: DumpedNode<K, V, NodeId>[]
   }
+
+class LinkedList<V> {
+  constructor(
+    public head: V,
+    public tail: LinkedList<V> | null = null,
+  ) {}
+}
 
 function indexOfInSortedArray<T, V>(
   arr: T[],
@@ -143,7 +148,6 @@ export class BTree<
     const childNodeId = this.nodes.getNextNodeId()
     this.nodes.set(childNodeId, {
       nodeId: childNodeId,
-      parentNodeId: this.rootNodeId,
       type: "leaf",
       keyvals: [],
       nextLeafNodeId: null,
@@ -184,16 +188,21 @@ export class BTree<
   _get(
     nodeId: NodeId,
     key: K,
+    parents: LinkedList<NodeId> | null = null,
     depth = 1,
   ): {
     nodeId: NodeId
     node: LeafBTreeNode<K, V, NodeId>
+    parents: LinkedList<NodeId>
     key: K
     keyval: { key: K; vals: V[] } | null
     keyIndex: number
   } {
     const node = this.nodes.get(nodeId)
     if (node.type === "leaf") {
+      if (parents == null) {
+        throw new Error("all leaf nodes should have a parent")
+      }
       const keyIndex = indexOfInSortedArray(
         node.keyvals,
         key,
@@ -203,6 +212,7 @@ export class BTree<
         return {
           nodeId,
           node,
+          parents,
           key,
           keyIndex: -1,
           keyval: null,
@@ -211,16 +221,27 @@ export class BTree<
       return {
         nodeId,
         node,
+        parents,
         key,
         keyIndex,
         keyval: keyIndex < node.keyvals.length ? node.keyvals[keyIndex] : null,
       }
     }
     if (node.keys.length === 0) {
-      return this._get(node.childrenNodeIds[0], key, depth + 1)
+      return this._get(
+        node.childrenNodeIds[0],
+        key,
+        new LinkedList(node.nodeId, parents),
+        depth + 1,
+      )
     }
     const i = findIndexInSortedArray(node.keys, key, this.compare)
-    return this._get(node.childrenNodeIds[i], key, depth + 1)
+    return this._get(
+      node.childrenNodeIds[i],
+      key,
+      new LinkedList(node.nodeId, parents),
+      depth + 1,
+    )
   }
 
   insert(key: K, value: V) {
@@ -236,11 +257,12 @@ export class BTree<
     if (node.keyvals.length <= this.order * 2) {
       return
     }
-    this.splitNode(found.nodeId)
+    this.splitNode(found.nodeId, found.parents)
   }
 
   private insertIntoParent(
     parent: InternalBTreeNode<K, NodeId>,
+    grandParents: LinkedList<NodeId>,
     node: BTreeNode<K, V, NodeId>,
     key: K,
     depth: number,
@@ -255,13 +277,16 @@ export class BTree<
     if (parent.keys.length <= this.order * 2) {
       return
     }
-    this.splitNode(parent.nodeId, depth + 1)
+    this.splitNode(parent.nodeId, grandParents, depth + 1)
   }
 
-  private splitLeafNode(node: LeafBTreeNode<K, V, NodeId>, depth: number) {
+  private splitLeafNode(
+    node: LeafBTreeNode<K, V, NodeId>,
+    parents: LinkedList<NodeId>,
+    depth: number,
+  ) {
     const L2: LeafBTreeNode<K, V, NodeId> = {
       nodeId: this.nodes.getNextNodeId(),
-      parentNodeId: node.parentNodeId,
       type: "leaf",
       keyvals: node.keyvals.slice(this.order),
       nextLeafNodeId: node.nextLeafNodeId,
@@ -270,23 +295,27 @@ export class BTree<
     this.nodes.set(L2.nodeId, L2)
     const L1: LeafBTreeNode<K, V, NodeId> = {
       nodeId: node.nodeId,
-      parentNodeId: node.parentNodeId,
       type: "leaf",
       keyvals: node.keyvals.slice(0, this.order),
       nextLeafNodeId: L2.nodeId,
     }
     this.nodes.set(L1.nodeId, L1)
     this.insertIntoParent(
-      this.nodes.get(node.parentNodeId) as InternalBTreeNode<K, NodeId>,
+      this.nodes.get(parents.head as NodeId) as InternalBTreeNode<K, NodeId>,
+      parents.tail as LinkedList<NodeId>,
       L2,
       L2.keyvals[0].key,
       depth,
     )
   }
 
-  private splitInternalNode(node: InternalBTreeNode<K, NodeId>, depth: number) {
+  private splitInternalNode(
+    node: InternalBTreeNode<K, NodeId>,
+    parents: LinkedList<NodeId> | null,
+    depth: number,
+  ) {
     let parentNode: InternalBTreeNode<K, NodeId>
-    if (node.parentNodeId == null) {
+    if (parents == null) {
       // make a new parent node
       parentNode = {
         nodeId: this.nodes.getNextNodeId(),
@@ -296,9 +325,9 @@ export class BTree<
       }
       this.nodes.set(parentNode.nodeId, parentNode)
       this.rootNodeId = parentNode.nodeId
-      node.parentNodeId = parentNode.nodeId
+      parents = new LinkedList(parentNode.nodeId)
     } else {
-      parentNode = this.nodes.get(node.parentNodeId) as InternalBTreeNode<
+      parentNode = this.nodes.get(parents.head) as InternalBTreeNode<
         K,
         NodeId
       >
@@ -310,18 +339,13 @@ export class BTree<
       type: "internal",
       keys: node.keys.slice(this.order + 1),
       childrenNodeIds: node.childrenNodeIds.slice(this.order + 1),
-      parentNodeId: parentNode.nodeId,
     }
     this.nodes.set(L2.nodeId, L2)
-    for (const childId of L2.childrenNodeIds) {
-      this.nodes.get(childId).parentNodeId = L2.nodeId
-    }
     const L1: InternalBTreeNode<K, NodeId> = {
       nodeId: node.nodeId,
       type: "internal",
       keys: node.keys.slice(0, this.order),
       childrenNodeIds: node.childrenNodeIds.slice(0, this.order + 1),
-      parentNodeId: parentNode.nodeId,
     }
     this.nodes.set(L1.nodeId, L1)
     const i = binarySearch(
@@ -332,16 +356,23 @@ export class BTree<
     parentNode.keys.splice(i, 0, keyToMove)
     parentNode.childrenNodeIds.splice(i + 1, 0, L2.nodeId)
     if (parentNode.keys.length > this.order * 2) {
-      this.splitNode(parentNode.nodeId, depth + 1)
+      this.splitNode(parentNode.nodeId, parents.tail, depth + 1)
     }
   }
 
-  private splitNode(nodeId: NodeId, depth = 1) {
+  private splitNode(
+    nodeId: NodeId,
+    parents: LinkedList<NodeId> | null,
+    depth = 1,
+  ) {
     const node = this.nodes.get(nodeId)
     if (node.type === "leaf") {
-      this.splitLeafNode(node, depth)
+      if (parents == null) {
+        throw new Error("all leaf nodes should have a parent")
+      }
+      this.splitLeafNode(node, parents, depth)
     } else {
-      this.splitInternalNode(node, depth)
+      this.splitInternalNode(node, parents, depth)
     }
   }
 

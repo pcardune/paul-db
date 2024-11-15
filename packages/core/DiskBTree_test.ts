@@ -19,8 +19,6 @@ function assertWellFormedBtree<K, V, NodeId>(btree: BTree<K, V, NodeId>) {
   expect(rootNode, "Expect btree to have a root node").toBeDefined()
   expect(rootNode.type, "root node should always be an internal node")
     .toBe("internal")
-  expect(rootNode.parentNodeId, "root node should have no parent node")
-    .toBeUndefined()
   if (rootNode.type !== "internal") {
     throw new Error("Unreachable")
   }
@@ -141,11 +139,7 @@ function assertWellFormedInternalNode<K, V, NodeId>(
     }
   }
 
-  if (node.parentNodeId == null) {
-    expect(node, "A node without a parent node should be the root node").toBe(
-      btree.rootNode,
-    )
-  } else {
+  if (node != btree.rootNode) {
     expect(
       node.keys.length,
       "Internal nodes should have at least _order_ entries",
@@ -157,16 +151,6 @@ function assertWellFormedInternalNode<K, V, NodeId>(
   }
 
   for (const childNode of btree.childrenForNode(node)) {
-    expect(
-      `childNode ${childNode.nodeId} should have parent ${childNode.parentNodeId}`,
-    )
-      .toBe(
-        `childNode ${childNode.nodeId} should have parent ${node.nodeId}`,
-      )
-    expect(childNode.parentNodeId, `Child nodes should have a parent node`)
-      .toBe(
-        node.nodeId,
-      )
     assertWellFormedNode(btree, childNode)
   }
 }
