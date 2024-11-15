@@ -7,7 +7,7 @@ import { LeafBTreeNode } from "./DiskBTree.ts"
 
 // TODO: consider using expect.extend to make custom matchers for this
 // see https://jsr.io/@std/expect/doc/~/expect.extend
-function assertWellFormedBtree<K, V>(btree: BTree<K, V>) {
+function assertWellFormedBtree<K, V, NodeId>(btree: BTree<K, V, NodeId>) {
   /**
    * The number d is the order of a B+ tree. Each node (with the exception of
    * the root node) must have d ≤ x ≤ 2d entries assuming no deletes happen
@@ -27,9 +27,9 @@ function assertWellFormedBtree<K, V>(btree: BTree<K, V>) {
   assertWellFormedNode(btree, rootNode)
 
   function collectLeafNodesWithDepth(
-    node: BTreeNode<K, V>,
+    node: BTreeNode<K, V, NodeId>,
     depth: number,
-  ): { node: LeafBTreeNode<K, V>; depth: number }[] {
+  ): { node: LeafBTreeNode<K, V, NodeId>; depth: number }[] {
     if (node.type === "leaf") {
       return [{ node, depth }]
     }
@@ -43,7 +43,10 @@ function assertWellFormedBtree<K, V>(btree: BTree<K, V>) {
   expect(depths.size, "All leaf nodes should be at the same depth").toBe(1)
 }
 
-function assertWellFormedNode<K, V>(btree: BTree<K, V>, node: BTreeNode<K, V>) {
+function assertWellFormedNode<K, V, NodeId>(
+  btree: BTree<K, V, NodeId>,
+  node: BTreeNode<K, V, NodeId>,
+) {
   expect(btree.getNodeWithId(node.nodeId), "Node should have the correct id")
     .toBe(node)
   if (node.type === "internal") {
@@ -53,16 +56,16 @@ function assertWellFormedNode<K, V>(btree: BTree<K, V>, node: BTreeNode<K, V>) {
   }
 }
 
-function keysForNode<K>(node: BTreeNode<K, unknown>): readonly K[] {
+function keysForNode<K>(node: BTreeNode<K, unknown, unknown>): readonly K[] {
   if (node.type === "leaf") {
     return node.keyvals.map((keyval) => keyval.key)
   }
   return node.keys
 }
 
-function assertWellFormedLeafNode<K, V>(
-  btree: BTree<K, V>,
-  node: LeafBTreeNode<K, V>,
+function assertWellFormedLeafNode<K, V, NodeId>(
+  btree: BTree<K, V, NodeId>,
+  node: LeafBTreeNode<K, V, NodeId>,
 ) {
   const keys = keysForNode(node)
   const sortedKeys = Array.from(keys).sort(btree.compare)
@@ -91,9 +94,9 @@ function ord<A>(
   }
 }
 
-function assertWellFormedInternalNode<K, V>(
-  btree: BTree<K, V>,
-  node: InternalBTreeNode<K>,
+function assertWellFormedInternalNode<K, V, NodeId>(
+  btree: BTree<K, V, NodeId>,
+  node: InternalBTreeNode<K, NodeId>,
 ) {
   const sortedKeys = Array.from(node.keys).sort(btree.compare)
   expect(node.keys, "Keys should be sorted").toEqual(sortedKeys)
@@ -169,14 +172,14 @@ function assertWellFormedInternalNode<K, V>(
 }
 
 it("Starts out empty", () => {
-  const btree = new BTree<number, { name: string }>((a, b) => a - b)
+  const btree = BTree.inMemory<number, { name: string }>((a, b) => a - b)
   assertWellFormedBtree(btree)
   btree.insert(1, { name: "Paul" })
   assertWellFormedBtree(btree)
 })
 
 it("Does basic operations", () => {
-  const btree = new BTree<number, { name: string }>((a, b) => a - b)
+  const btree = BTree.inMemory<number, { name: string }>((a, b) => a - b)
   expect(btree.has(1)).toBe(false)
   expect(btree.get(1)).toEqual([])
 
@@ -197,7 +200,7 @@ it("Does basic operations", () => {
 })
 
 it("Inserting multiple values with the same key will return multiple values", () => {
-  const btree = new BTree<number, string>((a, b) => a - b)
+  const btree = BTree.inMemory<number, string>((a, b) => a - b)
   btree.insert(1, "Paul")
   btree.insert(1, "Meghan")
   expect(btree.get(1)).toEqual(["Paul", "Meghan"])
@@ -206,12 +209,12 @@ it("Inserting multiple values with the same key will return multiple values", ()
 
 describe("Inserting nodes", () => {
   const order = 1
-  let btree: BTree<number, string>
+  let btree: ReturnType<typeof BTree.inMemory<number, string>>
   beforeEach(() => {
-    btree = new BTree<number, string>((a, b) => a - b, { order })
+    btree = BTree.inMemory<number, string>((a, b) => a - b, { order })
   })
   it("starts with only two nodes in the tree", () => {
-    expect(btree.nodes).toHaveLength(2)
+    expect(btree.nodes.size).toBe(2)
     expect(btree.rootNode.type).toBe("internal")
     const children = btree.childrenForNode(btree.rootNode)
     expect(children).toHaveLength(1)
@@ -225,7 +228,7 @@ describe("Inserting nodes", () => {
     })
     it("No new nodes will be added", () => {
       assertWellFormedBtree(btree)
-      expect(btree.nodes.length).toBe(2)
+      expect(btree.nodes.size).toBe(2)
     })
     it("All nodes will have the correct values", () => {
       for (let i = 0; i < order * 2; i++) {
@@ -239,7 +242,7 @@ describe("Inserting nodes", () => {
       })
       it("A new node will be added", () => {
         assertWellFormedBtree(btree)
-        expect(btree.nodes.length).toBe(3)
+        expect(btree.nodes.size).toBe(3)
         expect(btree.childrenForNode(btree.rootNode)).toHaveLength(2)
       })
 
@@ -284,7 +287,7 @@ describe("Inserting nodes", () => {
 
 describe("Bulk tests", () => {
   it("lots of nodes inserted in ascending order", () => {
-    const btree = new BTree<number, string>((a, b) => a - b, { order: 3 })
+    const btree = BTree.inMemory<number, string>((a, b) => a - b, { order: 3 })
 
     for (let i = 0; i < 40; i++) {
       btree.insert(i, `Person ${i}`)
@@ -300,7 +303,7 @@ describe("Bulk tests", () => {
   })
 
   it("lots of nodes inserted in descending order", () => {
-    const btree = new BTree<number, string>((a, b) => a - b, {
+    const btree = BTree.inMemory<number, string>((a, b) => a - b, {
       order: 3,
     })
 
@@ -320,7 +323,7 @@ describe("Bulk tests", () => {
   })
 
   it("lots of nodes inserted in random order", () => {
-    const btree = new BTree<number, string>((a, b) => a - b, {
+    const btree = BTree.inMemory<number, string>((a, b) => a - b, {
       order: 3,
       // shouldLog: true,
     })

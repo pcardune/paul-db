@@ -1,30 +1,32 @@
 import { binarySearch } from "./binarySearch.ts"
 
-export type InternalBTreeNode<K> = {
+export type InternalBTreeNode<K, NodeId> = {
   type: "internal"
-  nodeId: number
-  parentNodeId?: number
+  nodeId: NodeId
+  parentNodeId?: NodeId
   keys: K[]
-  childrenNodeIds: number[]
+  childrenNodeIds: NodeId[]
 }
 
-export type LeafBTreeNode<K, V> = {
-  nodeId: number
-  parentNodeId: number
+export type LeafBTreeNode<K, V, NodeId> = {
+  nodeId: NodeId
+  parentNodeId: NodeId
   type: "leaf"
   keyvals: { key: K; vals: V[] }[]
-  nextLeafNodeId: number
+  nextLeafNodeId: NodeId | null
 }
 
-export type BTreeNode<K, V> = InternalBTreeNode<K> | LeafBTreeNode<K, V>
+export type BTreeNode<K, V, NodeId> =
+  | InternalBTreeNode<K, NodeId>
+  | LeafBTreeNode<K, V, NodeId>
 
-type DumpedNode<K, V> =
-  | { type: "leaf"; nodeId: number; keyvals: [K, V[]][] }
+type DumpedNode<K, V, NodeId> =
+  | { type: "leaf"; nodeId: NodeId; keyvals: [K, V[]][] }
   | {
     type: "internal"
-    nodeId: number
+    nodeId: NodeId
     keys: K[]
-    children: DumpedNode<K, V>[]
+    children: DumpedNode<K, V, NodeId>[]
   }
 
 function indexOfInSortedArray<T, V>(
@@ -53,27 +55,38 @@ export function findIndexInSortedArray<T>(
   return i
 }
 
-class NodeList<K, V> {
-  constructor(private nodes: BTreeNode<K, V>[]) {}
+interface INodeList<K, V, NodeId> {
+  getNextNodeId(): NodeId
+  size: number
+  get(nodeId: NodeId): BTreeNode<K, V, NodeId>
+  set(nodeId: NodeId, node: BTreeNode<K, V, NodeId>): void
+}
 
-  get length() {
-    return this.nodes.length
+class NodeList<K, V> implements INodeList<K, V, number> {
+  constructor(private _nodes: BTreeNode<K, V, number>[]) {}
+
+  get size() {
+    return this._nodes.length
   }
 
-  get(nodeId: number): BTreeNode<K, V> {
-    return this.nodes[nodeId]
+  get nodes(): readonly BTreeNode<K, V, number>[] {
+    return this._nodes
   }
 
-  set(nodeId: number, node: BTreeNode<K, V>) {
-    this.nodes[nodeId] = node
+  getNextNodeId(): number {
+    return this._nodes.length
   }
 
-  push(...node: BTreeNode<K, V>[]) {
-    this.nodes.push(...node)
+  get(nodeId: number): BTreeNode<K, V, number> {
+    return this._nodes[nodeId]
   }
 
-  splice(start: number, deleteCount: number, ...nodes: BTreeNode<K, V>[]) {
-    this.nodes.splice(start, deleteCount, ...nodes)
+  set(nodeId: number, node: BTreeNode<K, V, number>) {
+    this._nodes[nodeId] = node
+  }
+
+  push(...node: BTreeNode<K, V, number>[]) {
+    this._nodes.push(...node)
   }
 }
 
@@ -83,51 +96,69 @@ class NodeList<K, V> {
  * See https://cs186berkeley.net/notes/note4/ for more information
  * about how a BTree works.
  */
-export class BTree<K, V> {
-  public nodes: NodeList<K, V>
-  private rootNodeId: number
+export class BTree<
+  K,
+  V,
+  NodeId,
+  NodeListT extends INodeList<K, V, NodeId> = INodeList<K, V, NodeId>,
+> {
+  public nodes: NodeListT
+  private rootNodeId: NodeId
   public readonly order: number
 
-  get rootNode(): BTreeNode<K, V> {
-    return this.nodes.get(this.rootNodeId)
+  get rootNode(): InternalBTreeNode<K, NodeId> {
+    return this.nodes.get(this.rootNodeId) as InternalBTreeNode<K, NodeId>
   }
 
-  getNodeWithId(nodeId: number): BTreeNode<K, V> {
+  static inMemory<K, V>(compare: (a: K, b: K) => number, { order = 2 } = {}) {
+    return new BTree<K, V, number, NodeList<K, V>>(compare, {
+      order,
+      nodes: new NodeList<K, V>([]),
+    })
+  }
+
+  getNodeWithId(nodeId: NodeId): BTreeNode<K, V, NodeId> {
     return this.nodes.get(nodeId)
   }
 
   constructor(
     public readonly compare: (a: K, b: K) => number,
-    { order = 2, nodes = new NodeList<K, V>([]) } = {},
+    { order = 2, nodes }: {
+      order?: number
+      nodes: NodeListT
+    },
   ) {
     this.nodes = nodes
     this.order = order
-    this.rootNodeId = 0
-    this.nodes.push(
+    this.rootNodeId = this.nodes.getNextNodeId()
+    this.nodes.set(
+      this.rootNodeId,
       {
-        nodeId: 0,
+        nodeId: this.rootNodeId,
         type: "internal",
         keys: [],
-        childrenNodeIds: [1],
-      },
-      {
-        nodeId: 1,
-        parentNodeId: 0,
-        type: "leaf",
-        keyvals: [],
-        nextLeafNodeId: -1,
+        childrenNodeIds: [],
       },
     )
+    const childNodeId = this.nodes.getNextNodeId()
+    this.nodes.set(childNodeId, {
+      nodeId: childNodeId,
+      parentNodeId: this.rootNodeId,
+      type: "leaf",
+      keyvals: [],
+      nextLeafNodeId: null,
+    })
+    this.rootNode.childrenNodeIds.push(childNodeId)
   }
 
-  childrenForNode(node: BTreeNode<K, V>): BTreeNode<K, V>[] {
+  childrenForNode(node: BTreeNode<K, V, NodeId>): BTreeNode<K, V, NodeId>[] {
     if (node.type === "leaf") {
       return []
     }
     return node.childrenNodeIds.map((id) => this.nodes.get(id))
   }
 
-  dumpNode(nodeId: number): DumpedNode<K, V> {
+  dumpNode(nodeId: NodeId): DumpedNode<K, V, NodeId> {
     const node = this.nodes.get(nodeId)
     if (node.type === "leaf") {
       return {
@@ -151,12 +182,12 @@ export class BTree<K, V> {
   }
 
   _get(
-    nodeId: number,
+    nodeId: NodeId,
     key: K,
     depth = 1,
   ): {
-    nodeId: number
-    node: LeafBTreeNode<K, V>
+    nodeId: NodeId
+    node: LeafBTreeNode<K, V, NodeId>
     key: K
     keyval: { key: K; vals: V[] } | null
     keyIndex: number
@@ -209,8 +240,8 @@ export class BTree<K, V> {
   }
 
   private insertIntoParent(
-    parent: InternalBTreeNode<K>,
-    node: BTreeNode<K, V>,
+    parent: InternalBTreeNode<K, NodeId>,
+    node: BTreeNode<K, V, NodeId>,
     key: K,
     depth: number,
   ) {
@@ -227,17 +258,17 @@ export class BTree<K, V> {
     this.splitNode(parent.nodeId, depth + 1)
   }
 
-  private splitLeafNode(node: LeafBTreeNode<K, V>, depth: number) {
-    const L2: LeafBTreeNode<K, V> = {
-      nodeId: this.nodes.length,
+  private splitLeafNode(node: LeafBTreeNode<K, V, NodeId>, depth: number) {
+    const L2: LeafBTreeNode<K, V, NodeId> = {
+      nodeId: this.nodes.getNextNodeId(),
       parentNodeId: node.parentNodeId,
       type: "leaf",
       keyvals: node.keyvals.slice(this.order),
       nextLeafNodeId: node.nextLeafNodeId,
     }
     node.nextLeafNodeId = L2.nodeId
-    this.nodes.push(L2)
-    const L1: LeafBTreeNode<K, V> = {
+    this.nodes.set(L2.nodeId, L2)
+    const L1: LeafBTreeNode<K, V, NodeId> = {
       nodeId: node.nodeId,
       parentNodeId: node.parentNodeId,
       type: "leaf",
@@ -246,43 +277,46 @@ export class BTree<K, V> {
     }
     this.nodes.set(L1.nodeId, L1)
     this.insertIntoParent(
-      this.nodes.get(node.parentNodeId) as InternalBTreeNode<K>,
+      this.nodes.get(node.parentNodeId) as InternalBTreeNode<K, NodeId>,
       L2,
       L2.keyvals[0].key,
       depth,
     )
   }
 
-  private splitInternalNode(node: InternalBTreeNode<K>, depth: number) {
-    let parentNode: InternalBTreeNode<K>
+  private splitInternalNode(node: InternalBTreeNode<K, NodeId>, depth: number) {
+    let parentNode: InternalBTreeNode<K, NodeId>
     if (node.parentNodeId == null) {
       // make a new parent node
       parentNode = {
-        nodeId: this.nodes.length,
+        nodeId: this.nodes.getNextNodeId(),
         type: "internal",
         keys: [],
         childrenNodeIds: [node.nodeId],
       }
-      this.nodes.push(parentNode)
+      this.nodes.set(parentNode.nodeId, parentNode)
       this.rootNodeId = parentNode.nodeId
       node.parentNodeId = parentNode.nodeId
     } else {
-      parentNode = this.nodes.get(node.parentNodeId) as InternalBTreeNode<K>
+      parentNode = this.nodes.get(node.parentNodeId) as InternalBTreeNode<
+        K,
+        NodeId
+      >
     }
 
     const keyToMove = node.keys[this.order]
-    const L2: InternalBTreeNode<K> = {
-      nodeId: this.nodes.length,
+    const L2: InternalBTreeNode<K, NodeId> = {
+      nodeId: this.nodes.getNextNodeId(),
       type: "internal",
       keys: node.keys.slice(this.order + 1),
       childrenNodeIds: node.childrenNodeIds.slice(this.order + 1),
       parentNodeId: parentNode.nodeId,
     }
-    this.nodes.push(L2)
+    this.nodes.set(L2.nodeId, L2)
     for (const childId of L2.childrenNodeIds) {
       this.nodes.get(childId).parentNodeId = L2.nodeId
     }
-    const L1: InternalBTreeNode<K> = {
+    const L1: InternalBTreeNode<K, NodeId> = {
       nodeId: node.nodeId,
       type: "internal",
       keys: node.keys.slice(0, this.order),
@@ -302,7 +336,7 @@ export class BTree<K, V> {
     }
   }
 
-  private splitNode(nodeId: number, depth = 1) {
+  private splitNode(nodeId: NodeId, depth = 1) {
     const node = this.nodes.get(nodeId)
     if (node.type === "leaf") {
       this.splitLeafNode(node, depth)
