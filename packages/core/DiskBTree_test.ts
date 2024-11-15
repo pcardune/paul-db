@@ -1,5 +1,5 @@
 import { expect } from "jsr:@std/expect"
-import { beforeAll, beforeEach, describe, it } from "jsr:@std/testing/bdd"
+import { beforeEach, describe, it } from "jsr:@std/testing/bdd"
 import { BTree, BTreeNode, keysForNode } from "./DiskBTree.ts"
 import { randomIntegerBetween, randomSeeded } from "@std/random"
 import { InternalBTreeNode } from "./DiskBTree.ts"
@@ -147,7 +147,13 @@ function assertWellFormedInternalNode<K, V>(
   }
 
   for (const childNode of btree.childrenForNode(node)) {
-    expect(childNode.parentNodeId, "Child nodes should have a parent node")
+    expect(
+      `childNode ${childNode.nodeId} should have parent ${childNode.parentNodeId}`,
+    )
+      .toBe(
+        `childNode ${childNode.nodeId} should have parent ${node.nodeId}`,
+      )
+    expect(childNode.parentNodeId, `Child nodes should have a parent node`)
       .toBe(
         node.nodeId,
       )
@@ -207,9 +213,8 @@ describe("Inserting nodes", () => {
   })
   describe("After inserting up to order*2 entries", () => {
     beforeEach(() => {
-      for (let i = 0; i < order * 2; i++) {
-        btree.insert(i, `Person ${i}`)
-      }
+      btree.insert(0, `Person 0`)
+      btree.insert(1, `Person 1`)
     })
     it("No new nodes will be added", () => {
       assertWellFormedBtree(btree)
@@ -223,33 +228,54 @@ describe("Inserting nodes", () => {
 
     describe("After inserting one more entry", () => {
       beforeEach(() => {
-        console.dir(btree.dump(), { depth: 100 })
-        btree.insert(order * 2, `Person ${order * 2}`)
-        console.dir(btree.dump(), { depth: 100 })
+        btree.insert(2, `Person 2`)
       })
       it("A new node will be added", () => {
         assertWellFormedBtree(btree)
         expect(btree.nodes.length).toBe(3)
         expect(btree.childrenForNode(btree.rootNode)).toHaveLength(2)
       })
+
       it("All entries will have the correct values", () => {
-        for (let i = 0; i < order * 2 + 1; i++) {
+        for (let i = 0; i <= 2; i++) {
           expect(btree.get(i)).toEqual([`Person ${i}`])
         }
       })
 
       describe("After inserting enough entries to split things more", () => {
+        let originalRootNodeId: number
         beforeEach(() => {
-          for (let i = order * 2 + 1; i < order * 4; i++) {
-            btree.insert(i, `Person ${i}`)
+          originalRootNodeId = btree.rootNode.nodeId
+          btree.insert(3, `Person 3`)
+          btree.insert(4, `Person 4`)
+        })
+        it("A new node will be added", () => {
+          assertWellFormedBtree(btree)
+        })
+        it("There will be a new root node", () => {
+          expect(btree.rootNode.nodeId).not.toBe(originalRootNodeId)
+        })
+        it("All entries will have the correct values", () => {
+          for (let i = 0; i <= 4; i++) {
+            expect(btree.get(i)).toEqual([`Person ${i}`])
           }
+        })
+
+        describe("After inerting another 2 node", () => {
+          beforeEach(() => {
+            btree.insert(5, `Person 5`)
+            btree.insert(6, `Person 6`)
+          })
+          it("it will still be well formed", () => {
+            assertWellFormedBtree(btree)
+          })
         })
       })
     })
   })
 })
 
-describe.skip("Bulk tests", () => {
+describe("Bulk tests", () => {
   it("lots of nodes inserted in ascending order", () => {
     const btree = new BTree<number, string>((a, b) => a - b, { order: 2 })
 
@@ -262,8 +288,8 @@ describe.skip("Bulk tests", () => {
           values: [`Person ${j}`],
         })
       }
+      assertWellFormedBtree(btree)
     }
-    assertWellFormedBtree(btree)
   })
 
   it("lots of nodes inserted in descending order", () => {
@@ -282,10 +308,11 @@ describe.skip("Bulk tests", () => {
           values: [`Person ${j}`],
         })
       }
+      assertWellFormedBtree(btree)
     }
   })
 
-  it.skip("lots of nodes inserted in random order", () => {
+  it("lots of nodes inserted in random order", () => {
     const btree = new BTree<number, string>((a, b) => a - b, {
       order: 2,
       // shouldLog: true,
@@ -302,15 +329,13 @@ describe.skip("Bulk tests", () => {
       inserted.push(index)
       btree.insert(index, `Person ${index}`)
       for (const j of inserted) {
-        if (btree.get(j).length === 0) {
-          console.dir(btree.dump(), { depth: 100 })
-        }
         expect({ i, j, values: btree.get(j) }).toEqual({
           i,
           j,
           values: [`Person ${j}`],
         })
       }
+      assertWellFormedBtree(btree)
     }
   })
 })

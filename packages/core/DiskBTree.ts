@@ -181,29 +181,11 @@ export class BTree<K, V> {
   }
 
   private insertIntoParent(
+    parent: InternalBTreeNode<K>,
     node: BTreeNode<K, V>,
     key: K,
     depth: number,
   ) {
-    if (node.parentNodeId == null) {
-      throw new Error("not implemented")
-      // this is the root node! so we need to create a new root node
-      // const newRoot: InternalBTreeNode<K> = {
-      //   nodeId: this.nodes.length,
-      //   type: "internal",
-      //   keys: [key],
-      //   childrenNodeIds: [nodeId, newChildNodeId],
-      // }
-      // this.rootNodeId = newRoot.nodeId
-      // this.nodes.push(newRoot)
-      // node.parentNodeId = newRoot.nodeId
-      // this.nodes[newChildNodeId].parentNodeId = newRoot.nodeId
-      // return
-    }
-    const parent = this.nodes[node.parentNodeId]
-    if (parent.type === "leaf") {
-      throw new Error("Parent should not be a leaf")
-    }
     let index: number
     for (index = 0; index < parent.keys.length; index++) {
       if (this.compare(key, parent.keys[index]) < 0) {
@@ -218,46 +200,90 @@ export class BTree<K, V> {
     this.splitNode(parent.nodeId, depth + 1)
   }
 
+  private splitLeafNode(node: LeafBTreeNode<K, V>, depth: number) {
+    const L2: LeafBTreeNode<K, V> = {
+      nodeId: this.nodes.length,
+      parentNodeId: node.parentNodeId,
+      type: "leaf",
+      keyvals: node.keyvals.slice(this.order),
+      nextLeafNodeId: node.nextLeafNodeId,
+    }
+    node.nextLeafNodeId = L2.nodeId
+    this.nodes.push(L2)
+    const L1: LeafBTreeNode<K, V> = {
+      nodeId: node.nodeId,
+      parentNodeId: node.parentNodeId,
+      type: "leaf",
+      keyvals: node.keyvals.slice(0, this.order),
+      nextLeafNodeId: L2.nodeId,
+    }
+    this.nodes[L1.nodeId] = L1
+    this.insertIntoParent(
+      this.nodes[node.parentNodeId] as InternalBTreeNode<K>,
+      L2,
+      L2.keyvals[0].key,
+      depth,
+    )
+  }
+
+  private splitInternalNode(node: InternalBTreeNode<K>, depth: number) {
+    let parentNode: InternalBTreeNode<K>
+    if (node.parentNodeId == null) {
+      // make a new parent node
+      parentNode = {
+        nodeId: this.nodes.length,
+        type: "internal",
+        keys: [],
+        childrenNodeIds: [node.nodeId],
+      }
+      this.nodes.push(parentNode)
+      this.rootNodeId = parentNode.nodeId
+      node.parentNodeId = parentNode.nodeId
+    } else {
+      parentNode = this.nodes[node.parentNodeId] as InternalBTreeNode<K>
+    }
+
+    const keyToMove = node.keys[this.order]
+    const L2: InternalBTreeNode<K> = {
+      nodeId: this.nodes.length,
+      type: "internal",
+      keys: node.keys.slice(this.order + 1),
+      childrenNodeIds: node.childrenNodeIds.slice(this.order + 1),
+      parentNodeId: parentNode.nodeId,
+    }
+    this.nodes.push(L2)
+    for (const childId of L2.childrenNodeIds) {
+      this.nodes[childId].parentNodeId = L2.nodeId
+    }
+    const L1: InternalBTreeNode<K> = {
+      nodeId: node.nodeId,
+      type: "internal",
+      keys: node.keys.slice(0, this.order),
+      childrenNodeIds: node.childrenNodeIds.slice(0, this.order + 1),
+      parentNodeId: parentNode.nodeId,
+    }
+    this.nodes[L1.nodeId] = L1
+    let i = 0
+    for (; i < parentNode.keys.length; i++) {
+      if (this.compare(keyToMove, parentNode.keys[i]) < 0) {
+        break
+      }
+    }
+    parentNode.keys.splice(i, 0, keyToMove)
+    parentNode.childrenNodeIds.splice(i + 1, 0, L2.nodeId)
+    if (parentNode.keys.length > this.maxKeys) {
+      this.splitNode(parentNode.nodeId, depth + 1)
+    }
+  }
+
   private splitNode(nodeId: number, depth = 1) {
     this.shouldLog && console.log(">".repeat(depth), "Splitting node", nodeId)
     this.shouldLog && console.dir(this.dump(), { depth: 100 })
     const node = this.nodes[nodeId]
     if (node.type === "leaf") {
-      const L1: LeafBTreeNode<K, V> = {
-        nodeId: this.nodes.length,
-        parentNodeId: node.parentNodeId,
-        type: "leaf",
-        keyvals: node.keyvals.slice(this.order),
-        nextLeafNodeId: node.nextLeafNodeId,
-      }
-      node.nextLeafNodeId = L1.nodeId
-      this.nodes.push(L1)
-      const L2: LeafBTreeNode<K, V> = {
-        nodeId: node.nodeId,
-        parentNodeId: node.parentNodeId,
-        type: "leaf",
-        keyvals: node.keyvals.slice(0, this.order),
-        nextLeafNodeId: L1.nodeId,
-      }
-      this.nodes[L2.nodeId] = L2
-      this.insertIntoParent(
-        L1,
-        L1.keyvals[0].key,
-        depth,
-      )
+      this.splitLeafNode(node, depth)
     } else {
-      const mid = Math.floor(node.keys.length / 2)
-      const newKeys = node.keys.splice(mid)
-      const newChildrenNodeIds = node.childrenNodeIds.splice(mid + 1)
-      const newInternalNode: InternalBTreeNode<K> = {
-        nodeId: this.nodes.length,
-        type: "internal",
-        keys: newKeys.slice(1),
-        childrenNodeIds: newChildrenNodeIds,
-        parentNodeId: node.parentNodeId,
-      }
-      this.nodes.push(newInternalNode)
-      this.insertIntoParent(newInternalNode, newKeys[0], depth)
+      this.splitInternalNode(node, depth)
     }
   }
 
