@@ -1,6 +1,6 @@
 import { expect } from "jsr:@std/expect"
 import { beforeEach, describe, it } from "jsr:@std/testing/bdd"
-import { BTree, BTreeNode, keysForNode } from "./DiskBTree.ts"
+import { BTree, BTreeNode } from "./DiskBTree.ts"
 import { randomIntegerBetween, randomSeeded } from "@std/random"
 import { InternalBTreeNode } from "./DiskBTree.ts"
 import { LeafBTreeNode } from "./DiskBTree.ts"
@@ -51,6 +51,13 @@ function assertWellFormedNode<K, V>(btree: BTree<K, V>, node: BTreeNode<K, V>) {
   } else {
     assertWellFormedLeafNode(btree, node)
   }
+}
+
+function keysForNode<K>(node: BTreeNode<K, unknown>): readonly K[] {
+  if (node.type === "leaf") {
+    return node.keyvals.map((keyval) => keyval.key)
+  }
+  return node.keys
 }
 
 function assertWellFormedLeafNode<K, V>(
@@ -277,7 +284,7 @@ describe("Inserting nodes", () => {
 
 describe("Bulk tests", () => {
   it("lots of nodes inserted in ascending order", () => {
-    const btree = new BTree<number, string>((a, b) => a - b, { order: 2 })
+    const btree = new BTree<number, string>((a, b) => a - b, { order: 3 })
 
     for (let i = 0; i < 40; i++) {
       btree.insert(i, `Person ${i}`)
@@ -294,7 +301,7 @@ describe("Bulk tests", () => {
 
   it("lots of nodes inserted in descending order", () => {
     const btree = new BTree<number, string>((a, b) => a - b, {
-      order: 2,
+      order: 3,
     })
 
     const inserted: number[] = []
@@ -314,7 +321,7 @@ describe("Bulk tests", () => {
 
   it("lots of nodes inserted in random order", () => {
     const btree = new BTree<number, string>((a, b) => a - b, {
-      order: 2,
+      order: 3,
       // shouldLog: true,
     })
 

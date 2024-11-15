@@ -25,13 +25,6 @@ type DumpedNode<K, V> =
     children: DumpedNode<K, V>[]
   }
 
-export function keysForNode<K>(node: BTreeNode<K, unknown>): readonly K[] {
-  if (node.type === "leaf") {
-    return node.keyvals.map((keyval) => keyval.key)
-  }
-  return node.keys
-}
-
 /**
  * A BTree implementation that stores key-value pairs.
  *
