@@ -33,8 +33,7 @@ function assertWellFormedBtree<K, V>(btree: BTree<K, V>) {
     if (node.type === "leaf") {
       return [{ node, depth }]
     }
-    return node.childrenNodeIds.flatMap((childNodeId) => {
-      const childNode = btree.getNodeWithId(childNodeId)
+    return btree.childrenForNode(node).flatMap((childNode) => {
       return collectLeafNodesWithDepth(childNode, depth + 1)
     })
   }
@@ -147,8 +146,7 @@ function assertWellFormedInternalNode<K, V>(
     ).toBeLessThanOrEqual(2 * btree.order)
   }
 
-  for (const childNodeId of node.childrenNodeIds) {
-    const childNode = btree.getNodeWithId(childNodeId)
+  for (const childNode of btree.childrenForNode(node)) {
     expect(childNode.parentNodeId, "Child nodes should have a parent node")
       .toBe(
         node.nodeId,
@@ -200,7 +198,11 @@ describe("Inserting nodes", () => {
     btree = new BTree<number, string>((a, b) => a - b, { order })
   })
   it("starts with only two nodes in the tree", () => {
-    expect(btree.nodes.length).toBe(2)
+    expect(btree.nodes).toHaveLength(2)
+    expect(btree.rootNode.type).toBe("internal")
+    const children = btree.childrenForNode(btree.rootNode)
+    expect(children).toHaveLength(1)
+    expect(children[0].type).toBe("leaf")
     assertWellFormedBtree(btree)
   })
   describe("After inserting up to order*2 entries", () => {
@@ -228,6 +230,7 @@ describe("Inserting nodes", () => {
       it("A new node will be added", () => {
         assertWellFormedBtree(btree)
         expect(btree.nodes.length).toBe(3)
+        expect(btree.childrenForNode(btree.rootNode)).toHaveLength(2)
       })
       it("All entries will have the correct values", () => {
         for (let i = 0; i < order * 2 + 1; i++) {
@@ -235,13 +238,13 @@ describe("Inserting nodes", () => {
         }
       })
 
-      // describe("After inserting enough entries to split things more", () => {
-      //   beforeEach(() => {
-      //     for (let i = order * 2 + 1; i < order * 4; i++) {
-      //       btree.insert(i, `Person ${i}`)
-      //     }
-      //   })
-      // })
+      describe("After inserting enough entries to split things more", () => {
+        beforeEach(() => {
+          for (let i = order * 2 + 1; i < order * 4; i++) {
+            btree.insert(i, `Person ${i}`)
+          }
+        })
+      })
     })
   })
 })

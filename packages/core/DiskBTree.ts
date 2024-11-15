@@ -78,6 +78,13 @@ export class BTree<K, V> {
     ]
   }
 
+  childrenForNode(node: BTreeNode<K, V>): BTreeNode<K, V>[] {
+    if (node.type === "leaf") {
+      return []
+    }
+    return node.childrenNodeIds.map((id) => this.nodes[id])
+  }
+
   dumpNode(nodeId: number): DumpedNode<K, V> {
     const node = this.nodes[nodeId]
     if (node.type === "leaf") {
