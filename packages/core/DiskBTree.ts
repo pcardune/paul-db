@@ -1,3 +1,5 @@
+import { binarySearch } from "./binarySearch.ts"
+
 export type InternalBTreeNode<K> = {
   type: "internal"
   nodeId: number
@@ -24,6 +26,32 @@ type DumpedNode<K, V> =
     keys: K[]
     children: DumpedNode<K, V>[]
   }
+
+function indexOfInSortedArray<T, V>(
+  arr: T[],
+  value: V,
+  compare: (a: V, b: T) => number,
+): number | null {
+  let i
+  for (i = 0; i < arr.length && compare(value, arr[i]) >= 0; i++) {
+    if (compare(value, arr[i]) === 0) {
+      return i
+    }
+  }
+  return null
+}
+
+export function findIndexInSortedArray<T>(
+  arr: T[],
+  value: T,
+  compare: (a: T, b: T) => number,
+): number {
+  let i
+  for (i = 0; i < arr.length && compare(value, arr[i]) >= 0; i++) {
+    // keep counting
+  }
+  return i
+}
 
 /**
  * A BTree implementation that stores key-value pairs.
@@ -115,16 +143,21 @@ export class BTree<K, V> {
     this.shouldLog && console.log(">".repeat(depth), "_get(", nodeId, key, ")")
     const node = this.nodes[nodeId]
     if (node.type === "leaf") {
-      let keyIndex
-      for (keyIndex = 0; keyIndex < node.keyvals.length; keyIndex++) {
-        const cmp = this.compare(key, node.keyvals[keyIndex].key)
-        if (cmp === 0) {
-          break
+      const keyIndex = indexOfInSortedArray(
+        node.keyvals,
+        key,
+        (a, b) => this.compare(a, b.key),
+      )
+      if (keyIndex == null) {
+        return {
+          nodeId,
+          node,
+          key,
+          keyIndex: -1,
+          keyval: null,
         }
       }
-      const values: V[] | undefined = keyIndex < node.keyvals.length
-        ? node.keyvals[keyIndex].vals
-        : undefined
+      const values = node.keyvals[keyIndex].vals
       this.shouldLog && console.log(
         ">".repeat(depth),
         "Found",
@@ -144,14 +177,7 @@ export class BTree<K, V> {
       this.shouldLog && console.log(">".repeat(depth), "No Keys")
       return this._get(node.childrenNodeIds[0], key, depth + 1)
     }
-    let i
-    for (
-      i = 0;
-      i < node.keys.length && this.compare(key, node.keys[i]) >= 0;
-      i++
-    ) {
-      // keep counting
-    }
+    const i = findIndexInSortedArray(node.keys, key, this.compare)
     return this._get(node.childrenNodeIds[i], key, depth + 1)
   }
 
@@ -179,12 +205,11 @@ export class BTree<K, V> {
     key: K,
     depth: number,
   ) {
-    let index: number
-    for (index = 0; index < parent.keys.length; index++) {
-      if (this.compare(key, parent.keys[index]) < 0) {
-        break
-      }
-    }
+    const index = binarySearch(
+      parent.keys,
+      key,
+      this.compare,
+    )
     parent.keys.splice(index, 0, key)
     parent.childrenNodeIds.splice(index + 1, 0, node.nodeId)
     if (parent.keys.length <= this.maxKeys) {
@@ -256,12 +281,11 @@ export class BTree<K, V> {
       parentNodeId: parentNode.nodeId,
     }
     this.nodes[L1.nodeId] = L1
-    let i = 0
-    for (; i < parentNode.keys.length; i++) {
-      if (this.compare(keyToMove, parentNode.keys[i]) < 0) {
-        break
-      }
-    }
+    const i = binarySearch(
+      parentNode.keys,
+      keyToMove,
+      this.compare,
+    )
     parentNode.keys.splice(i, 0, keyToMove)
     parentNode.childrenNodeIds.splice(i + 1, 0, L2.nodeId)
     if (parentNode.keys.length > this.maxKeys) {
