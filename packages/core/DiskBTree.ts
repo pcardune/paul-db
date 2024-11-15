@@ -1,4 +1,4 @@
-type InternalBTreeNote<K> = {
+export type InternalBTreeNode<K> = {
   type: "internal"
   nodeId: number
   parentNodeId?: number
@@ -6,13 +6,15 @@ type InternalBTreeNote<K> = {
   childrenNodeIds: number[]
 }
 
-type LeafBTreeNode<K, V> = {
+export type LeafBTreeNode<K, V> = {
   nodeId: number
   parentNodeId: number
   type: "leaf"
   keyvals: { key: K; vals: V[] }[]
   nextLeafNodeId: number
 }
+
+export type BTreeNode<K, V> = InternalBTreeNode<K> | LeafBTreeNode<K, V>
 
 type DumpedNode<K, V> =
   | { type: "leaf"; nodeId: number; keyvals: [K, V[]][] }
@@ -23,13 +25,41 @@ type DumpedNode<K, V> =
     children: DumpedNode<K, V>[]
   }
 
+export function keysForNode<K>(node: BTreeNode<K, unknown>): readonly K[] {
+  if (node.type === "leaf") {
+    return node.keyvals.map((keyval) => keyval.key)
+  }
+  return node.keys
+}
+
+/**
+ * A BTree implementation that stores key-value pairs.
+ *
+ * See https://cs186berkeley.net/notes/note4/ for more information
+ * about how a BTree works.
+ */
 export class BTree<K, V> {
-  private nodes: Array<InternalBTreeNote<K> | LeafBTreeNode<K, V>>
+  public nodes: BTreeNode<K, V>[]
   private maxKeys: number
   private rootNodeId: number
+  private shouldLog: boolean
+  public readonly order: number
 
-  constructor(private compare: (a: K, b: K) => number, { maxKeys = 4 } = {}) {
-    this.maxKeys = maxKeys
+  get rootNode(): BTreeNode<K, V> {
+    return this.nodes[this.rootNodeId]
+  }
+
+  getNodeWithId(nodeId: number): BTreeNode<K, V> {
+    return this.nodes[nodeId]
+  }
+
+  constructor(
+    public readonly compare: (a: K, b: K) => number,
+    { shouldLog = false, order = 2 } = {},
+  ) {
+    this.shouldLog = shouldLog
+    this.order = order
+    this.maxKeys = order * 2
     this.rootNodeId = 0
     this.nodes = [
       {
@@ -79,10 +109,10 @@ export class BTree<K, V> {
     nodeId: number
     node: LeafBTreeNode<K, V>
     key: K
+    keyval: { key: K; vals: V[] } | null
     keyIndex: number
-    values?: V[]
   } {
-    console.log(">".repeat(depth), "_get(", nodeId, key, ")")
+    this.shouldLog && console.log(">".repeat(depth), "_get(", nodeId, key, ")")
     const node = this.nodes[nodeId]
     if (node.type === "leaf") {
       let keyIndex
@@ -95,17 +125,23 @@ export class BTree<K, V> {
       const values: V[] | undefined = keyIndex < node.keyvals.length
         ? node.keyvals[keyIndex].vals
         : undefined
-      console.log(
+      this.shouldLog && console.log(
         ">".repeat(depth),
         "Found",
         values,
         "in",
         this.dumpNode(nodeId),
       )
-      return { nodeId, node, key, values, keyIndex }
+      return {
+        nodeId,
+        node,
+        key,
+        keyIndex,
+        keyval: keyIndex < node.keyvals.length ? node.keyvals[keyIndex] : null,
+      }
     }
     if (node.keys.length === 0) {
-      console.log(">".repeat(depth), "No Keys")
+      this.shouldLog && console.log(">".repeat(depth), "No Keys")
       return this._get(node.childrenNodeIds[0], key, depth + 1)
     }
     let i
@@ -120,14 +156,17 @@ export class BTree<K, V> {
   }
 
   insert(key: K, value: V) {
-    console.log("\n===== insert(", key, JSON.stringify(value), ")")
+    this.shouldLog &&
+      console.log("\n===== insert(", key, JSON.stringify(value), ")")
     const found = this._get(this.rootNodeId, key)
-    if (found.values !== undefined) {
-      found.values.push(value)
+    if (found.keyval != null) {
+      found.keyval.vals.push(value)
       return
     }
-    const { node, keyIndex } = found
-    node.keyvals.splice(keyIndex, 0, { key, vals: [value] })
+    const { node } = found
+
+    node.keyvals.push({ key, vals: [value] })
+    node.keyvals.sort((a, b) => this.compare(a.key, b.key))
     if (node.keyvals.length <= this.maxKeys) {
       return
     }
@@ -135,25 +174,24 @@ export class BTree<K, V> {
   }
 
   private insertIntoParent(
-    nodeId: number,
+    node: BTreeNode<K, V>,
     key: K,
-    newChildNodeId: number,
     depth: number,
   ) {
-    const node = this.nodes[nodeId]
     if (node.parentNodeId == null) {
+      throw new Error("not implemented")
       // this is the root node! so we need to create a new root node
-      const newRoot: InternalBTreeNote<K> = {
-        nodeId: this.nodes.length,
-        type: "internal",
-        keys: [key],
-        childrenNodeIds: [nodeId, newChildNodeId],
-      }
-      this.rootNodeId = newRoot.nodeId
-      this.nodes.push(newRoot)
-      node.parentNodeId = newRoot.nodeId
-      this.nodes[newChildNodeId].parentNodeId = newRoot.nodeId
-      return
+      // const newRoot: InternalBTreeNode<K> = {
+      //   nodeId: this.nodes.length,
+      //   type: "internal",
+      //   keys: [key],
+      //   childrenNodeIds: [nodeId, newChildNodeId],
+      // }
+      // this.rootNodeId = newRoot.nodeId
+      // this.nodes.push(newRoot)
+      // node.parentNodeId = newRoot.nodeId
+      // this.nodes[newChildNodeId].parentNodeId = newRoot.nodeId
+      // return
     }
     const parent = this.nodes[node.parentNodeId]
     if (parent.type === "leaf") {
@@ -166,7 +204,7 @@ export class BTree<K, V> {
       }
     }
     parent.keys.splice(index, 0, key)
-    parent.childrenNodeIds.splice(index + 1, 0, newChildNodeId)
+    parent.childrenNodeIds.splice(index + 1, 0, node.nodeId)
     if (parent.keys.length <= this.maxKeys) {
       return
     }
@@ -174,32 +212,37 @@ export class BTree<K, V> {
   }
 
   private splitNode(nodeId: number, depth = 1) {
-    console.log(">".repeat(depth), "Splitting node", nodeId)
-    console.dir(this.dump(), { depth: 100 })
+    this.shouldLog && console.log(">".repeat(depth), "Splitting node", nodeId)
+    this.shouldLog && console.dir(this.dump(), { depth: 100 })
     const node = this.nodes[nodeId]
     if (node.type === "leaf") {
-      const mid = Math.floor(node.keyvals.length / 2)
-      const newKeys = node.keyvals.splice(mid)
-      const newLeafNode: LeafBTreeNode<K, V> = {
+      const L1: LeafBTreeNode<K, V> = {
         nodeId: this.nodes.length,
         parentNodeId: node.parentNodeId,
         type: "leaf",
-        keyvals: newKeys,
+        keyvals: node.keyvals.slice(this.order),
         nextLeafNodeId: node.nextLeafNodeId,
       }
-      node.nextLeafNodeId = newLeafNode.nodeId
-      this.nodes.push(newLeafNode)
+      node.nextLeafNodeId = L1.nodeId
+      this.nodes.push(L1)
+      const L2: LeafBTreeNode<K, V> = {
+        nodeId: node.nodeId,
+        parentNodeId: node.parentNodeId,
+        type: "leaf",
+        keyvals: node.keyvals.slice(0, this.order),
+        nextLeafNodeId: L1.nodeId,
+      }
+      this.nodes[L2.nodeId] = L2
       this.insertIntoParent(
-        node.parentNodeId,
-        newKeys[0].key,
-        newLeafNode.nodeId,
+        L1,
+        L1.keyvals[0].key,
         depth,
       )
     } else {
       const mid = Math.floor(node.keys.length / 2)
       const newKeys = node.keys.splice(mid)
       const newChildrenNodeIds = node.childrenNodeIds.splice(mid + 1)
-      const newInternalNode: InternalBTreeNote<K> = {
+      const newInternalNode: InternalBTreeNode<K> = {
         nodeId: this.nodes.length,
         type: "internal",
         keys: newKeys.slice(1),
@@ -207,13 +250,13 @@ export class BTree<K, V> {
         parentNodeId: node.parentNodeId,
       }
       this.nodes.push(newInternalNode)
-      this.insertIntoParent(nodeId, newKeys[0], newInternalNode.nodeId, depth)
+      this.insertIntoParent(newInternalNode, newKeys[0], depth)
     }
   }
 
   removeAll(key: K) {
     const found = this._get(this.rootNodeId, key)
-    if (found.values === undefined) {
+    if (found.keyval === undefined) {
       return
     }
     const { node, keyIndex } = found
@@ -221,12 +264,12 @@ export class BTree<K, V> {
   }
 
   has(key: K): boolean {
-    const { values } = this._get(this.rootNodeId, key)
-    return values !== undefined && values.length > 0
+    const found = this._get(this.rootNodeId, key)
+    return found.keyval !== null && found.keyval.vals.length > 0
   }
 
   get(key: K): V[] {
-    console.log("get(", key, ")")
-    return this._get(this.rootNodeId, key).values ?? []
+    this.shouldLog && console.log("get(", key, ")")
+    return this._get(this.rootNodeId, key).keyval?.vals ?? []
   }
 }
