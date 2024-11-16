@@ -1,7 +1,11 @@
 // deno-lint-ignore-file no-explicit-any
 import { InMemoryBTreeConfig } from "./DiskBTree.ts"
 import { Index } from "./Index.ts"
-import { RecordForTableSchema, TableSchema } from "./schema.ts"
+import {
+  RecordForTableSchema,
+  SomeColumnSchema,
+  TableSchema,
+} from "./schema.ts"
 
 type InternalRowId = bigint
 
@@ -11,7 +15,9 @@ type TableIndex<R extends Record<string, any>, V> = {
 }
 
 export class Table<
-  SchemaT extends TableSchema<any, any>,
+  TName extends string,
+  ColumnSchemasT extends SomeColumnSchema[],
+  SchemaT extends TableSchema<TName, ColumnSchemasT>,
   IndexesT extends Record<
     string,
     TableIndex<RecordForTableSchema<SchemaT>, any>
@@ -50,6 +56,8 @@ export class Table<
   }
 
   static create<
+    TName extends string,
+    ColumnSchemasT extends SomeColumnSchema[],
     IndexesT extends Record<string, any>,
     SchemaT extends TableSchema<any, any>,
   >(
@@ -62,6 +70,8 @@ export class Table<
     },
   ) {
     return new Table<
+      TName,
+      ColumnSchemasT,
       SchemaT,
       {
         [K in keyof IndexesT]: TableIndex<
@@ -81,6 +91,20 @@ export class Table<
     if (!this.schema.isValidRecord(record)) {
       throw new Error("Invalid record")
     }
+    for (const column of this.schema.columns) {
+      if (column.unique) {
+        if (this.indexes[column.name] == undefined) {
+          throw new Error(`No index for unique column ${column.name}`)
+        }
+        const key = this.indexes[column.name].getValue(record)
+        if (this._indexesByName[column.name].has(key)) {
+          throw new Error(
+            `Record with given ${column.name} value already exists`,
+          )
+        }
+      }
+    }
+
     const id = this.nextId++
     this.data.set(id, record)
     for (const [indexName, config] of Object.entries(this.indexes)) {

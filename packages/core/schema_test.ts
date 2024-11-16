@@ -8,8 +8,9 @@ describe("Schemas", () => {
       .withColumn(
         "name",
         ColumnTypes.any<string>(),
+        false,
       )
-      .withColumn("age", ColumnTypes.positiveNumber())
+      .withColumn("age", ColumnTypes.positiveNumber(), false)
 
     expect(peopleSchema.columns).toHaveLength(2)
     expect(peopleSchema.isValidRecord({ name: "Alice", age: 12 })).toBe(true)

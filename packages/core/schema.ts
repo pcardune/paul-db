@@ -8,24 +8,35 @@ export const ColumnTypes = {
   },
 }
 
-export class ColumnSchema<Name extends string, ValueT> {
-  name: Name
-  isValid: (value: ValueT) => boolean
+export class ColumnSchema<
+  Name extends string,
+  ValueT,
+  UniqueT extends boolean,
+> {
+  readonly name: Name
+  readonly unique: UniqueT
+  readonly isValid: (value: ValueT) => boolean
 
-  private constructor(name: Name, isValid: (value: ValueT) => boolean) {
-    this.name = name
-    this.isValid = isValid
-  }
-
-  static create<Name extends string, ValueT>(
+  private constructor(
     name: Name,
     isValid: (value: ValueT) => boolean,
+    unique: UniqueT,
   ) {
-    return new ColumnSchema(name, isValid)
+    this.name = name
+    this.isValid = isValid
+    this.unique = unique
+  }
+
+  static create<Name extends string, ValueT, UniqueT extends boolean>(
+    name: Name,
+    isValid: (value: ValueT) => boolean,
+    unique: UniqueT,
+  ) {
+    return new ColumnSchema(name, isValid, unique)
   }
 }
 
-type SomeColumnSchema = ColumnSchema<string, any>
+export type SomeColumnSchema = ColumnSchema<string, any, boolean>
 
 type PushTuple<T extends any[], V> = [...T, V]
 
@@ -54,6 +65,10 @@ export class TableSchema<
     this.columns = columns
   }
 
+  getColumns(): ColumnSchemasT {
+    return this.columns
+  }
+
   static create<Name extends string>(name: Name) {
     return new TableSchema(name, [])
   }
@@ -68,16 +83,17 @@ export class TableSchema<
     return true
   }
 
-  withColumn<CName extends string, CValue>(
+  withColumn<CName extends string, CValue, CUnique extends boolean>(
     name: CName,
     isValid: (value: CValue) => boolean,
+    unique: CUnique,
   ): TableSchema<
     TableName,
-    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue>>
+    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, CUnique>>
   > {
     return new TableSchema(this.name, [
       ...this.columns,
-      ColumnSchema.create(name, isValid),
+      ColumnSchema.create(name, isValid, unique),
     ])
   }
 }
