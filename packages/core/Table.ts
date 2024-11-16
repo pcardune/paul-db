@@ -1,6 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { InMemoryBTreeConfig } from "./DiskBTree.ts"
 import { Index } from "./Index.ts"
+import { RecordForTableSchema, TableSchema } from "./schema.ts"
 
 type InternalRowId = bigint
 
@@ -10,10 +11,14 @@ type TableIndex<R extends Record<string, any>, V> = {
 }
 
 export class Table<
-  R extends Record<string, any>,
-  IndexesT extends Record<string, TableIndex<R, any>>,
+  SchemaT extends TableSchema<any, any>,
+  IndexesT extends Record<
+    string,
+    TableIndex<RecordForTableSchema<SchemaT>, any>
+  >,
 > {
-  private data: Map<InternalRowId, R>
+  private schema: SchemaT
+  private data: Map<InternalRowId, RecordForTableSchema<SchemaT>>
   private nextId: InternalRowId
   private indexes: IndexesT
   _indexesByName: {
@@ -25,10 +30,12 @@ export class Table<
   private _allIndexes: Index<unknown, InternalRowId>[]
 
   constructor(init: {
-    indexes: typeof Table.prototype.indexes
+    schema: SchemaT
+    indexes: IndexesT
     nextId: typeof Table.prototype.nextId
     data: typeof Table.prototype.data
   }) {
+    this.schema = init.schema
     this.nextId = init.nextId
     this.data = init.data
     this.indexes = init.indexes
@@ -43,28 +50,47 @@ export class Table<
   }
 
   static create<
-    R extends Record<string, any>,
     IndexesT extends Record<string, any>,
+    SchemaT extends TableSchema<any, any>,
   >(
-    indexes?: { [K in keyof IndexesT]: TableIndex<R, IndexesT[K]> },
+    schema: SchemaT,
+    indexes: {
+      [K in keyof IndexesT]: TableIndex<
+        RecordForTableSchema<SchemaT>,
+        IndexesT[K]
+      >
+    },
   ) {
-    return new Table<R, { [K in keyof IndexesT]: TableIndex<R, IndexesT[K]> }>({
+    return new Table<
+      SchemaT,
+      {
+        [K in keyof IndexesT]: TableIndex<
+          RecordForTableSchema<SchemaT>,
+          IndexesT[K]
+        >
+      }
+    >({
+      schema,
       indexes: indexes,
       nextId: 1n,
       data: new Map(),
     })
   }
 
-  public insert(record: R): void {
+  public insert(record: RecordForTableSchema<SchemaT>): InternalRowId {
+    if (!this.schema.isValidRecord(record)) {
+      throw new Error("Invalid record")
+    }
     const id = this.nextId++
     this.data.set(id, record)
     for (const [indexName, config] of Object.entries(this.indexes)) {
       const index = this._indexesByName[indexName]
       index.insert(config.getValue(record), id)
     }
+    return id
   }
 
-  public get(id: InternalRowId): R | undefined {
+  public get(id: InternalRowId): RecordForTableSchema<SchemaT> | undefined {
     return this.data.get(id)
   }
 
@@ -74,7 +100,7 @@ export class Table<
   >(
     indexName: IName,
     value: ValueT,
-  ): Readonly<R>[] {
+  ): Readonly<RecordForTableSchema<SchemaT>>[] {
     return this._indexesByName[indexName].get(value).map((id) => {
       return this.data.get(id)!
     })
