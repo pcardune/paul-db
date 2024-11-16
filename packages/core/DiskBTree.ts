@@ -95,6 +95,16 @@ class NodeList<K, V> implements INodeList<K, V, number> {
   }
 }
 
+export type Comparator<V> = (a: V, b: V) => number
+export type EqualityChecker<V> = (a: V, b: V) => boolean
+export type Range<K> = { gte?: K; gt?: K; lte?: K; lt?: K }
+export type InMemoryBTreeConfig<K, V> = {
+  order?: number
+  compare?: Comparator<K>
+  isEqual?: EqualityChecker<V>
+}
+export type InMemoryBTree<K, V> = ReturnType<typeof BTree.inMemory<K, V>>
+
 /**
  * A BTree implementation that stores key-value pairs.
  *
@@ -122,11 +132,7 @@ export class BTree<
       order = 2,
       compare = (a, b) => a < b ? -1 : a > b ? 1 : 0,
       isEqual = (a, b) => a === b,
-    }: {
-      order?: number
-      compare?: (a: K, b: K) => number
-      isEqual?: (a: V, b: V) => boolean
-    } = {},
+    }: InMemoryBTreeConfig<K, V> = {},
   ) {
     return new BTree<K, V, number, NodeList<K, V>>({
       order,
@@ -434,7 +440,7 @@ export class BTree<
   }
 
   getRange(
-    { gt, gte, lte, lt }: { gte?: K; gt?: K; lte?: K; lt?: K },
+    { gt, gte, lte, lt }: Range<K>,
   ): { key: K; vals: V[] }[] {
     const results: { key: K; vals: V[] }[] = []
 
