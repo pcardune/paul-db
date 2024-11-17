@@ -35,23 +35,19 @@ export class ColumnSchema<
   Name extends string,
   ValueT,
   UniqueT extends boolean,
-  IndexValueT = ValueT,
 > {
   readonly name: Name
   readonly unique: UniqueT
   readonly type: ColumnType<ValueT>
-  readonly getIndexValue: (value: ValueT) => IndexValueT
 
   private constructor(
     name: Name,
     type: ColumnType<ValueT>,
     unique: UniqueT,
-    getIndexValue: (value: ValueT) => IndexValueT,
   ) {
     this.name = name
     this.type = type
     this.unique = unique
-    this.getIndexValue = getIndexValue
   }
 
   static create<
@@ -61,20 +57,19 @@ export class ColumnSchema<
     name: Name,
     type: ColumnType<ValueT>,
   ) {
-    return new ColumnSchema(name, type, false, (v: ValueT) => v)
+    return new ColumnSchema(name, type, false)
   }
 
   withName<NewName extends string>(name: NewName) {
-    return new ColumnSchema<NewName, ValueT, UniqueT, IndexValueT>(
+    return new ColumnSchema<NewName, ValueT, UniqueT>(
       name,
       this.type,
       this.unique,
-      this.getIndexValue,
     )
   }
 
-  makeUnique(): ColumnSchema<Name, ValueT, true, IndexValueT> {
-    return new ColumnSchema(this.name, this.type, true, this.getIndexValue)
+  makeUnique(): ColumnSchema<Name, ValueT, true> {
+    return new ColumnSchema(this.name, this.type, true)
   }
 }
 

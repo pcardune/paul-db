@@ -65,4 +65,13 @@ describe("Schemas", () => {
     expect(peopleSchema.columns).toHaveLength(1)
     expect(peopleSchema.isValidRecord({ name: "Alice" })).toBe(true)
   })
+
+  it("Uses the underlying column type for validation", () => {
+    const peopleSchema = TableSchema.create("people")
+      .withColumn("name", ColumnTypes.any<string>())
+      .withColumn("age", ColumnTypes.positiveNumber())
+
+    expect(peopleSchema.isValidRecord({ name: "Alice", age: 12 })).toBe(true)
+    expect(peopleSchema.isValidRecord({ name: "Alice", age: -12 })).toBe(false)
+  })
 })
