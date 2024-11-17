@@ -4,6 +4,7 @@ import { Index } from "./Index.ts"
 import {
   RecordForTableSchema,
   SomeColumnSchema,
+  SomeComputedColumnSchema,
   TableSchema,
 } from "./schema.ts"
 
@@ -17,7 +18,8 @@ type TableIndex<R extends Record<string, any>, V> = {
 export class Table<
   TName extends string,
   ColumnSchemasT extends SomeColumnSchema[],
-  SchemaT extends TableSchema<TName, ColumnSchemasT>,
+  ComputedColumnSchemasT extends SomeComputedColumnSchema[],
+  SchemaT extends TableSchema<TName, ColumnSchemasT, ComputedColumnSchemasT>,
   IndexesT extends Record<
     string,
     TableIndex<RecordForTableSchema<SchemaT>, any>
@@ -59,8 +61,9 @@ export class Table<
   static create<
     TName extends string,
     ColumnSchemasT extends SomeColumnSchema[],
+    ComputedColumnSchemasT extends SomeComputedColumnSchema[],
     IndexesT extends Record<string, any>,
-    SchemaT extends TableSchema<any, any>,
+    SchemaT extends TableSchema<any, any, any>,
   >(
     schema: SchemaT,
     indexes: {
@@ -85,6 +88,7 @@ export class Table<
     return new Table<
       TName,
       ColumnSchemasT,
+      ComputedColumnSchemasT,
       SchemaT,
       {
         [K in keyof IndexesT]: TableIndex<

@@ -1,8 +1,10 @@
 import { describe, it } from "jsr:@std/testing/bdd"
 import { expect } from "jsr:@std/expect"
 import {
-  ColumnSchema,
+  column,
   ColumnTypes,
+  computedColumn,
+  RecordForColumnSchema,
   TableSchema,
   ValueForColumnSchema,
 } from "./schema.ts"
@@ -16,7 +18,7 @@ function assertTrue<T extends true>() {}
 assertTrue<TypeEquals<"green", "green">>()
 
 describe("ColumnSchemas", () => {
-  const nameColumn = ColumnSchema.create(
+  const nameColumn = column(
     "name",
     ColumnTypes.any<string>(),
   )
@@ -41,11 +43,15 @@ describe("ColumnSchemas", () => {
     // @ts-expect-error: Can't insert a number into a string column
     assertTrue<TypeEquals<number, ValueForColumnSchema<typeof nameColumn>>>()
 
-    const ageColumn = ColumnSchema.create(
+    const ageColumn = column(
       "age",
       ColumnTypes.positiveNumber(),
     )
     assertTrue<TypeEquals<number, ValueForColumnSchema<typeof ageColumn>>>()
+
+    assertTrue<
+      TypeEquals<{ age: number }, RecordForColumnSchema<typeof ageColumn>>
+    >()
   })
 
   it("lets you make a column unique", () => {
@@ -60,6 +66,36 @@ describe("ColumnSchemas", () => {
     const lastNameColumn = nameColumn.withName("lastName")
     expect(lastNameColumn.name).toBe("lastName")
     assertType<"lastName">(lastNameColumn.name)
+  })
+})
+
+describe("Computed column schemas", () => {
+  it("can be used to compute values from other values", () => {
+    const nameColumn = computedColumn(
+      "name",
+      (input: { firstName: string; lastName: string }) =>
+        `${input.firstName} ${input.lastName}`,
+    )
+
+    expect(nameColumn.compute({ firstName: "Alice", lastName: "Smith" })).toBe(
+      "Alice Smith",
+    )
+
+    // @ts-expect-error: typescript will catch an invalid type,
+    // but at runtime you are on your own
+    expect(() => nameColumn.compute(1)).not.toThrow()
+  })
+
+  it("has a never value type", () => {
+    const nameColumn = computedColumn(
+      "name",
+      (input: { firstName: string; lastName: string }) =>
+        `${input.firstName} ${input.lastName}`,
+    )
+    assertTrue<TypeEquals<never, ValueForColumnSchema<typeof nameColumn>>>()
+    assertTrue<
+      TypeEquals<{ name?: never }, RecordForColumnSchema<typeof nameColumn>>
+    >()
   })
 })
 
@@ -85,7 +121,7 @@ describe("Schemas", () => {
   })
 
   it("Lets you specify a column directly", () => {
-    const nameColumn = ColumnSchema.create("name", ColumnTypes.any<string>())
+    const nameColumn = column("name", ColumnTypes.any<string>())
     const peopleSchema = TableSchema.create("people").withColumn(nameColumn)
     expect(peopleSchema.columns).toHaveLength(1)
     expect(peopleSchema.isValidRecord({ name: "Alice" })).toBe(true)
@@ -113,5 +149,62 @@ describe("Schemas", () => {
         RecordForTableSchema<typeof peopleSchema>
       >
     >()
+  })
+
+  describe("Computed columns", () => {
+    it("can be added using withComputedColumn()", () => {
+      const peopleSchema = TableSchema.create("people")
+        .withColumn("firstName", ColumnTypes.any<string>())
+        .withColumn("lastName", ColumnTypes.any<string>())
+        .withComputedColumn(
+          computedColumn(
+            "name",
+            (input: { firstName: string; lastName: string }) =>
+              `${input.firstName} ${input.lastName}`,
+          ),
+        )
+
+      assertTrue<
+        TypeEquals<
+          { firstName: string; lastName: string; name: never },
+          RecordForTableSchema<typeof peopleSchema>
+        >
+      >()
+
+      expect(
+        peopleSchema.isValidRecord({ firstName: "Alice", lastName: "Smith" }),
+      )
+    })
+
+    it("can only use the record type up to the current point", () => {
+      const peopleSchema = TableSchema.create("people")
+        .withColumn("firstName", ColumnTypes.any<string>())
+
+      const nameColumn = computedColumn(
+        "name",
+        (input: { firstName: string; lastName: string }) =>
+          `${input.firstName} ${input.lastName}`,
+      )
+
+      peopleSchema
+        .withComputedColumn(
+          // @ts-expect-error: lastName is not in the schema yet
+          nameColumn,
+        )
+
+      peopleSchema.withColumn("lastName", ColumnTypes.any<string>())
+        .withComputedColumn(nameColumn)
+
+      // Inference will also work
+      peopleSchema.withComputedColumn(
+        computedColumn(
+          "uppercaseName",
+          (input) => {
+            assertTrue<TypeEquals<{ firstName: string }, typeof input>>()
+            return input.firstName.toUpperCase()
+          },
+        ),
+      )
+    })
   })
 })

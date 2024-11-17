@@ -40,7 +40,7 @@ export class ColumnSchema<
   readonly unique: UniqueT
   readonly type: ColumnType<ValueT>
 
-  private constructor(
+  constructor(
     name: Name,
     type: ColumnType<ValueT>,
     unique: UniqueT,
@@ -48,16 +48,6 @@ export class ColumnSchema<
     this.name = name
     this.type = type
     this.unique = unique
-  }
-
-  static create<
-    Name extends string,
-    ValueT,
-  >(
-    name: Name,
-    type: ColumnType<ValueT>,
-  ) {
-    return new ColumnSchema(name, type, false)
   }
 
   withName<NewName extends string>(name: NewName) {
@@ -72,34 +62,94 @@ export class ColumnSchema<
     return new ColumnSchema(this.name, this.type, true)
   }
 }
+
+export function column<Name extends string, ValueT>(
+  name: Name,
+  type: ColumnType<ValueT>,
+) {
+  return new ColumnSchema(name, type, false)
+}
+
+class ComputedColumnSchema<
+  Name extends string,
+  UniqueT extends boolean,
+  InputT,
+  OutputT,
+> {
+  constructor(
+    readonly name: Name,
+    readonly unique: UniqueT,
+    readonly compute: (input: InputT) => OutputT,
+  ) {
+  }
+
+  makeUnique(): ComputedColumnSchema<Name, true, InputT, OutputT> {
+    return new ComputedColumnSchema(this.name, true, this.compute)
+  }
+}
+
+export function computedColumn<
+  Name extends string,
+  InputT,
+  OutputT,
+>(
+  name: Name,
+  compute: (input: InputT) => OutputT,
+) {
+  return new ComputedColumnSchema(name, false, compute)
+}
+
 export type ValueForColumnSchema<C> = C extends ColumnSchema<any, infer V, any>
   ? V
   : never
 
 export type SomeColumnSchema = ColumnSchema<string, any, boolean>
-
+export type SomeComputedColumnSchema = ComputedColumnSchema<
+  string,
+  boolean,
+  any,
+  any
+>
 type PushTuple<T extends any[], V> = [...T, V]
 
-type RecordForColumnSchema<CS extends SomeColumnSchema[]> = {
+export type RecordForColumnSchema<
+  CS extends SomeColumnSchema | SomeComputedColumnSchema,
+> = CS extends ComputedColumnSchema<string, boolean, any, any> ? {
+    [K in CS["name"]]?: never
+  }
+  : {
+    [K in CS["name"]]: ValueForColumnSchema<CS>
+  }
+type RecordForColumnSchemas<
+  CS extends (SomeColumnSchema | SomeComputedColumnSchema)[],
+> = {
   [K in CS[number]["name"]]: ValueForColumnSchema<
     Extract<CS[number], { name: K }>
   >
 }
-export type RecordForTableSchema<TS extends TableSchema<any, any>> =
-  RecordForColumnSchema<
+
+export type RecordForTableSchema<TS extends TableSchema<any, any, any>> =
+  RecordForColumnSchemas<
     TS["columns"]
   >
 
 export class TableSchema<
   TableName extends string,
   ColumnSchemasT extends SomeColumnSchema[],
+  ComputedColumnsT extends SomeComputedColumnSchema[],
 > {
   name: TableName
   columns: ColumnSchemasT
+  computedColumns: ComputedColumnsT
 
-  private constructor(name: TableName, columns: ColumnSchemasT) {
+  private constructor(
+    name: TableName,
+    columns: ColumnSchemasT,
+    computedColumns: ComputedColumnsT,
+  ) {
     this.name = name
     this.columns = columns
+    this.computedColumns = computedColumns
   }
 
   getColumns(): ColumnSchemasT {
@@ -107,12 +157,15 @@ export class TableSchema<
   }
 
   static create<Name extends string>(name: Name) {
-    return new TableSchema(name, [])
+    return new TableSchema(name, [], [])
   }
 
-  isValidRecord(record: RecordForColumnSchema<ColumnSchemasT>): boolean {
+  isValidRecord(record: RecordForColumnSchemas<ColumnSchemasT>): boolean {
     for (const column of this.columns) {
       const value = record[column.name as keyof typeof record]
+      if (column instanceof ComputedColumnSchema) {
+        continue
+      }
       if (!column.type.isValid(value)) {
         return false
       }
@@ -120,18 +173,50 @@ export class TableSchema<
     return true
   }
 
+  withComputedColumn<
+    CName extends string,
+    CUnique extends boolean,
+    COutput,
+  >(
+    column: ComputedColumnSchema<
+      CName,
+      CUnique,
+      RecordForColumnSchemas<ColumnSchemasT>,
+      COutput
+    >,
+  ): TableSchema<
+    TableName,
+    ColumnSchemasT,
+    PushTuple<
+      ComputedColumnsT,
+      ComputedColumnSchema<
+        CName,
+        CUnique,
+        RecordForColumnSchemas<ColumnSchemasT>,
+        COutput
+      >
+    >
+  > {
+    return new TableSchema(this.name, this.columns, [
+      ...this.computedColumns,
+      column,
+    ])
+  }
+
   withColumn<CName extends string, CValue, CUnique extends boolean>(
     column: ColumnSchema<CName, CValue, CUnique>,
   ): TableSchema<
     TableName,
-    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, CUnique>>
+    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, CUnique>>,
+    ComputedColumnsT
   >
   withColumn<CName extends string, CValue>(
     name: CName,
     type: ColumnType<CValue>,
   ): TableSchema<
     TableName,
-    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, false>>
+    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, false>>,
+    ComputedColumnsT
   >
   withColumn<CName extends string, CValue>(
     name: CName,
@@ -141,7 +226,8 @@ export class TableSchema<
     },
   ): TableSchema<
     TableName,
-    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, true>>
+    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, true>>,
+    ComputedColumnsT
   >
   withColumn<
     CName extends string,
@@ -153,25 +239,26 @@ export class TableSchema<
     options?: { unique: true },
   ): TableSchema<
     TableName,
-    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, CUnique>>
+    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, CUnique>>,
+    ComputedColumnsT
   > {
     if (typeof nameOrColumn === "string") {
       if (type) {
         if (options) {
           return new TableSchema(this.name, [
             ...this.columns,
-            ColumnSchema.create(nameOrColumn, type)
+            column(nameOrColumn, type)
               .makeUnique() as ColumnSchema<CName, CValue, CUnique>,
-          ])
+          ], this.computedColumns)
         }
         return new TableSchema(this.name, [
           ...this.columns,
-          ColumnSchema.create(nameOrColumn, type) as ColumnSchema<
+          column(nameOrColumn, type) as ColumnSchema<
             CName,
             CValue,
             CUnique
           >,
-        ])
+        ], this.computedColumns)
       } else {
         throw new Error("Type and options are required")
       }
@@ -179,6 +266,6 @@ export class TableSchema<
     return new TableSchema(this.name, [
       ...this.columns,
       nameOrColumn,
-    ])
+    ], this.computedColumns)
   }
 }
