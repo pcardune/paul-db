@@ -1,11 +1,34 @@
 // deno-lint-ignore-file no-explicit-any
+import { Comparator, EqualityChecker } from "./DiskBTree.ts"
+
 export const ColumnTypes = {
   any<T>() {
-    return (_value: T): _value is T => true
+    return new ColumnType<T>({ isValid: (_value: T): _value is T => true })
   },
   positiveNumber() {
-    return (value: number): value is number => value > 0
+    return new ColumnType<number>({
+      isValid: (value) => value > 0,
+    })
   },
+}
+
+export class ColumnType<T> {
+  isValid: (value: T) => boolean
+  isEqual: EqualityChecker<T>
+  compare: Comparator<T>
+  constructor({
+    isValid,
+    equals = (a: T, b: T) => a === b,
+    compare = (a: T, b: T) => (a > b ? 1 : a < b ? -1 : 0),
+  }: {
+    isValid: (value: T) => boolean
+    equals?: EqualityChecker<T>
+    compare?: Comparator<T>
+  }) {
+    this.isValid = isValid
+    this.isEqual = equals
+    this.compare = compare
+  }
 }
 
 export class ColumnSchema<
@@ -15,24 +38,24 @@ export class ColumnSchema<
 > {
   readonly name: Name
   readonly unique: UniqueT
-  readonly isValid: (value: ValueT) => boolean
+  readonly type: ColumnType<ValueT>
 
   private constructor(
     name: Name,
-    isValid: (value: ValueT) => boolean,
+    type: ColumnType<ValueT>,
     unique: UniqueT,
   ) {
     this.name = name
-    this.isValid = isValid
+    this.type = type
     this.unique = unique
   }
 
   static create<Name extends string, ValueT, UniqueT extends boolean>(
     name: Name,
-    isValid: (value: ValueT) => boolean,
+    type: ColumnType<ValueT>,
     unique: UniqueT,
   ) {
-    return new ColumnSchema(name, isValid, unique)
+    return new ColumnSchema(name, type, unique)
   }
 }
 
@@ -41,11 +64,11 @@ export type SomeColumnSchema = ColumnSchema<string, any, boolean>
 type PushTuple<T extends any[], V> = [...T, V]
 
 export type RecordForColumnSchema<CS extends SomeColumnSchema[]> = {
-  [K in CS[number]["name"]]: Extract<CS[number], { name: K }>["isValid"] extends
-    (
+  [K in CS[number]["name"]]:
+    Extract<CS[number], { name: K }>["type"]["isValid"] extends (
       value: infer V,
     ) => boolean ? V
-    : never
+      : never
 }
 
 export type RecordForTableSchema<TS extends TableSchema<any, any>> =
@@ -76,7 +99,7 @@ export class TableSchema<
   isValidRecord(record: RecordForColumnSchema<ColumnSchemasT>): boolean {
     for (const column of this.columns) {
       const value = record[column.name as keyof typeof record]
-      if (!column.isValid(value)) {
+      if (!column.type.isValid(value)) {
         return false
       }
     }
@@ -85,7 +108,7 @@ export class TableSchema<
 
   withColumn<CName extends string, CValue, CUnique extends boolean>(
     name: CName,
-    isValid: (value: CValue) => boolean,
+    type: ColumnType<CValue>,
     unique: CUnique,
   ): TableSchema<
     TableName,
@@ -93,7 +116,7 @@ export class TableSchema<
   > {
     return new TableSchema(this.name, [
       ...this.columns,
-      ColumnSchema.create(name, isValid, unique),
+      ColumnSchema.create(name, type, unique),
     ])
   }
 }

@@ -1,7 +1,7 @@
 import { describe, it } from "jsr:@std/testing/bdd"
 import { expect } from "jsr:@std/expect"
 import { Table } from "./table.ts"
-import { ColumnTypes, TableSchema } from "./schema.ts"
+import { ColumnType, ColumnTypes, TableSchema } from "./schema.ts"
 
 const peopleSchema = TableSchema.create("people")
   .withColumn("name", ColumnTypes.any<string>(), false)
@@ -20,7 +20,11 @@ describe("Table", () => {
   it("lets you use whatever column constraint functions you want", () => {
     const oddPeople = Table.create(
       peopleSchema
-        .withColumn("favoriteOdd", (value: number) => value % 2 === 1, false),
+        .withColumn(
+          "favoriteOdd",
+          new ColumnType({ isValid: (value: number) => value % 2 === 1 }),
+          false,
+        ),
       {},
     )
 
@@ -34,16 +38,29 @@ describe("Table", () => {
     const people = Table.create(
       peopleSchema
         .withColumn("ssn", ColumnTypes.any<string>(), true),
-      {
-        ssn: {
-          getValue: (r) => r.ssn,
-        },
-      },
+      {},
     )
 
     people.insert({ name: "Alice", age: 12, ssn: "123-45-6789" })
     expect(() => {
       people.insert({ name: "Alice", age: 12, ssn: "123-45-6789" })
+    }).toThrow("Record with given ssn value already exists")
+    people.insert({ name: "Alice", age: 12, ssn: "123-45-6-7-89" })
+  })
+
+  it("lets you customize the uniqueness constraint, by explicitly specifying an index", () => {
+    const people = Table.create(
+      peopleSchema
+        .withColumn("ssn", ColumnTypes.any<string>(), true),
+      {
+        ssn: {
+          getValue: (r) => r.ssn.replace(/-/g, ""),
+        },
+      },
+    )
+    people.insert({ name: "Alice", age: 12, ssn: "123-45-6789" })
+    expect(() => {
+      people.insert({ name: "Alice", age: 12, ssn: "123-45-6-7-89" })
     }).toThrow("Record with given ssn value already exists")
   })
 

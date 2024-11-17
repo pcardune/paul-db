@@ -46,13 +46,14 @@ export class Table<
     this.data = init.data
     this.indexes = init.indexes
 
-    this._indexesByName = {} as any
+    const indexesByName = {} as any
     this._allIndexes = []
     for (const key in this.indexes) {
       const index = new Index(this.indexes[key].config ?? {})
-      this._indexesByName[key] = index
+      indexesByName[key] = index
       this._allIndexes.push(index)
     }
+    this._indexesByName = indexesByName as any
   }
 
   static create<
@@ -69,6 +70,18 @@ export class Table<
       >
     },
   ) {
+    for (const column of schema.columns) {
+      if (column.unique && indexes[column.name] == undefined) {
+        ;(indexes as any)[column.name] = {
+          getValue: (r: RecordForTableSchema<SchemaT>) =>
+            (r as any)[column.name],
+          config: {
+            isEqal: column.type.isEqual,
+            compare: column.type.compare,
+          },
+        }
+      }
+    }
     return new Table<
       TName,
       ColumnSchemasT,
@@ -93,10 +106,9 @@ export class Table<
     }
     for (const column of this.schema.columns) {
       if (column.unique) {
-        if (this.indexes[column.name] == undefined) {
-          throw new Error(`No index for unique column ${column.name}`)
-        }
-        const key = this.indexes[column.name].getValue(record)
+        const key = this.indexes[column.name]
+          ? this.indexes[column.name].getValue(record)
+          : (record as any)[column.name]
         if (this._indexesByName[column.name].has(key)) {
           throw new Error(
             `Record with given ${column.name} value already exists`,
