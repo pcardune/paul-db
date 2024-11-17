@@ -57,17 +57,24 @@ export class ColumnSchema<
   static create<
     Name extends string,
     ValueT,
-    UniqueT extends boolean,
-    IndexValueT = ValueT,
   >(
     name: Name,
     type: ColumnType<ValueT>,
-    { unique, getIndexValue = (value) => value as any }: {
-      unique: UniqueT
-      getIndexValue?: (value: ValueT) => IndexValueT
-    },
   ) {
-    return new ColumnSchema(name, type, unique, getIndexValue)
+    return new ColumnSchema(name, type, false, (v: ValueT) => v)
+  }
+
+  withName<NewName extends string>(name: NewName) {
+    return new ColumnSchema<NewName, ValueT, UniqueT, IndexValueT>(
+      name,
+      this.type,
+      this.unique,
+      this.getIndexValue,
+    )
+  }
+
+  makeUnique(): ColumnSchema<Name, ValueT, true, IndexValueT> {
+    return new ColumnSchema(this.name, this.type, true, this.getIndexValue)
   }
 }
 
@@ -124,17 +131,22 @@ export class TableSchema<
     TableName,
     PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, CUnique>>
   >
-  withColumn<CName extends string, CValue, CUnique extends boolean>(
+  withColumn<CName extends string, CValue>(
     name: CName,
     type: ColumnType<CValue>,
-    {
-      unique,
-    }: {
-      unique: CUnique
+  ): TableSchema<
+    TableName,
+    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, false>>
+  >
+  withColumn<CName extends string, CValue>(
+    name: CName,
+    type: ColumnType<CValue>,
+    options: {
+      unique: true
     },
   ): TableSchema<
     TableName,
-    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, CUnique>>
+    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, true>>
   >
   withColumn<
     CName extends string,
@@ -143,16 +155,27 @@ export class TableSchema<
   >(
     nameOrColumn: CName | ColumnSchema<CName, CValue, CUnique>,
     type?: ColumnType<CValue>,
-    options?: { unique: CUnique },
+    options?: { unique: true },
   ): TableSchema<
     TableName,
     PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, CUnique>>
   > {
     if (typeof nameOrColumn === "string") {
-      if (type && options) {
+      if (type) {
+        if (options) {
+          return new TableSchema(this.name, [
+            ...this.columns,
+            ColumnSchema.create(nameOrColumn, type)
+              .makeUnique() as ColumnSchema<CName, CValue, CUnique>,
+          ])
+        }
         return new TableSchema(this.name, [
           ...this.columns,
-          ColumnSchema.create(nameOrColumn, type, options),
+          ColumnSchema.create(nameOrColumn, type) as ColumnSchema<
+            CName,
+            CValue,
+            CUnique
+          >,
         ])
       } else {
         throw new Error("Type and options are required")
