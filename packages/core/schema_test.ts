@@ -1,8 +1,19 @@
 import { describe, it } from "jsr:@std/testing/bdd"
 import { expect } from "jsr:@std/expect"
-import { ColumnSchema, ColumnTypes, TableSchema } from "./schema.ts"
+import {
+  ColumnSchema,
+  ColumnTypes,
+  TableSchema,
+  ValueForColumnSchema,
+} from "./schema.ts"
+import { RecordForTableSchema } from "./schema.ts"
 
 function assertType<T>(_value: T) {}
+type TypeEquals<Actual, Expected> = Actual extends Expected ? true
+  : "Types not equal"
+
+function assertTrue<T extends true>() {}
+assertTrue<TypeEquals<"green", "green">>()
 
 describe("ColumnSchemas", () => {
   const nameColumn = ColumnSchema.create(
@@ -21,6 +32,20 @@ describe("ColumnSchemas", () => {
 
     assertType<"name">(nameColumn.name)
     assertType<false>(nameColumn.unique)
+    assertTrue<TypeEquals<string, ValueForColumnSchema<typeof nameColumn>>>()
+  })
+
+  it("exposes the types of the column to typescript", () => {
+    assertTrue<TypeEquals<string, ValueForColumnSchema<typeof nameColumn>>>()
+
+    // @ts-expect-error: Can't insert a number into a string column
+    assertTrue<TypeEquals<number, ValueForColumnSchema<typeof nameColumn>>>()
+
+    const ageColumn = ColumnSchema.create(
+      "age",
+      ColumnTypes.positiveNumber(),
+    )
+    assertTrue<TypeEquals<number, ValueForColumnSchema<typeof ageColumn>>>()
   })
 
   it("lets you make a column unique", () => {
@@ -73,5 +98,20 @@ describe("Schemas", () => {
 
     expect(peopleSchema.isValidRecord({ name: "Alice", age: 12 })).toBe(true)
     expect(peopleSchema.isValidRecord({ name: "Alice", age: -12 })).toBe(false)
+  })
+
+  it("Exposes the types of records that are stored in the table", () => {
+    const peopleSchema = TableSchema.create("people")
+      .withColumn(
+        "name",
+        ColumnTypes.any<string>(),
+      )
+      .withColumn("age", ColumnTypes.positiveNumber())
+    assertTrue<
+      TypeEquals<
+        { name: string; age: number },
+        RecordForTableSchema<typeof peopleSchema>
+      >
+    >()
   })
 })

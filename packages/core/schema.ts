@@ -72,19 +72,19 @@ export class ColumnSchema<
     return new ColumnSchema(this.name, this.type, true)
   }
 }
+export type ValueForColumnSchema<C> = C extends ColumnSchema<any, infer V, any>
+  ? V
+  : never
 
 export type SomeColumnSchema = ColumnSchema<string, any, boolean>
 
 type PushTuple<T extends any[], V> = [...T, V]
 
-export type RecordForColumnSchema<CS extends SomeColumnSchema[]> = {
-  [K in CS[number]["name"]]:
-    Extract<CS[number], { name: K }>["type"]["isValid"] extends (
-      value: infer V,
-    ) => boolean ? V
-      : never
+type RecordForColumnSchema<CS extends SomeColumnSchema[]> = {
+  [K in CS[number]["name"]]: ValueForColumnSchema<
+    Extract<CS[number], { name: K }>
+  >
 }
-
 export type RecordForTableSchema<TS extends TableSchema<any, any>> =
   RecordForColumnSchema<
     TS["columns"]
