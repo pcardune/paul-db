@@ -62,8 +62,10 @@ export class ColumnSchema<
   >(
     name: Name,
     type: ColumnType<ValueT>,
-    unique: UniqueT,
-    getIndexValue: (value: ValueT) => IndexValueT = (value) => value as any,
+    { unique, getIndexValue = (value) => value as any }: {
+      unique: UniqueT
+      getIndexValue?: (value: ValueT) => IndexValueT
+    },
   ) {
     return new ColumnSchema(name, type, unique, getIndexValue)
   }
@@ -117,16 +119,48 @@ export class TableSchema<
   }
 
   withColumn<CName extends string, CValue, CUnique extends boolean>(
+    column: ColumnSchema<CName, CValue, CUnique>,
+  ): TableSchema<
+    TableName,
+    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, CUnique>>
+  >
+  withColumn<CName extends string, CValue, CUnique extends boolean>(
     name: CName,
     type: ColumnType<CValue>,
-    unique: CUnique,
+    {
+      unique,
+    }: {
+      unique: CUnique
+    },
+  ): TableSchema<
+    TableName,
+    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, CUnique>>
+  >
+  withColumn<
+    CName extends string,
+    CValue,
+    CUnique extends boolean,
+  >(
+    nameOrColumn: CName | ColumnSchema<CName, CValue, CUnique>,
+    type?: ColumnType<CValue>,
+    options?: { unique: CUnique },
   ): TableSchema<
     TableName,
     PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, CUnique>>
   > {
+    if (typeof nameOrColumn === "string") {
+      if (type && options) {
+        return new TableSchema(this.name, [
+          ...this.columns,
+          ColumnSchema.create(nameOrColumn, type, options),
+        ])
+      } else {
+        throw new Error("Type and options are required")
+      }
+    }
     return new TableSchema(this.name, [
       ...this.columns,
-      ColumnSchema.create(name, type, unique),
+      nameOrColumn,
     ])
   }
 }

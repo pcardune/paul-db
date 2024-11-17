@@ -4,8 +4,8 @@ import { Table } from "./table.ts"
 import { ColumnType, ColumnTypes, TableSchema } from "./schema.ts"
 
 const peopleSchema = TableSchema.create("people")
-  .withColumn("name", ColumnTypes.any<string>(), false)
-  .withColumn("age", ColumnTypes.positiveNumber(), false)
+  .withColumn("name", ColumnTypes.any<string>(), { unique: false })
+  .withColumn("age", ColumnTypes.positiveNumber(), { unique: false })
 
 describe("Table", () => {
   it("lets you insert and retrieve records", () => {
@@ -23,7 +23,7 @@ describe("Table", () => {
         .withColumn(
           "favoriteOdd",
           new ColumnType({ isValid: (value: number) => value % 2 === 1 }),
-          false,
+          { unique: false },
         ),
       {},
     )
@@ -37,7 +37,7 @@ describe("Table", () => {
   it("enforces uniqueness constraints", () => {
     const people = Table.create(
       peopleSchema
-        .withColumn("ssn", ColumnTypes.any<string>(), true),
+        .withColumn("ssn", ColumnTypes.any<string>(), { unique: true }),
       {},
     )
 
@@ -51,7 +51,7 @@ describe("Table", () => {
   it("lets you customize the uniqueness constraint, by explicitly specifying an index", () => {
     const people = Table.create(
       peopleSchema
-        .withColumn("ssn", ColumnTypes.any<string>(), true),
+        .withColumn("ssn", ColumnTypes.any<string>(), { unique: true }),
       {
         ssn: {
           getValue: (r) => r.ssn.replace(/-/g, ""),
