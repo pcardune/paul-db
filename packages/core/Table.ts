@@ -1,104 +1,74 @@
 // deno-lint-ignore-file no-explicit-any
-import { InMemoryBTreeConfig } from "./DiskBTree.ts"
 import { Index } from "./Index.ts"
 import {
+  OutputForComputedColumnSchema,
   RecordForTableSchema,
   SomeColumnSchema,
   SomeComputedColumnSchema,
   TableSchema,
+  ValueForColumnSchema,
 } from "./schema.ts"
+import { FilterTuple } from "./typetools.ts"
 
 type InternalRowId = bigint
-
-type TableIndex<R extends Record<string, any>, V> = {
-  getValue: (record: R) => V
-  config?: InMemoryBTreeConfig<V, InternalRowId>
-}
 
 export class Table<
   TName extends string,
   ColumnSchemasT extends SomeColumnSchema[],
   ComputedColumnSchemasT extends SomeComputedColumnSchema[],
   SchemaT extends TableSchema<TName, ColumnSchemasT, ComputedColumnSchemasT>,
-  IndexesT extends Record<
-    string,
-    TableIndex<RecordForTableSchema<SchemaT>, any>
-  >,
 > {
   private schema: SchemaT
   private data: Map<InternalRowId, RecordForTableSchema<SchemaT>>
   private nextId: InternalRowId
-  private indexes: IndexesT
-  _indexesByName: {
-    [K in keyof IndexesT]: Index<
-      ReturnType<IndexesT[K]["getValue"]>,
-      InternalRowId
-    >
-  }
-  private _allIndexes: Index<unknown, InternalRowId>[]
+  private _allIndexes: Map<string, Index<unknown, InternalRowId>>
 
   constructor(init: {
     schema: SchemaT
-    indexes: IndexesT
     nextId: typeof Table.prototype.nextId
     data: typeof Table.prototype.data
   }) {
     this.schema = init.schema
     this.nextId = init.nextId
     this.data = init.data
-    this.indexes = init.indexes
 
-    const indexesByName = {} as any
-    this._allIndexes = []
-    for (const key in this.indexes) {
-      const index = new Index(this.indexes[key].config ?? {})
-      indexesByName[key] = index
-      this._allIndexes.push(index)
+    this._allIndexes = new Map()
+    for (const column of this.schema.columns) {
+      if (column.indexed) {
+        this._allIndexes.set(
+          column.name,
+          new Index({
+            isEqual: column.type.isEqual,
+            compare: column.type.compare,
+          }),
+        )
+      }
     }
-    this._indexesByName = indexesByName as any
+    for (const column of this.schema.computedColumns) {
+      if (column.indexed) {
+        this._allIndexes.set(
+          column.name,
+          new Index({}),
+        )
+      }
+    }
   }
 
   static create<
     TName extends string,
     ColumnSchemasT extends SomeColumnSchema[],
     ComputedColumnSchemasT extends SomeComputedColumnSchema[],
-    IndexesT extends Record<string, any>,
     SchemaT extends TableSchema<any, any, any>,
   >(
     schema: SchemaT,
-    indexes: {
-      [K in keyof IndexesT]: TableIndex<
-        RecordForTableSchema<SchemaT>,
-        IndexesT[K]
-      >
-    },
   ) {
-    for (const column of schema.columns) {
-      if (column.unique && indexes[column.name] == undefined) {
-        ;(indexes as any)[column.name] = {
-          getValue: (r: RecordForTableSchema<SchemaT>) =>
-            (r as any)[column.name],
-          config: {
-            isEqal: column.type.isEqual,
-            compare: column.type.compare,
-          },
-        }
-      }
-    }
     return new Table<
       TName,
       ColumnSchemasT,
       ComputedColumnSchemasT,
-      SchemaT,
-      {
-        [K in keyof IndexesT]: TableIndex<
-          RecordForTableSchema<SchemaT>,
-          IndexesT[K]
-        >
-      }
+      SchemaT
     >({
       schema,
-      indexes: indexes,
       nextId: 1n,
       data: new Map(),
     })
@@ -114,10 +84,14 @@ export class Table<
     }
     for (const column of this.schema.columns) {
       if (column.unique) {
-        const key = this.indexes[column.name]
-          ? this.indexes[column.name].getValue(record)
-          : (record as any)[column.name]
-        if (this._indexesByName[column.name].has(key)) {
+        const index = this._allIndexes.get(column.name)
+        if (!index) {
+          throw new Error(
+            `Column ${column.name} is not indexed but is marked as unique`,
+          )
+        }
+        const value = (record as any)[column.name]
+        if (index.has(value)) {
           throw new Error(
             `Record with given ${column.name} value already exists`,
           )
@@ -127,9 +101,21 @@ export class Table<
 
     const id = this.nextId++
     this.data.set(id, record)
-    for (const [indexName, config] of Object.entries(this.indexes)) {
-      const index = this._indexesByName[indexName]
-      index.insert(config.getValue(record), id)
+    for (const column of this.schema.columns) {
+      const index = this._allIndexes.get(column.name)
+      if (index) {
+        index.insert((record as any)[column.name], id)
+      } else if (column.indexed) {
+        throw new Error(`Column ${column.name} is not indexed`)
+      }
+    }
+    for (const column of this.schema.computedColumns) {
+      const index = this._allIndexes.get(column.name)
+      if (index) {
+        index.insert(column.compute(record), id)
+      } else if (column.indexed) {
+        throw new Error(`Column ${column.name} is not indexed`)
+      }
     }
     return id
   }
@@ -139,15 +125,41 @@ export class Table<
   }
 
   public lookup<
-    IName extends keyof typeof this._indexesByName,
-    ValueT extends Parameters<typeof this._indexesByName[IName]["get"]>[0],
+    IName extends FilterTuple<SchemaT["columns"], { indexed: true }>["name"],
+    ValueT extends ValueForColumnSchema<
+      FilterTuple<SchemaT["columns"], { name: IName }>
+    >,
   >(
     indexName: IName,
     value: ValueT,
   ): Readonly<RecordForTableSchema<SchemaT>>[] {
-    return this._indexesByName[indexName].get(value).map((id) => {
+    const index = this._allIndexes.get(indexName)
+    if (!index) {
+      throw new Error(`Index ${indexName} does not exist`)
+    }
+    return index.get(value).map((id) => {
       return this.data.get(id)!
     })
+  }
+
+  public lookupComputed<
+    IName extends FilterTuple<
+      SchemaT["computedColumns"],
+      { indexed: true }
+    >["name"],
+    ValueT extends OutputForComputedColumnSchema<
+      FilterTuple<SchemaT["computedColumns"], { name: IName }>
+    >,
+  >(indexName: IName, value: ValueT) {
+    const index = this._allIndexes.get(indexName)
+    if (!index) {
+      throw new Error(`Index ${indexName} does not exist`)
+    }
+    const column = this.schema.computedColumns.find((c) => c.name === indexName)
+    if (!column) {
+      throw new Error(`Column ${indexName} is not a computed column`)
+    }
+    return index.get(value).map((id) => this.data.get(id)!)
   }
 
   public iterate(): IteratorObject<RecordForTableSchema<SchemaT>, void, void> {

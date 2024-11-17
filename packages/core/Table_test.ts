@@ -1,7 +1,13 @@
 import { describe, it } from "jsr:@std/testing/bdd"
 import { expect } from "jsr:@std/expect"
 import { Table } from "./table.ts"
-import { ColumnType, ColumnTypes, TableSchema } from "./schema.ts"
+import {
+  column,
+  ColumnType,
+  ColumnTypes,
+  computedColumn,
+  TableSchema,
+} from "./schema.ts"
 
 const peopleSchema = TableSchema.create("people")
   .withColumn("name", ColumnTypes.any<string>())
@@ -9,7 +15,7 @@ const peopleSchema = TableSchema.create("people")
 
 describe("Insert and Retrieve", () => {
   it("lets you insert and retrieve records", () => {
-    const people = Table.create(peopleSchema, {})
+    const people = Table.create(peopleSchema)
 
     const aliceId = people.insert({ name: "Alice", age: 12 })
     const bobId = people.insert({ name: "Bob", age: 12 })
@@ -20,7 +26,7 @@ describe("Insert and Retrieve", () => {
 
 describe("Insert Validation", () => {
   it("should not allow you to insert records with invalid schema", () => {
-    const people = Table.create(peopleSchema, {})
+    const people = Table.create(peopleSchema)
     people.insert({ name: "Alice", age: 12 })
     expect(() => {
       people.insert({ name: "Alice", age: -12 })
@@ -34,7 +40,6 @@ describe("Insert Validation", () => {
           "favoriteOdd",
           new ColumnType({ isValid: (value: number) => value % 2 === 1 }),
         ),
-      {},
     )
 
     oddPeople.insert({ name: "Alice", age: 13, favoriteOdd: 13 })
@@ -55,7 +60,6 @@ describe("Uniqueness Constraints", () => {
     const people = Table.create(
       peopleSchema
         .withColumn("ssn", ColumnTypes.any<string>(), { unique: true }),
-      {},
     )
 
     people.insert({ name: "Alice", age: 12, ssn: "123-45-6789" })
@@ -69,7 +73,6 @@ describe("Uniqueness Constraints", () => {
     const people = Table.create(
       peopleSchema
         .withColumn("phone", phoneNumberType, { unique: true }),
-      {},
     )
     people.insert({ name: "Alice", age: 12, phone: "123-867-5309" })
     expect(() => {
@@ -81,7 +84,7 @@ describe("Uniqueness Constraints", () => {
 describe("Querying", () => {
   describe("Table.iterate()", () => {
     it("lets you iterate over the entire contents of the table", () => {
-      const people = Table.create(peopleSchema, {})
+      const people = Table.create(peopleSchema)
       people.insertMany([
         { name: "Alice", age: 30 },
         { name: "Bob", age: 30 },
@@ -100,7 +103,7 @@ describe("Querying", () => {
 
   describe("Table.scan()", () => {
     it("can query records by scanning the entire table", () => {
-      const people = Table.create(peopleSchema, {})
+      const people = Table.create(peopleSchema)
       people.insertMany([
         { name: "Alice", age: 30 },
         { name: "Bob", age: 30 },
@@ -119,7 +122,6 @@ describe("Querying", () => {
           "name",
           ColumnTypes.any<string>(),
         ).withColumn("email", ColumnTypes.caseInsensitiveString()),
-        {},
       )
       people.insertMany([
         { name: "Alice", email: "alice@example.com" },
@@ -135,37 +137,46 @@ describe("Querying", () => {
   })
 
   describe("Table.lookup()", () => {
-    it("lets you query using an index", () => {
-      const people = Table.create(
-        peopleSchema,
-        {
-          name: {
-            getValue: (r) => r.name,
-          },
-          age: {
-            getValue: (r) => r.age,
-          },
-          lowerCaseName: {
-            getValue: (r) => r.name.toLowerCase(),
-          },
-        },
+    const indexedPeopleSchema = TableSchema.create("people")
+      .withColumn(column("name", ColumnTypes.any<string>()).makeIndexed())
+      .withColumn(column("phone", phoneNumberType))
+      .withColumn(column("age", ColumnTypes.positiveNumber()).makeIndexed())
+      .withComputedColumn(
+        computedColumn(
+          "lowerCaseName",
+          (input: { name: string }) => input.name.toLowerCase(),
+        ).makeIndexed(),
       )
+    const people = Table.create(
+      indexedPeopleSchema,
+    )
 
-      people.insertMany([
-        { name: "Alice", age: 12 },
-        { name: "Bob", age: 12 },
-        { name: "Charlie", age: 15 },
-      ])
+    people.insertMany([
+      { name: "Alice", age: 25, phone: "123-456-7890" },
+      { name: "Bob", age: 35, phone: "123-456-7891" },
+      { name: "Charlie", age: 25, phone: "123-456-7892" },
+    ])
 
-      expect(people.lookup("age", 12)).toEqual([
-        { name: "Alice", age: 12 },
-        { name: "Bob", age: 12 },
+    it("lets you query using an index", () => {
+      expect(people.lookup("age", 25)).toEqual([
+        { name: "Alice", age: 25, phone: "123-456-7890" },
+        { name: "Charlie", age: 25, phone: "123-456-7892" },
       ])
-      expect(people.lookup("age", 15)).toEqual([{ name: "Charlie", age: 15 }])
+      expect(people.lookup("age", 35)).toEqual([
+        { name: "Bob", age: 35, phone: "123-456-7891" },
+      ])
+    })
 
-      expect(people.lookup("lowerCaseName", "alice")).toEqual([
-        { name: "Alice", age: 12 },
+    it("lets you query using an index on a computed column", () => {
+      expect(people.lookupComputed("lowerCaseName", "alice")).toEqual([
+        { name: "Alice", age: 25, phone: "123-456-7890" },
       ])
+    })
+
+    it.skip("will throw if you lookup a computed indexed column with an invalid value", () => {
+      expect(() => people.lookupComputed("lowerCaseName", "ALICE")).toThrow(
+        "Invalid value for column lowerCaseName",
+      )
     })
   })
 })

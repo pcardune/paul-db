@@ -1,5 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 import { Comparator, EqualityChecker } from "./DiskBTree.ts"
+import { PushTuple } from "./typetools.ts"
 
 export const ColumnTypes = {
   any<T>() {
@@ -42,31 +43,30 @@ export class ColumnSchema<
   Name extends string,
   ValueT,
   UniqueT extends boolean,
+  IndexedT extends boolean,
 > {
-  readonly name: Name
-  readonly unique: UniqueT
-  readonly type: ColumnType<ValueT>
-
   constructor(
-    name: Name,
-    type: ColumnType<ValueT>,
-    unique: UniqueT,
-  ) {
-    this.name = name
-    this.type = type
-    this.unique = unique
-  }
+    readonly name: Name,
+    readonly type: ColumnType<ValueT>,
+    readonly unique: UniqueT,
+    readonly indexed: IndexedT,
+  ) {}
 
   withName<NewName extends string>(name: NewName) {
-    return new ColumnSchema<NewName, ValueT, UniqueT>(
+    return new ColumnSchema<NewName, ValueT, UniqueT, IndexedT>(
       name,
       this.type,
       this.unique,
+      this.indexed,
     )
   }
 
-  makeUnique(): ColumnSchema<Name, ValueT, true> {
-    return new ColumnSchema(this.name, this.type, true)
+  makeUnique(): ColumnSchema<Name, ValueT, true, true> {
+    return new ColumnSchema(this.name, this.type, true, true)
+  }
+
+  makeIndexed(): ColumnSchema<Name, ValueT, UniqueT, true> {
+    return new ColumnSchema(this.name, this.type, this.unique, true)
   }
 }
 
@@ -74,24 +74,30 @@ export function column<Name extends string, ValueT>(
   name: Name,
   type: ColumnType<ValueT>,
 ) {
-  return new ColumnSchema(name, type, false)
+  return new ColumnSchema(name, type, false, false)
 }
 
 class ComputedColumnSchema<
   Name extends string,
   UniqueT extends boolean,
+  IndexedT extends boolean,
   InputT,
   OutputT,
 > {
   constructor(
     readonly name: Name,
     readonly unique: UniqueT,
+    readonly indexed: IndexedT,
     readonly compute: (input: InputT) => OutputT,
   ) {
   }
 
-  makeUnique(): ComputedColumnSchema<Name, true, InputT, OutputT> {
-    return new ComputedColumnSchema(this.name, true, this.compute)
+  makeUnique(): ComputedColumnSchema<Name, true, true, InputT, OutputT> {
+    return new ComputedColumnSchema(this.name, true, true, this.compute)
+  }
+
+  makeIndexed(): ComputedColumnSchema<Name, UniqueT, true, InputT, OutputT> {
+    return new ComputedColumnSchema(this.name, this.unique, true, this.compute)
   }
 }
 
@@ -103,25 +109,31 @@ export function computedColumn<
   name: Name,
   compute: (input: InputT) => OutputT,
 ) {
-  return new ComputedColumnSchema(name, false, compute)
+  return new ComputedColumnSchema(name, false, false, compute)
 }
 
-export type ValueForColumnSchema<C> = C extends ColumnSchema<any, infer V, any>
-  ? V
+export type ValueForColumnSchema<C> = C extends
+  ColumnSchema<any, infer V, any, any> ? V
   : never
 
-export type SomeColumnSchema = ColumnSchema<string, any, boolean>
+export type InputForComputedColumnSchema<C> = C extends
+  ComputedColumnSchema<any, any, any, infer I, any> ? I : never
+export type OutputForComputedColumnSchema<C> = C extends
+  ComputedColumnSchema<any, any, any, any, infer O> ? O : never
+
+export type SomeColumnSchema = ColumnSchema<string, any, boolean, any>
+export type IndexedColumnSchema = ColumnSchema<string, any, any, true>
 export type SomeComputedColumnSchema = ComputedColumnSchema<
   string,
+  boolean,
   boolean,
   any,
   any
 >
-type PushTuple<T extends any[], V> = [...T, V]
 
 export type RecordForColumnSchema<
   CS extends SomeColumnSchema | SomeComputedColumnSchema,
-> = CS extends ComputedColumnSchema<string, boolean, any, any> ? {
+> = CS extends ComputedColumnSchema<string, boolean, boolean, any, any> ? {
     [K in CS["name"]]?: never
   }
   : {
@@ -145,19 +157,11 @@ export class TableSchema<
   ColumnSchemasT extends SomeColumnSchema[],
   ComputedColumnsT extends SomeComputedColumnSchema[],
 > {
-  name: TableName
-  columns: ColumnSchemasT
-  computedColumns: ComputedColumnsT
-
   private constructor(
-    name: TableName,
-    columns: ColumnSchemasT,
-    computedColumns: ComputedColumnsT,
-  ) {
-    this.name = name
-    this.columns = columns
-    this.computedColumns = computedColumns
-  }
+    public readonly name: TableName,
+    public readonly columns: ColumnSchemasT,
+    public readonly computedColumns: ComputedColumnsT,
+  ) {}
 
   getColumns(): ColumnSchemasT {
     return this.columns
@@ -183,11 +187,13 @@ export class TableSchema<
   withComputedColumn<
     CName extends string,
     CUnique extends boolean,
+    CIndexed extends boolean,
     COutput,
   >(
     column: ComputedColumnSchema<
       CName,
       CUnique,
+      CIndexed,
       RecordForColumnSchemas<ColumnSchemasT>,
       COutput
     >,
@@ -199,6 +205,7 @@ export class TableSchema<
       ComputedColumnSchema<
         CName,
         CUnique,
+        CIndexed,
         RecordForColumnSchemas<ColumnSchemasT>,
         COutput
       >
@@ -210,11 +217,16 @@ export class TableSchema<
     ])
   }
 
-  withColumn<CName extends string, CValue, CUnique extends boolean>(
-    column: ColumnSchema<CName, CValue, CUnique>,
+  withColumn<
+    CName extends string,
+    CValue,
+    CUnique extends boolean,
+    CIndexed extends boolean,
+  >(
+    column: ColumnSchema<CName, CValue, CUnique, CIndexed>,
   ): TableSchema<
     TableName,
-    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, CUnique>>,
+    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, CUnique, CIndexed>>,
     ComputedColumnsT
   >
   withColumn<CName extends string, CValue>(
@@ -222,7 +234,7 @@ export class TableSchema<
     type: ColumnType<CValue>,
   ): TableSchema<
     TableName,
-    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, false>>,
+    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, false, false>>,
     ComputedColumnsT
   >
   withColumn<CName extends string, CValue>(
@@ -233,20 +245,21 @@ export class TableSchema<
     },
   ): TableSchema<
     TableName,
-    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, true>>,
+    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, true, true>>,
     ComputedColumnsT
   >
   withColumn<
     CName extends string,
     CValue,
     CUnique extends boolean,
+    CIndexed extends boolean,
   >(
-    nameOrColumn: CName | ColumnSchema<CName, CValue, CUnique>,
+    nameOrColumn: CName | ColumnSchema<CName, CValue, CUnique, CIndexed>,
     type?: ColumnType<CValue>,
     options?: { unique: true },
   ): TableSchema<
     TableName,
-    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, CUnique>>,
+    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, CUnique, CIndexed>>,
     ComputedColumnsT
   > {
     if (typeof nameOrColumn === "string") {
@@ -255,7 +268,7 @@ export class TableSchema<
           return new TableSchema(this.name, [
             ...this.columns,
             column(nameOrColumn, type)
-              .makeUnique() as ColumnSchema<CName, CValue, CUnique>,
+              .makeUnique() as ColumnSchema<CName, CValue, CUnique, CIndexed>,
           ], this.computedColumns)
         }
         return new TableSchema(this.name, [
@@ -263,7 +276,8 @@ export class TableSchema<
           column(nameOrColumn, type) as ColumnSchema<
             CName,
             CValue,
-            CUnique
+            CUnique,
+            CIndexed
           >,
         ], this.computedColumns)
       } else {
