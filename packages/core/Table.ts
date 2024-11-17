@@ -104,6 +104,10 @@ export class Table<
     })
   }
 
+  public insertMany(records: RecordForTableSchema<SchemaT>[]): InternalRowId[] {
+    return records.map((record) => this.insert(record))
+  }
+
   public insert(record: RecordForTableSchema<SchemaT>): InternalRowId {
     if (!this.schema.isValidRecord(record)) {
       throw new Error("Invalid record")
@@ -134,7 +138,7 @@ export class Table<
     return this.data.get(id)
   }
 
-  public findMany<
+  public lookup<
     IName extends keyof typeof this._indexesByName,
     ValueT extends Parameters<typeof this._indexesByName[IName]["get"]>[0],
   >(
@@ -144,5 +148,33 @@ export class Table<
     return this._indexesByName[indexName].get(value).map((id) => {
       return this.data.get(id)!
     })
+  }
+
+  public iterate(): IteratorObject<RecordForTableSchema<SchemaT>, void, void> {
+    return this.data.values()
+  }
+
+  public scanIter<
+    IName extends ColumnSchemasT[number]["name"],
+    IValue extends RecordForTableSchema<SchemaT>[IName],
+  >(
+    columnName: IName,
+    value: IValue,
+  ): IteratorObject<RecordForTableSchema<SchemaT>, void, void> {
+    const columnType =
+      this.schema.columns.find((c) => c.name === columnName)!.type
+    return this.iterate().filter((record) =>
+      columnType.isEqual(record[columnName], value)
+    )
+  }
+
+  public scan<
+    IName extends ColumnSchemasT[number]["name"],
+    IValue extends RecordForTableSchema<SchemaT>[IName],
+  >(
+    columnName: IName,
+    value: IValue,
+  ): RecordForTableSchema<SchemaT>[] {
+    return Array.from(this.scanIter(columnName, value))
   }
 }

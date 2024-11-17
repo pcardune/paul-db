@@ -5,6 +5,13 @@ export const ColumnTypes = {
   any<T>() {
     return new ColumnType<T>({ isValid: (_value: T): _value is T => true })
   },
+  caseInsensitiveString() {
+    return new ColumnType<string>({
+      isValid: (value) => typeof value === "string",
+      equals: (a, b) => a.toLowerCase() === b.toLowerCase(),
+      compare: (a, b) => a.toLowerCase().localeCompare(b.toLowerCase()),
+    })
+  },
   positiveNumber() {
     return new ColumnType<number>({
       isValid: (value) => value > 0,
