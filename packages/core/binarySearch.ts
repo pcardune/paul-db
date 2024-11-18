@@ -7,7 +7,7 @@
  * @returns
  */
 export function binarySearch<T, V>(
-  arr: T[],
+  arr: readonly T[],
   value: V,
   compare: (a: V, b: T) => number,
 ): number {

@@ -1,17 +1,111 @@
 import { binarySearch } from "./binarySearch.ts"
 
-export type InternalBTreeNode<K, NodeId> = {
-  type: "internal"
-  nodeId: NodeId
-  keys: K[]
-  childrenNodeIds: NodeId[]
+class INode<NodeId> {
+  constructor(
+    protected readonly markDirty: () => void,
+    readonly nodeId: NodeId,
+  ) {}
 }
 
-export type LeafBTreeNode<K, V, NodeId> = {
-  nodeId: NodeId
-  type: "leaf"
-  keyvals: { key: K; vals: V[] }[]
-  nextLeafNodeId: NodeId | null
+export class InternalBTreeNode<K, NodeId> extends INode<NodeId> {
+  readonly type: "internal"
+  private _keys: K[]
+  private _childrenNodeIds: NodeId[]
+
+  get keys(): readonly K[] {
+    return this._keys
+  }
+
+  get childrenNodeIds(): readonly NodeId[] {
+    return this._childrenNodeIds
+  }
+
+  constructor(
+    markDirty: () => void,
+    nodeId: NodeId,
+    { keys, childrenNodeIds }: {
+      keys: K[]
+      childrenNodeIds: NodeId[]
+    },
+  ) {
+    super(markDirty, nodeId)
+    this.type = "internal"
+    this._keys = keys
+    this._childrenNodeIds = childrenNodeIds
+  }
+
+  serialize(): SerializedInternalNode<K, NodeId> {
+    return ["internal", this._keys, this._childrenNodeIds]
+  }
+
+  insertNode(key: K, nodeId: NodeId, compare: Comparator<K>) {
+    const i = binarySearch(this.keys, key, compare)
+    this._keys.splice(i, 0, key)
+    this._childrenNodeIds.splice(i + 1, 0, nodeId)
+    this.markDirty()
+  }
+}
+
+export class LeafBTreeNode<K, V, NodeId> extends INode<NodeId> {
+  readonly type: "leaf"
+
+  private _keyvals: { key: K; vals: V[] }[]
+  private _nextLeafNodeId: NodeId | null
+
+  get keyvals(): readonly { key: K; vals: readonly V[] }[] {
+    return this._keyvals
+  }
+
+  get nextLeafNodeId(): NodeId | null {
+    return this._nextLeafNodeId
+  }
+
+  serialize(): SerializedLeafNode<K, V, NodeId> {
+    return ["leaf", this._keyvals, this._nextLeafNodeId]
+  }
+
+  constructor(
+    markDirty: () => void,
+    nodeId: NodeId,
+    { keyvals, nextLeafNodeId }: {
+      keyvals: { key: K; vals: V[] }[]
+      nextLeafNodeId: NodeId | null
+    },
+  ) {
+    super(markDirty, nodeId)
+    this.type = "leaf"
+    this._keyvals = keyvals
+    this._nextLeafNodeId = nextLeafNodeId
+  }
+
+  pushKey(key: K, vals: readonly V[], compare: Comparator<K>) {
+    this._keyvals.push({ key, vals: vals.slice() })
+    this._keyvals.sort((a, b) => compare(a.key, b.key))
+    this.markDirty()
+  }
+
+  pushValue(keyIndex: number, value: V) {
+    this._keyvals[keyIndex].vals.push(value)
+    this.markDirty()
+  }
+
+  removeValue(keyIndex: number, value: V, isEqual: EqualityChecker<V>) {
+    const keyval = this._keyvals[keyIndex]
+    keyval.vals = keyval.vals.filter((v) => !isEqual(v, value))
+    this.markDirty()
+  }
+
+  copyKeyvals(start: number, end?: number) {
+    return this._keyvals.slice(start, end).map((kv) => ({
+      ...kv,
+      vals: kv.vals.slice(),
+    }))
+  }
+
+  removeKey(index: number) {
+    this._keyvals.splice(index, 1)
+    this.markDirty()
+  }
 }
 
 export type BTreeNode<K, V, NodeId> =
@@ -19,11 +113,11 @@ export type BTreeNode<K, V, NodeId> =
   | LeafBTreeNode<K, V, NodeId>
 
 type DumpedNode<K, V, NodeId> =
-  | { type: "leaf"; nodeId: NodeId; keyvals: [K, V[]][] }
+  | { type: "leaf"; nodeId: NodeId; keyvals: [K, readonly V[]][] }
   | {
     type: "internal"
     nodeId: NodeId
-    keys: K[]
+    keys: readonly K[]
     children: DumpedNode<K, V, NodeId>[]
   }
 
@@ -35,7 +129,7 @@ class LinkedList<V> {
 }
 
 function indexOfInSortedArray<T, V>(
-  arr: T[],
+  arr: readonly T[],
   value: V,
   compare: (a: V, b: T) => number,
 ): number | null {
@@ -49,7 +143,7 @@ function indexOfInSortedArray<T, V>(
 }
 
 export function findIndexInSortedArray<T>(
-  arr: T[],
+  arr: readonly T[],
   value: T,
   compare: (a: T, b: T) => number,
 ): number {
@@ -65,33 +159,140 @@ interface INodeList<K, V, NodeId> {
   size: number
   get(nodeId: NodeId): BTreeNode<K, V, NodeId>
   set(nodeId: NodeId, node: BTreeNode<K, V, NodeId>): void
+  markDirty(node: BTreeNode<K, V, NodeId>): void
+  createLeafNode(
+    nodeId: NodeId,
+    state: { keyvals: { key: K; vals: V[] }[]; nextLeafNodeId: NodeId | null },
+  ): LeafBTreeNode<K, V, NodeId>
+  createInternalNode(
+    nodeId: NodeId,
+    state: { keys: K[]; childrenNodeIds: NodeId[] },
+  ): InternalBTreeNode<K, NodeId>
+  commit(): void
 }
 
-class NodeList<K, V> implements INodeList<K, V, number> {
-  constructor(private _nodes: BTreeNode<K, V, number>[]) {}
+type SerializedLeafNode<K, V, NodeId> = readonly [
+  "leaf",
+  readonly { key: K; vals: readonly V[] }[],
+  NodeId | null,
+]
+type SerializedInternalNode<K, NodeId> = readonly [
+  "internal",
+  readonly K[],
+  readonly NodeId[],
+]
+type SerializedNode<K, V, NodeId> =
+  | SerializedLeafNode<K, V, NodeId>
+  | SerializedInternalNode<K, NodeId>
+
+class InMemoryNodeList<K, V> implements INodeList<K, V, number> {
+  private nextNodeId = 0
+  constructor(private _nodes: SerializedNode<K, V, number>[]) {}
 
   get size() {
     return this._nodes.length
   }
 
-  get nodes(): readonly BTreeNode<K, V, number>[] {
-    return this._nodes
+  private dirtyNodes = new Map<number, BTreeNode<K, V, number>>()
+
+  markDirty(node: BTreeNode<K, V, number>): void {
+    this.dirtyNodes.set(node.nodeId, node)
   }
 
   getNextNodeId(): number {
-    return this._nodes.length
+    return this.nextNodeId++
   }
 
+  private _nodeCache = new Map<number, BTreeNode<K, V, number>>()
+
   get(nodeId: number): BTreeNode<K, V, number> {
-    return this._nodes[nodeId]
+    const serialized = this._nodes[nodeId]
+    const existingDirty = this.dirtyNodes.get(nodeId)
+    if (existingDirty != null) {
+      return existingDirty
+    }
+    const existing = this._nodeCache.get(nodeId) as BTreeNode<K, V, number>
+    if (existing != null) {
+      return existing
+    }
+    if (serialized[0] === "leaf") {
+      const node = new LeafBTreeNode(
+        () => {
+          this.markDirty(node)
+        },
+        nodeId,
+        {
+          keyvals: [
+            ...serialized[1].map((value) => ({
+              ...value,
+              vals: value.vals.slice(),
+            })),
+          ],
+          nextLeafNodeId: serialized[2],
+        },
+      )
+      // TODO this shouldn't be necessary
+      // this._nodeCache.set(nodeId, node)
+      return node
+    }
+    const node = new InternalBTreeNode(
+      () => {
+        this.markDirty(node)
+      },
+      nodeId,
+      {
+        keys: [...serialized[1]],
+        childrenNodeIds: [...serialized[2]],
+      },
+    )
+    // TODO this shouldn't be necessary
+    // this._nodeCache.set(nodeId, node)
+    return node
   }
 
   set(nodeId: number, node: BTreeNode<K, V, number>) {
-    this._nodes[nodeId] = node
+    if (node.type === "leaf") {
+      this._nodes[nodeId] = ["leaf", node.keyvals, node.nextLeafNodeId]
+    } else {
+      this._nodes[nodeId] = ["internal", node.keys, node.childrenNodeIds]
+    }
+    this.markDirty(node)
   }
 
-  push(...node: BTreeNode<K, V, number>[]) {
-    this._nodes.push(...node)
+  createLeafNode(
+    nodeId: number,
+    state: { keyvals: { key: K; vals: V[] }[]; nextLeafNodeId: number | null },
+  ): LeafBTreeNode<K, V, number> {
+    const node = new LeafBTreeNode(() => this.markDirty(node), nodeId, state)
+    this._nodeCache.set(nodeId, node)
+    this.markDirty(node)
+    return node
+  }
+
+  createInternalNode(
+    nodeId: number,
+    state: { keys: K[]; childrenNodeIds: number[] },
+  ): InternalBTreeNode<K, number> {
+    const node = new InternalBTreeNode(
+      () => this.markDirty(node),
+      nodeId,
+      state,
+    )
+    this._nodeCache.set(nodeId, node)
+    this.markDirty(node)
+    return node
+  }
+
+  commit(): void {
+    for (const node of this.dirtyNodes.values()) {
+      if (node.type === "leaf") {
+        this._nodes[node.nodeId] = ["leaf", node.keyvals, node.nextLeafNodeId]
+      } else {
+        this._nodes[node.nodeId] = ["internal", node.keys, node.childrenNodeIds]
+      }
+    }
+    this.dirtyNodes.clear()
+    this._nodeCache.clear()
   }
 }
 
@@ -134,11 +335,11 @@ export class BTree<
       isEqual = (a, b) => a === b,
     }: InMemoryBTreeConfig<K, V> = {},
   ) {
-    return new BTree<K, V, number, NodeList<K, V>>({
+    return new BTree<K, V, number, InMemoryNodeList<K, V>>({
       order,
       compare,
       isEqual,
-      nodes: new NodeList<K, V>([]),
+      nodes: new InMemoryNodeList<K, V>([]),
     })
   }
 
@@ -164,23 +365,16 @@ export class BTree<
     this.nodes = nodes
     this.order = order
     this.rootNodeId = this.nodes.getNextNodeId()
-    this.nodes.set(
-      this.rootNodeId,
-      {
-        nodeId: this.rootNodeId,
-        type: "internal",
-        keys: [],
-        childrenNodeIds: [],
-      },
-    )
     const childNodeId = this.nodes.getNextNodeId()
-    this.nodes.set(childNodeId, {
-      nodeId: childNodeId,
-      type: "leaf",
+    this.nodes.createInternalNode(this.rootNodeId, {
+      keys: [],
+      childrenNodeIds: [childNodeId],
+    })
+    this.nodes.createLeafNode(childNodeId, {
       keyvals: [],
       nextLeafNodeId: null,
     })
-    this.rootNode.childrenNodeIds.push(childNodeId)
+    this.nodes.commit()
   }
 
   childrenForNode(node: BTreeNode<K, V, NodeId>): BTreeNode<K, V, NodeId>[] {
@@ -223,7 +417,7 @@ export class BTree<
     node: LeafBTreeNode<K, V, NodeId>
     parents: LinkedList<NodeId>
     key: K
-    keyval: { key: K; vals: V[] } | null
+    keyval: Readonly<{ key: K; vals: readonly V[] }> | null
     keyIndex: number
   } {
     const node = this.nodes.get(nodeId)
@@ -275,17 +469,19 @@ export class BTree<
   insert(key: K, value: V) {
     const found = this._get(this.rootNodeId, key)
     if (found.keyval != null) {
-      found.keyval.vals.push(value)
+      found.node.pushValue(found.keyIndex, value)
+      this.nodes.commit()
       return
     }
     const { node } = found
 
-    node.keyvals.push({ key, vals: [value] })
-    node.keyvals.sort((a, b) => this.compare(a.key, b.key))
+    node.pushKey(key, [value], this.compare)
     if (node.keyvals.length <= this.order * 2) {
+      this.nodes.commit()
       return
     }
     this.splitNode(found.nodeId, found.parents)
+    this.nodes.commit()
   }
 
   private insertIntoParent(
@@ -295,13 +491,7 @@ export class BTree<
     key: K,
     depth: number,
   ) {
-    const index = binarySearch(
-      parent.keys,
-      key,
-      this.compare,
-    )
-    parent.keys.splice(index, 0, key)
-    parent.childrenNodeIds.splice(index + 1, 0, node.nodeId)
+    parent.insertNode(key, node.nodeId, this.compare)
     if (parent.keys.length <= this.order * 2) {
       return
     }
@@ -313,21 +503,14 @@ export class BTree<
     parents: LinkedList<NodeId>,
     depth: number,
   ) {
-    const L2: LeafBTreeNode<K, V, NodeId> = {
-      nodeId: this.nodes.getNextNodeId(),
-      type: "leaf",
-      keyvals: node.keyvals.slice(this.order),
+    const L2 = this.nodes.createLeafNode(this.nodes.getNextNodeId(), {
+      keyvals: node.copyKeyvals(this.order),
       nextLeafNodeId: node.nextLeafNodeId,
-    }
-    node.nextLeafNodeId = L2.nodeId
-    this.nodes.set(L2.nodeId, L2)
-    const L1: LeafBTreeNode<K, V, NodeId> = {
-      nodeId: node.nodeId,
-      type: "leaf",
-      keyvals: node.keyvals.slice(0, this.order),
+    })
+    this.nodes.createLeafNode(node.nodeId, {
+      keyvals: node.copyKeyvals(0, this.order),
       nextLeafNodeId: L2.nodeId,
-    }
-    this.nodes.set(L1.nodeId, L1)
+    })
     this.insertIntoParent(
       this.nodes.get(parents.head as NodeId) as InternalBTreeNode<K, NodeId>,
       parents.tail as LinkedList<NodeId>,
@@ -345,13 +528,13 @@ export class BTree<
     let parentNode: InternalBTreeNode<K, NodeId>
     if (parents == null) {
       // make a new parent node
-      parentNode = {
-        nodeId: this.nodes.getNextNodeId(),
-        type: "internal",
-        keys: [],
-        childrenNodeIds: [node.nodeId],
-      }
-      this.nodes.set(parentNode.nodeId, parentNode)
+      parentNode = this.nodes.createInternalNode(
+        this.nodes.getNextNodeId(),
+        {
+          keys: [],
+          childrenNodeIds: [node.nodeId],
+        },
+      )
       this.rootNodeId = parentNode.nodeId
       parents = new LinkedList(parentNode.nodeId)
     } else {
@@ -362,27 +545,18 @@ export class BTree<
     }
 
     const keyToMove = node.keys[this.order]
-    const L2: InternalBTreeNode<K, NodeId> = {
-      nodeId: this.nodes.getNextNodeId(),
-      type: "internal",
-      keys: node.keys.slice(this.order + 1),
-      childrenNodeIds: node.childrenNodeIds.slice(this.order + 1),
-    }
-    this.nodes.set(L2.nodeId, L2)
-    const L1: InternalBTreeNode<K, NodeId> = {
-      nodeId: node.nodeId,
-      type: "internal",
+    const L2 = this.nodes.createInternalNode(
+      this.nodes.getNextNodeId(),
+      {
+        keys: node.keys.slice(this.order + 1),
+        childrenNodeIds: node.childrenNodeIds.slice(this.order + 1),
+      },
+    )
+    this.nodes.createInternalNode(node.nodeId, {
       keys: node.keys.slice(0, this.order),
       childrenNodeIds: node.childrenNodeIds.slice(0, this.order + 1),
-    }
-    this.nodes.set(L1.nodeId, L1)
-    const i = binarySearch(
-      parentNode.keys,
-      keyToMove,
-      this.compare,
-    )
-    parentNode.keys.splice(i, 0, keyToMove)
-    parentNode.childrenNodeIds.splice(i + 1, 0, L2.nodeId)
+    })
+    parentNode.insertNode(keyToMove, L2.nodeId, this.compare)
     if (parentNode.keys.length > this.order * 2) {
       this.splitNode(parentNode.nodeId, parents.tail, depth + 1)
     }
@@ -410,7 +584,8 @@ export class BTree<
       return
     }
     const { node, keyIndex } = found
-    node.keyvals.splice(keyIndex, 1)
+    node.removeKey(keyIndex)
+    this.nodes.commit()
   }
 
   remove(key: K, value: V) {
@@ -418,7 +593,8 @@ export class BTree<
     if (found.keyval == null) {
       return
     }
-    found.keyval.vals = found.keyval.vals.filter((v) => !this.isEqual(v, value))
+    found.node.removeValue(found.keyIndex, value, this.isEqual)
+    this.nodes.commit()
   }
 
   has(key: K): boolean {
@@ -426,7 +602,7 @@ export class BTree<
     return found.keyval !== null && found.keyval.vals.length > 0
   }
 
-  get(key: K): V[] {
+  get(key: K): readonly V[] {
     return this._get(this.rootNodeId, key).keyval?.vals ?? []
   }
 
@@ -441,8 +617,8 @@ export class BTree<
 
   getRange(
     { gt, gte, lte, lt }: Range<K>,
-  ): { key: K; vals: V[] }[] {
-    const results: { key: K; vals: V[] }[] = []
+  ): { key: K; vals: readonly V[] }[] {
+    const results: { key: K; vals: readonly V[] }[] = []
 
     let current: LeafBTreeNode<K, V, NodeId>
     let isGt: ((k: K) => boolean) | null = null

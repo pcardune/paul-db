@@ -45,8 +45,11 @@ function assertWellFormedNode<K, V, NodeId>(
   btree: BTree<K, V, NodeId>,
   node: BTreeNode<K, V, NodeId>,
 ) {
-  expect(btree.getNodeWithId(node.nodeId), "Node should have the correct id")
-    .toBe(node)
+  expect(
+    btree.getNodeWithId(node.nodeId).serialize(),
+    "Node should have the correct id",
+  )
+    .toEqual(node.serialize())
   if (node.type === "internal") {
     assertWellFormedInternalNode(btree, node)
   } else {
@@ -139,7 +142,7 @@ function assertWellFormedInternalNode<K, V, NodeId>(
     }
   }
 
-  if (node != btree.rootNode) {
+  if (node.nodeId != btree.rootNode.nodeId) {
     expect(
       node.keys.length,
       "Internal nodes should have at least _order_ entries",

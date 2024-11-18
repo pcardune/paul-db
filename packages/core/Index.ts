@@ -15,7 +15,7 @@ export class Index<K, V> {
     this.data.insert(key, value)
   }
 
-  public get(key: K): V[] {
+  public get(key: K): readonly V[] {
     return this.data.get(key)
   }
 
@@ -29,7 +29,7 @@ export class Index<K, V> {
 
   public getRange(range: Range<K>): {
     key: K
-    vals: V[]
+    vals: readonly V[]
   }[] {
     return this.data.getRange(range)
   }
