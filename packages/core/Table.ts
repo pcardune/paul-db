@@ -8,6 +8,7 @@ import {
   TableSchema,
   ValueForColumnSchema,
 } from "./schema.ts"
+import { ITableStorage } from "./TableStorage.ts"
 import { FilterTuple } from "./typetools.ts"
 
 type InternalRowId = bigint
@@ -17,16 +18,17 @@ export class Table<
   ColumnSchemasT extends SomeColumnSchema[],
   ComputedColumnSchemasT extends SomeComputedColumnSchema[],
   SchemaT extends TableSchema<TName, ColumnSchemasT, ComputedColumnSchemasT>,
+  StorageT extends ITableStorage<any, RecordForTableSchema<SchemaT>>,
 > {
   private schema: SchemaT
-  private data: Map<InternalRowId, RecordForTableSchema<SchemaT>>
+  private data: StorageT
   private nextId: InternalRowId
   private _allIndexes: Map<string, Index<unknown, InternalRowId, unknown>>
 
   constructor(init: {
     schema: SchemaT
     nextId: typeof Table.prototype.nextId
-    data: typeof Table.prototype.data
+    data: StorageT
   }) {
     this.schema = init.schema
     this.nextId = init.nextId
@@ -59,18 +61,21 @@ export class Table<
     ColumnSchemasT extends SomeColumnSchema[],
     ComputedColumnSchemasT extends SomeComputedColumnSchema[],
     SchemaT extends TableSchema<any, any, any>,
+    StorageT extends ITableStorage<any, RecordForTableSchema<SchemaT>>,
   >(
     schema: SchemaT,
+    storageFactory: (schema: SchemaT) => StorageT,
   ) {
     return new Table<
       TName,
       ColumnSchemasT,
       ComputedColumnSchemasT,
-      SchemaT
+      SchemaT,
+      StorageT
     >({
       schema,
       nextId: 1n,
-      data: new Map(),
+      data: storageFactory(schema),
     })
   }
 
@@ -117,11 +122,17 @@ export class Table<
         throw new Error(`Column ${column.name} is not indexed`)
       }
     }
+    this.data.commit()
     return id
   }
 
   public get(id: InternalRowId): RecordForTableSchema<SchemaT> | undefined {
     return this.data.get(id)
+  }
+
+  public remove(id: InternalRowId): void {
+    this.data.remove(id)
+    this.data.commit()
   }
 
   public lookup<

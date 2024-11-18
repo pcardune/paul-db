@@ -9,6 +9,7 @@
     "jsr:@std/fs@^1.0.5": "1.0.5",
     "jsr:@std/internal@^1.0.5": "1.0.5",
     "jsr:@std/path@^1.0.7": "1.0.8",
+    "jsr:@std/path@^1.0.8": "1.0.8",
     "jsr:@std/random@0.1": "0.1.0",
     "jsr:@std/testing@*": "1.0.5",
     "npm:@commander-js/extra-typings@12.1.0": "12.1.0_commander@12.1.0",
@@ -44,7 +45,7 @@
     "@std/fs@1.0.5": {
       "integrity": "41806ad6823d0b5f275f9849a2640d87e4ef67c51ee1b8fb02426f55e02fd44e",
       "dependencies": [
-        "jsr:@std/path"
+        "jsr:@std/path@^1.0.7"
       ]
     },
     "@std/internal@1.0.5": {
@@ -60,7 +61,9 @@
       "integrity": "6e693cbec94c81a1ad3df668685c7ba8e20742bb10305bc7137faa5cf16d2ec4",
       "dependencies": [
         "jsr:@std/assert@^1.0.8",
-        "jsr:@std/internal"
+        "jsr:@std/fs@^1.0.5",
+        "jsr:@std/internal",
+        "jsr:@std/path@^1.0.8"
       ]
     }
   },

@@ -120,8 +120,8 @@ export type InputForComputedColumnSchema<C> = C extends
   ComputedColumnSchema<any, any, any, infer I, any> ? I : never
 export type OutputForComputedColumnSchema<C> = C extends
   ComputedColumnSchema<any, any, any, any, infer O> ? O : never
-
-export type SomeColumnSchema = ColumnSchema<string, any, boolean, any>
+export type ColumnSchemaWithValue<V> = ColumnSchema<string, V, false, false>
+export type SomeColumnSchema = ColumnSchema<string, any, boolean, boolean>
 export type IndexedColumnSchema = ColumnSchema<string, any, any, true>
 export type SomeComputedColumnSchema = ComputedColumnSchema<
   string,
@@ -151,6 +151,8 @@ export type RecordForTableSchema<TS extends TableSchema<any, any, any>> =
   RecordForColumnSchemas<
     TS["columns"]
   >
+
+export type SomeTableSchema = TableSchema<string, any, any>
 
 export class TableSchema<
   TableName extends string,
