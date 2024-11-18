@@ -1,5 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
-import { Comparator, EqualityChecker } from "./DiskBTree.ts"
+import { Comparator, EqualityChecker } from "./types.ts"
 import { PushTuple } from "./typetools.ts"
 
 export const ColumnTypes = {

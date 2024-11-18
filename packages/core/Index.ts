@@ -1,14 +1,23 @@
-import {
-  BTree,
-  InMemoryBTree,
-  InMemoryBTreeConfig,
-  Range,
-} from "./DiskBTree.ts"
+import { BTree, InMemoryBTreeConfig } from "./BTree.ts"
+import { InMemoryNodeList } from "./NodeList.ts"
+import { Range } from "./types.ts"
 
-export class Index<K, V> {
-  private data: InMemoryBTree<K, V>
-  constructor(config: InMemoryBTreeConfig<K, V>) {
-    this.data = BTree.inMemory<K, V>(config)
+export class Index<K, V, NodeId> {
+  private data: BTree<K, V, NodeId>
+  constructor(data: BTree<K, V, NodeId>) {
+    this.data = data
+  }
+
+  static inMemory<K, V>(
+    config: InMemoryBTreeConfig<K, V>,
+  ): Index<K, V, number> {
+    return new Index(
+      new BTree<K, V, number>({
+        compare: config.compare ?? ((a, b) => a < b ? -1 : a > b ? 1 : 0),
+        isEqual: config.isEqual ?? ((a, b) => a === b),
+        nodes: new InMemoryNodeList<K, V>([]),
+      }),
+    )
   }
 
   public insert(key: K, value: V): void {

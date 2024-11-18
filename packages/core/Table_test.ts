@@ -1,6 +1,6 @@
 import { describe, it } from "jsr:@std/testing/bdd"
 import { expect } from "jsr:@std/expect"
-import { Table } from "./table.ts"
+import { Table } from "./Table.ts"
 import {
   column,
   ColumnType,

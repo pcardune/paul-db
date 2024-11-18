@@ -1,9 +1,8 @@
 import { expect } from "jsr:@std/expect"
 import { beforeEach, describe, it } from "jsr:@std/testing/bdd"
-import { BTree, BTreeNode } from "./DiskBTree.ts"
+import { BTree } from "./BTree.ts"
 import { randomIntegerBetween, randomSeeded } from "@std/random"
-import { InternalBTreeNode } from "./DiskBTree.ts"
-import { LeafBTreeNode } from "./DiskBTree.ts"
+import { BTreeNode, InternalBTreeNode, LeafBTreeNode } from "./NodeList.ts"
 
 // TODO: consider using expect.extend to make custom matchers for this
 // see https://jsr.io/@std/expect/doc/~/expect.extend

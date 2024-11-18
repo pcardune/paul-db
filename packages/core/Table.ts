@@ -21,7 +21,7 @@ export class Table<
   private schema: SchemaT
   private data: Map<InternalRowId, RecordForTableSchema<SchemaT>>
   private nextId: InternalRowId
-  private _allIndexes: Map<string, Index<unknown, InternalRowId>>
+  private _allIndexes: Map<string, Index<unknown, InternalRowId, unknown>>
 
   constructor(init: {
     schema: SchemaT
@@ -37,7 +37,7 @@ export class Table<
       if (column.indexed) {
         this._allIndexes.set(
           column.name,
-          new Index({
+          Index.inMemory({
             isEqual: column.type.isEqual,
             compare: column.type.compare,
           }),
@@ -48,7 +48,7 @@ export class Table<
       if (column.indexed) {
         this._allIndexes.set(
           column.name,
-          new Index({}),
+          Index.inMemory({}),
         )
       }
     }
