@@ -1,4 +1,4 @@
-import { RecordForTableSchema, SomeTableSchema } from "./schema.ts"
+import { RecordForTableSchema, SomeTableSchema } from "./schema/schema.ts"
 
 export interface ITableStorage<RowId, RowData> {
   get(id: RowId): RowData | undefined

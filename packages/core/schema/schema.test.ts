@@ -2,13 +2,13 @@ import { describe, it } from "jsr:@std/testing/bdd"
 import { expect } from "jsr:@std/expect"
 import {
   column,
-  ColumnTypes,
   computedColumn,
   RecordForColumnSchema,
   TableSchema,
   ValueForColumnSchema,
 } from "./schema.ts"
 import { RecordForTableSchema } from "./schema.ts"
+import { ColumnTypes } from "./ColumnType.ts"
 
 function assertType<T>(_value: T) {}
 type TypeEquals<Actual, Expected> = Actual extends Expected ? true

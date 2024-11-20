@@ -2,14 +2,9 @@ import { describe, it } from "jsr:@std/testing/bdd"
 import { expect } from "jsr:@std/expect"
 import { assertSnapshot } from "jsr:@std/testing/snapshot"
 import { Table } from "./Table.ts"
-import {
-  column,
-  ColumnType,
-  ColumnTypes,
-  computedColumn,
-  TableSchema,
-} from "./schema.ts"
+import { column, computedColumn, TableSchema } from "./schema/schema.ts"
 import { InMemoryTableStorage, JsonFileTableStorage } from "./TableStorage.ts"
+import { ColumnType, ColumnTypes } from "./schema/ColumnType.ts"
 
 const peopleSchema = TableSchema.create("people")
   .withColumn("name", ColumnTypes.any<string>())

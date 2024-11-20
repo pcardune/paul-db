@@ -7,7 +7,7 @@ import {
   SomeComputedColumnSchema,
   TableSchema,
   ValueForColumnSchema,
-} from "./schema.ts"
+} from "./schema/schema.ts"
 import { ITableStorage } from "./TableStorage.ts"
 import { FilterTuple } from "./typetools.ts"
 
