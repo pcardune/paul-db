@@ -3,12 +3,14 @@ import { expect } from "jsr:@std/expect"
 import {
   column,
   computedColumn,
+  makeTableSchemaSerializer,
   RecordForColumnSchema,
   TableSchema,
   ValueForColumnSchema,
 } from "./schema.ts"
 import { RecordForTableSchema } from "./schema.ts"
 import { ColumnTypes } from "./ColumnType.ts"
+import { dumpUint8Buffer } from "../binary/util.ts"
 
 function assertType<T>(_value: T) {}
 type TypeEquals<Actual, Expected> = Actual extends Expected ? true
@@ -30,7 +32,7 @@ describe("ColumnSchemas", () => {
     // @ts-expect-error: Can't insert a number into a string column
     // Note: at runtime this will not throw an error because we expect
     // typescript to catch it
-    expect(nameColumn.type.isValid(12)).toBe(true)
+    expect(nameColumn.type.isValid(25)).toBe(true)
 
     assertType<"name">(nameColumn.name)
     assertType<false>(nameColumn.unique)
@@ -113,8 +115,8 @@ describe("Schemas", () => {
     expect(() => peopleSchema.withColumn("bar")).toThrow()
 
     expect(peopleSchema.columns).toHaveLength(2)
-    expect(peopleSchema.isValidRecord({ name: "Alice", age: 12 })).toBe(true)
-    expect(peopleSchema.isValidRecord({ name: "Alice", age: -12 })).toBe(false)
+    expect(peopleSchema.isValidRecord({ name: "Alice", age: 25 })).toBe(true)
+    expect(peopleSchema.isValidRecord({ name: "Alice", age: -25 })).toBe(false)
 
     // @ts-expect-error: Can't insert a record with missing columns
     expect(peopleSchema.isValidRecord({ name: "Alice" })).toBe(false)
@@ -132,8 +134,8 @@ describe("Schemas", () => {
       .withColumn("name", ColumnTypes.any<string>())
       .withColumn("age", ColumnTypes.positiveNumber())
 
-    expect(peopleSchema.isValidRecord({ name: "Alice", age: 12 })).toBe(true)
-    expect(peopleSchema.isValidRecord({ name: "Alice", age: -12 })).toBe(false)
+    expect(peopleSchema.isValidRecord({ name: "Alice", age: 25 })).toBe(true)
+    expect(peopleSchema.isValidRecord({ name: "Alice", age: -25 })).toBe(false)
   })
 
   it("Exposes the types of records that are stored in the table", () => {
@@ -205,6 +207,38 @@ describe("Schemas", () => {
           },
         ),
       )
+    })
+  })
+})
+
+describe("Serializing and deserializing records", () => {
+  it("can serialize and deserialize records", () => {
+    const peopleSchema = TableSchema.create("people")
+      .withColumn("name", ColumnTypes.string())
+      .withColumn("age", ColumnTypes.uint32())
+      .withColumn("likesIceCream", ColumnTypes.boolean())
+
+    const serializer = makeTableSchemaSerializer(peopleSchema)!
+    expect(serializer).toBeDefined()
+
+    const data = serializer.serialize({
+      name: "Alice",
+      age: 25,
+      likesIceCream: true,
+    })
+    // deno-fmt-ignore
+    expect(dumpUint8Buffer(data)).toEqual([
+        0,   0,   0,  9,       // name starts at offset 9
+        0,   0,   0,  25,      // age=25 
+        1,                     // likesIceCream=true
+       65, 108, 105,  99, 101, // name="Alice"
+    ])
+
+    const record = serializer.deserialize(new DataView(data))
+    expect(record).toEqual({
+      name: "Alice",
+      age: 25,
+      likesIceCream: true,
     })
   })
 })

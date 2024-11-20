@@ -1,6 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { PushTuple } from "../typetools.ts"
 import { ColumnType } from "./ColumnType.ts"
+import { Serializer } from "./Serializers.ts"
 
 export class ColumnSchema<
   Name extends string,
@@ -110,12 +111,16 @@ type RecordForColumnSchemas<
   >
 }
 
-export type RecordForTableSchema<TS extends TableSchema<any, any, any>> =
+export type RecordForTableSchema<TS extends SomeTableSchema> =
   RecordForColumnSchemas<
     TS["columns"]
   >
 
-export type SomeTableSchema = TableSchema<string, any, any>
+export type SomeTableSchema = TableSchema<
+  string,
+  SomeColumnSchema[],
+  SomeComputedColumnSchema[]
+>
 
 export class TableSchema<
   TableName extends string,
@@ -253,5 +258,104 @@ export class TableSchema<
       ...this.columns,
       nameOrColumn,
     ], this.computedColumns)
+  }
+}
+
+export function makeTableSchemaSerializer<SchemaT extends SomeTableSchema>(
+  schema: SchemaT,
+): Serializer<RecordForTableSchema<SchemaT>> | undefined {
+  if (schema.columns.some((c) => c.type.serializer == null)) {
+    // can't make a serializer if any of the columns don't have a serializer
+    return
+  }
+
+  let headerSize = 0
+  let fixedSize = 0
+  for (const column of schema.columns) {
+    const serializer = column.type.serializer!
+    if (serializer.fixedLength === false) {
+      headerSize += 4
+    } else {
+      fixedSize += serializer.fixedLength
+    }
+  }
+  return {
+    fixedLength: headerSize > 0 ? false : fixedSize,
+    serialize: (record: RecordForTableSchema<typeof schema>) => {
+      const fixedBuffers: ArrayBuffer[] = []
+      const varBuffers: ArrayBuffer[] = []
+      for (const column of schema.columns) {
+        const serializer = column.type.serializer!
+        const columnValue = (record as any)[column.name]
+        if (serializer.fixedLength !== false) {
+          fixedBuffers.push(serializer.serialize(columnValue))
+        } else {
+          varBuffers.push(serializer.serialize(columnValue))
+        }
+      }
+      const totalSize = headerSize + fixedSize +
+        varBuffers.reduce((acc, b) => acc + b.byteLength, 0)
+      const buffer = new ArrayBuffer(totalSize)
+      const view = new DataView(buffer)
+      let headerOffset = 0
+      let fixedValueOffset = headerSize
+      let varValueOffset = headerSize + fixedSize
+
+      const bufferUint8 = new Uint8Array(buffer)
+      // write the variable length values first
+      for (const varBuffer of varBuffers) {
+        view.setUint32(headerOffset, varValueOffset)
+        headerOffset += 4
+        bufferUint8.set(new Uint8Array(varBuffer), varValueOffset)
+        varValueOffset += varBuffer.byteLength
+      }
+      // write the fixed length values
+      for (const fixedBuffer of fixedBuffers) {
+        bufferUint8.set(new Uint8Array(fixedBuffer), fixedValueOffset)
+        fixedValueOffset += fixedBuffer.byteLength
+      }
+      return buffer
+    },
+    deserialize: (buffer: DataView) => {
+      const record: Record<string, any> = {}
+      let headerOffset = 0
+      let fixedValueOffset = headerSize
+      for (const column of schema.columns) {
+        const serializer = column.type.serializer!
+        if (serializer.fixedLength !== false) {
+          record[column.name] = serializer.deserialize(
+            new DataView(
+              buffer.buffer,
+              buffer.byteOffset + fixedValueOffset,
+              serializer.fixedLength,
+            ),
+          )
+          fixedValueOffset += serializer.fixedLength
+        } else {
+          const varLengthStartPointer = buffer.getUint32(headerOffset)
+          // 0 for the first one, then 4 for the next one
+          // the total headerSize is 8.
+          // so if we are at offset 4, then the length of the thing goes
+          // to the end of the buffer. 4 + 4 = 8 vs 0 + 4 = 4
+          let varLengthSize: number
+          if (headerOffset + 4 >= headerSize) {
+            // this is the last variable length value
+            varLengthSize = buffer.byteLength - varLengthStartPointer
+          } else {
+            const nextVarLengthStart = buffer.getUint32(headerOffset + 4)
+            varLengthSize = nextVarLengthStart - varLengthStartPointer
+          }
+          record[column.name] = serializer.deserialize(
+            new DataView(
+              buffer.buffer,
+              buffer.byteOffset + varLengthStartPointer,
+              varLengthSize,
+            ),
+          )
+          headerOffset += 4
+        }
+      }
+      return record as RecordForTableSchema<typeof schema>
+    },
   }
 }
