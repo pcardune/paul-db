@@ -1,6 +1,7 @@
-type PageId = bigint
+export type PageId = bigint
 
-interface IPageBufferPool {
+export interface IBufferPool {
+  get pageSize(): number
   allocatePage(): Promise<PageId>
   freePage(pageId: PageId): void
   getPage(pageId: PageId): Promise<Uint8Array>
@@ -8,7 +9,7 @@ interface IPageBufferPool {
   commit(): Promise<void>
 }
 
-export class InMemoryBufferPool implements IPageBufferPool {
+export class InMemoryBufferPool implements IBufferPool {
   private pages: Map<PageId, Uint8Array> = new Map()
   private freeList: PageId[] = []
 
@@ -45,7 +46,7 @@ export class InMemoryBufferPool implements IPageBufferPool {
   }
 }
 
-export class FileBackedBufferPool implements IPageBufferPool {
+export class FileBackedBufferPool implements IBufferPool {
   private pages: Map<PageId, Uint8Array> = new Map()
   private dirtyPages: Set<PageId> = new Set()
   private __lastWrittenFreePageId: PageId = 0n

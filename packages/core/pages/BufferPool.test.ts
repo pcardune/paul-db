@@ -7,13 +7,11 @@ describe("FileBackedBufferPool", () => {
   const filePath = "/tmp/bufferpool"
   const pageSize = 4096
   beforeEach(async () => {
-    try {
-      Deno.removeSync(filePath)
-    } catch (e) {
-      if (!(e instanceof Deno.errors.NotFound)) {
-        throw e
-      }
-    }
+    Deno.openSync(filePath, {
+      create: true,
+      write: true,
+      truncate: true,
+    }).close()
     bufferPool = await FileBackedBufferPool.create(filePath, pageSize)
   })
   afterEach(() => {

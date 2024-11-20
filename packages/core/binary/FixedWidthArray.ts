@@ -16,50 +16,42 @@ export type Struct<V> = {
   /**
    * Reads a value from a DataView.
    */
-  read: (view: DataView) => V
+  read: (view: DataView) => Readonly<V>
 }
 
 /**
  * A fixed-width array that stores elements of a fixed width.
  */
 export class FixedWidthArray<V> {
-  private _data: Uint8Array
-  private _view: DataView
-
-  private type: Struct<V>
-
   constructor(
-    data: Uint8Array,
-    type: Struct<V>,
+    private view: DataView,
+    private type: Struct<V>,
   ) {
-    this._data = data
-    this._view = new DataView(data.buffer)
-    this.type = type
   }
 
   get length(): number {
-    return this._view.getUint32(0)
+    return this.view.getUint32(0)
   }
 
   private set length(value: number) {
-    this._view.setUint32(0, value)
+    this.view.setUint32(0, value)
   }
 
   get maxLength(): number {
-    return Math.floor((this._data.length - 4) / this.type.size)
+    return Math.floor((this.view.byteLength - 4) / this.type.size)
   }
 
   private dataViewForElement(index: number): DataView {
     const offset = 4 + index * this.type.size
     return new DataView(
-      this._data.buffer,
-      this._data.byteOffset + offset,
+      this.view.buffer,
+      this.view.byteOffset + offset,
       this.type.size,
     )
   }
 
   get bufferSize(): number {
-    return this._data.length
+    return this.view.byteLength
   }
 
   get(index: number): V {
@@ -102,6 +94,12 @@ export class FixedWidthArray<V> {
     }
   }
 
+  *enumerate(): Generator<[number, V]> {
+    for (let i = 0; i < this.length; i++) {
+      yield [i, this.get(i)]
+    }
+  }
+
   /**
    * Creates a new empty fixed-width array.
    *
@@ -123,6 +121,9 @@ export class FixedWidthArray<V> {
     } else {
       size = config.length * config.type.size + 4
     }
-    return new FixedWidthArray(new Uint8Array(size), config.type)
+    return new FixedWidthArray(
+      new DataView(new Uint8Array(size).buffer),
+      config.type,
+    )
   }
 }
