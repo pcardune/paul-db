@@ -1,4 +1,5 @@
-import { FixedWidthArray, Struct } from "../binary/FixedWidthArray.ts"
+import { FixedWidthArray } from "../binary/FixedWidthArray.ts"
+import { Struct } from "../binary/Struct.ts"
 import { IBufferPool, PageId } from "./BufferPool.ts"
 
 type PageEntry = Readonly<{ pageId: PageId; freeSpace: number }>
@@ -71,6 +72,10 @@ class HeaderPageRef {
   }
 }
 
+/**
+ * A heap page file is a file that stores variable-length records in a
+ * collection of pages.
+ */
 export class HeapPageFile {
   private _headerPageRef: HeaderPageRef
   constructor(private bufferPool: IBufferPool, pageId: PageId) {

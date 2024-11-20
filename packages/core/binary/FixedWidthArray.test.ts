@@ -1,6 +1,7 @@
 import { expect } from "jsr:@std/expect"
-import { FixedWidthArray, Struct } from "./FixedWidthArray.ts"
+import { FixedWidthArray } from "./FixedWidthArray.ts"
 import { describe, it } from "jsr:@std/testing/bdd"
+import { Struct } from "./Struct.ts"
 
 const pointType: Struct<{ x: number; y: number }> = {
   size: 8,
