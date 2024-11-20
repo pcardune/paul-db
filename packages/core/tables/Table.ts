@@ -1,5 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
-import { Index } from "./Index.ts"
+import { Index } from "../Index.ts"
 import {
   OutputForComputedColumnSchema,
   RecordForTableSchema,
@@ -7,9 +7,9 @@ import {
   SomeComputedColumnSchema,
   TableSchema,
   ValueForColumnSchema,
-} from "./schema/schema.ts"
+} from "../schema/schema.ts"
 import { ITableStorage } from "./TableStorage.ts"
-import { FilterTuple } from "./typetools.ts"
+import { FilterTuple } from "../typetools.ts"
 
 type InternalRowId = bigint
 
@@ -79,11 +79,13 @@ export class Table<
     })
   }
 
-  public insertMany(records: RecordForTableSchema<SchemaT>[]): InternalRowId[] {
-    return records.map((record) => this.insert(record))
+  insertMany(
+    records: RecordForTableSchema<SchemaT>[],
+  ): Promise<InternalRowId[]> {
+    return Promise.all(records.map((record) => this.insert(record)))
   }
 
-  public insert(record: RecordForTableSchema<SchemaT>): InternalRowId {
+  async insert(record: RecordForTableSchema<SchemaT>): Promise<InternalRowId> {
     if (!this.schema.isValidRecord(record)) {
       throw new Error("Invalid record")
     }
@@ -105,7 +107,7 @@ export class Table<
     }
 
     const id = this.nextId++
-    this.data.set(id, record)
+    await this.data.set(id, record)
     for (const column of this.schema.columns) {
       const index = this._allIndexes.get(column.name)
       if (index) {
@@ -126,13 +128,13 @@ export class Table<
     return id
   }
 
-  public get(id: InternalRowId): RecordForTableSchema<SchemaT> | undefined {
+  get(id: InternalRowId): Promise<RecordForTableSchema<SchemaT> | undefined> {
     return this.data.get(id)
   }
 
-  public remove(id: InternalRowId): void {
-    this.data.remove(id)
-    this.data.commit()
+  async remove(id: InternalRowId): Promise<void> {
+    await this.data.remove(id)
+    await this.data.commit()
   }
 
   public lookup<
@@ -143,17 +145,19 @@ export class Table<
   >(
     indexName: IName,
     value: ValueT,
-  ): Readonly<RecordForTableSchema<SchemaT>>[] {
+  ): Promise<Readonly<RecordForTableSchema<SchemaT>>[]> {
     const index = this._allIndexes.get(indexName)
     if (!index) {
       throw new Error(`Index ${indexName} does not exist`)
     }
-    return index.get(value).map((id) => {
-      return this.data.get(id)!
-    })
+    return Promise.all(
+      index.get(value).map((id) => {
+        return this.data.get(id) as Promise<RecordForTableSchema<SchemaT>>
+      }),
+    )
   }
 
-  public lookupComputed<
+  lookupComputed<
     IName extends FilterTuple<
       SchemaT["computedColumns"],
       { indexed: true }
@@ -170,7 +174,11 @@ export class Table<
     if (!column) {
       throw new Error(`Column ${indexName} is not a computed column`)
     }
-    return index.get(value).map((id) => this.data.get(id)!)
+    return Promise.all(
+      index.get(value).map((id) =>
+        this.data.get(id) as Promise<RecordForTableSchema<SchemaT>>
+      ),
+    )
   }
 
   public iterate(): IteratorObject<RecordForTableSchema<SchemaT>, void, void> {

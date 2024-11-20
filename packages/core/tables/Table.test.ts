@@ -1,44 +1,44 @@
-import { describe, it } from "jsr:@std/testing/bdd"
+import { beforeAll, describe, it } from "jsr:@std/testing/bdd"
 import { expect } from "jsr:@std/expect"
 import { assertSnapshot } from "jsr:@std/testing/snapshot"
 import { Table } from "./Table.ts"
-import { column, computedColumn, TableSchema } from "./schema/schema.ts"
+import { column, computedColumn, TableSchema } from "../schema/schema.ts"
 import { InMemoryTableStorage, JsonFileTableStorage } from "./TableStorage.ts"
-import { ColumnType, ColumnTypes } from "./schema/ColumnType.ts"
+import { ColumnType, ColumnTypes } from "../schema/ColumnType.ts"
 
 const peopleSchema = TableSchema.create("people")
   .withColumn("name", ColumnTypes.any<string>())
   .withColumn("age", ColumnTypes.positiveNumber())
 
 describe("Create, Read, and Delete", () => {
-  it("lets you insert and retrieve records", () => {
+  it("lets you insert and retrieve records", async () => {
     const people = Table.create(
       peopleSchema,
       InMemoryTableStorage.forSchema,
     )
 
-    const aliceId = people.insert({ name: "Alice", age: 12 })
-    const bobId = people.insert({ name: "Bob", age: 12 })
-    expect(people.get(aliceId)).toEqual({ name: "Alice", age: 12 })
-    expect(people.get(bobId)).toEqual({ name: "Bob", age: 12 })
+    const aliceId = await people.insert({ name: "Alice", age: 12 })
+    const bobId = await people.insert({ name: "Bob", age: 12 })
+    expect(await people.get(aliceId)).toEqual({ name: "Alice", age: 12 })
+    expect(await people.get(bobId)).toEqual({ name: "Bob", age: 12 })
   })
-  it("You can delete records", () => {
+  it("You can delete records", async () => {
     const people = Table.create(peopleSchema, InMemoryTableStorage.forSchema)
-    const aliceId = people.insert({ name: "Alice", age: 12 })
-    const bobId = people.insert({ name: "Bob", age: 12 })
+    const aliceId = await people.insert({ name: "Alice", age: 12 })
+    const bobId = await people.insert({ name: "Bob", age: 12 })
     people.remove(aliceId)
-    expect(people.get(aliceId)).toBeUndefined()
-    expect(people.get(bobId)).toEqual({ name: "Bob", age: 12 })
+    expect(await people.get(aliceId)).toBeUndefined()
+    expect(await people.get(bobId)).toEqual({ name: "Bob", age: 12 })
   })
 })
 
 describe("Insert Validation", () => {
-  it("should not allow you to insert records with invalid schema", () => {
+  it("should not allow you to insert records with invalid schema", async () => {
     const people = Table.create(peopleSchema, InMemoryTableStorage.forSchema)
-    people.insert({ name: "Alice", age: 12 })
-    expect(() => {
-      people.insert({ name: "Alice", age: -12 })
-    }).toThrow("Invalid record")
+    await people.insert({ name: "Alice", age: 12 })
+    expect(people.insert({ name: "Alice", age: -12 })).rejects.toThrow(
+      "Invalid record",
+    )
   })
 
   it("Throws when inserting values that don't satisfy the column type", () => {
@@ -52,9 +52,8 @@ describe("Insert Validation", () => {
     )
 
     oddPeople.insert({ name: "Alice", age: 13, favoriteOdd: 13 })
-    expect(() => {
-      oddPeople.insert({ name: "Alice", age: 12, favoriteOdd: 12 })
-    }).toThrow("Invalid record")
+    expect(oddPeople.insert({ name: "Alice", age: 12, favoriteOdd: 12 }))
+      .rejects.toThrow("Invalid record")
   })
 })
 
@@ -65,38 +64,37 @@ const phoneNumberType = new ColumnType<string>({
 })
 
 describe("Uniqueness Constraints", () => {
-  it("enforces uniqueness constraints", () => {
+  it("enforces uniqueness constraints", async () => {
     const people = Table.create(
       peopleSchema
         .withColumn("ssn", ColumnTypes.any<string>(), { unique: true }),
       InMemoryTableStorage.forSchema,
     )
 
-    people.insert({ name: "Alice", age: 12, ssn: "123-45-6789" })
-    expect(() => {
-      people.insert({ name: "Alice", age: 12, ssn: "123-45-6789" })
-    }).toThrow("Record with given ssn value already exists")
-    people.insert({ name: "Alice", age: 12, ssn: "123-45-6-7-89" })
+    await people.insert({ name: "Alice", age: 12, ssn: "123-45-6789" })
+    expect(people.insert({ name: "Alice", age: 12, ssn: "123-45-6789" }))
+      .rejects.toThrow("Record with given ssn value already exists")
+    await people.insert({ name: "Alice", age: 12, ssn: "123-45-6-7-89" })
   })
 
-  it("utilizes column type to determine uniqueness", () => {
+  it("utilizes column type to determine uniqueness", async () => {
     const people = Table.create(
       peopleSchema
         .withColumn("phone", phoneNumberType, { unique: true }),
       InMemoryTableStorage.forSchema,
     )
-    people.insert({ name: "Alice", age: 12, phone: "123-867-5309" })
-    expect(() => {
-      people.insert({ name: "Alice", age: 12, phone: "123-8675-309" })
-    }).toThrow("Record with given phone value already exists")
+    await people.insert({ name: "Alice", age: 12, phone: "123-867-5309" })
+    expect(
+      people.insert({ name: "Alice", age: 12, phone: "123-8675-309" }),
+    ).rejects.toThrow("Record with given phone value already exists")
   })
 })
 
 describe("Querying", () => {
   describe("Table.iterate()", () => {
-    it("lets you iterate over the entire contents of the table", () => {
+    it("lets you iterate over the entire contents of the table", async () => {
       const people = Table.create(peopleSchema, InMemoryTableStorage.forSchema)
-      people.insertMany([
+      await people.insertMany([
         { name: "Alice", age: 30 },
         { name: "Bob", age: 30 },
         { name: "Charlie", age: 35 },
@@ -113,9 +111,9 @@ describe("Querying", () => {
   })
 
   describe("Table.scan()", () => {
-    it("can query records by scanning the entire table", () => {
+    it("can query records by scanning the entire table", async () => {
       const people = Table.create(peopleSchema, InMemoryTableStorage.forSchema)
-      people.insertMany([
+      await people.insertMany([
         { name: "Alice", age: 30 },
         { name: "Bob", age: 30 },
         { name: "Charlie", age: 35 },
@@ -127,7 +125,7 @@ describe("Querying", () => {
       ])
     })
 
-    it("uses the underlying column type for equality testing", () => {
+    it("uses the underlying column type for equality testing", async () => {
       const people = Table.create(
         TableSchema.create("people").withColumn(
           "name",
@@ -135,7 +133,7 @@ describe("Querying", () => {
         ).withColumn("email", ColumnTypes.caseInsensitiveString()),
         InMemoryTableStorage.forSchema,
       )
-      people.insertMany([
+      await people.insertMany([
         { name: "Alice", email: "alice@example.com" },
         { name: "Alice 2", email: "Alice@example.com" },
         { name: "Bob", email: "bob@example.com" },
@@ -164,30 +162,32 @@ describe("Querying", () => {
       InMemoryTableStorage.forSchema,
     )
 
-    people.insertMany([
-      { name: "Alice", age: 25, phone: "123-456-7890" },
-      { name: "Bob", age: 35, phone: "123-456-7891" },
-      { name: "Charlie", age: 25, phone: "123-456-7892" },
-    ])
+    beforeAll(async () => {
+      await people.insertMany([
+        { name: "Alice", age: 25, phone: "123-456-7890" },
+        { name: "Bob", age: 35, phone: "123-456-7891" },
+        { name: "Charlie", age: 25, phone: "123-456-7892" },
+      ])
+    })
 
-    it("lets you query using an index", () => {
-      expect(people.lookup("age", 25)).toEqual([
+    it("lets you query using an index", async () => {
+      expect(await people.lookup("age", 25)).toEqual([
         { name: "Alice", age: 25, phone: "123-456-7890" },
         { name: "Charlie", age: 25, phone: "123-456-7892" },
       ])
-      expect(people.lookup("age", 35)).toEqual([
+      expect(await people.lookup("age", 35)).toEqual([
         { name: "Bob", age: 35, phone: "123-456-7891" },
       ])
     })
 
     it("lets you query using an index on a computed column", () => {
-      expect(people.lookupComputed("lowerCaseName", "alice")).toEqual([
+      expect(people.lookupComputed("lowerCaseName", "alice")).resolves.toEqual([
         { name: "Alice", age: 25, phone: "123-456-7890" },
       ])
     })
 
     it.skip("will throw if you lookup a computed indexed column with an invalid value", () => {
-      expect(() => people.lookupComputed("lowerCaseName", "ALICE")).toThrow(
+      expect(people.lookupComputed("lowerCaseName", "ALICE")).rejects.toThrow(
         "Invalid value for column lowerCaseName",
       )
     })

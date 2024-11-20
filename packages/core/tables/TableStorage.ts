@@ -1,11 +1,11 @@
-import { RecordForTableSchema, SomeTableSchema } from "./schema/schema.ts"
+import { RecordForTableSchema, SomeTableSchema } from "../schema/schema.ts"
 
 export interface ITableStorage<RowId, RowData> {
-  get(id: RowId): RowData | undefined
-  set(id: RowId, data: RowData): void
-  remove(id: RowId): void
+  get(id: RowId): Promise<RowData | undefined>
+  set(id: RowId, data: RowData): Promise<void>
+  remove(id: RowId): Promise<void>
   values(): IteratorObject<RowData, void, void>
-  commit(): void
+  commit(): Promise<void>
 }
 
 export class JsonFileTableStorage<RowData>
@@ -46,23 +46,25 @@ export class JsonFileTableStorage<RowData>
     return new JsonFileTableStorage<RecordForTableSchema<SchemaT>>(filename)
   }
 
-  get(id: number): RowData | undefined {
+  get(id: number): Promise<RowData | undefined> {
     if (this.deletedRecords.has(id)) {
-      return undefined
+      return Promise.resolve(undefined)
     }
-    return this.data[id]
+    return Promise.resolve(this.data[id])
   }
-  set(id: number, data: RowData): void {
+  set(id: number, data: RowData): Promise<void> {
     this.dirtyRecords.set(id, data)
     this.deletedRecords.delete(id)
+    return Promise.resolve()
   }
 
-  remove(id: number): void {
+  remove(id: number): Promise<void> {
     this.dirtyRecords.delete(id)
     this.deletedRecords.add(id)
+    return Promise.resolve()
   }
 
-  commit(): void {
+  async commit(): Promise<void> {
     for (const [id, data] of this.dirtyRecords) {
       this.data[id] = data
     }
@@ -70,7 +72,7 @@ export class JsonFileTableStorage<RowData>
     for (const id of this.deletedRecords) {
       delete this.data[id]
     }
-    Deno.writeTextFileSync(this.filename, JSON.stringify(this.data, null, 2))
+    await Deno.writeTextFile(this.filename, JSON.stringify(this.data, null, 2))
   }
 
   values(): IteratorObject<RowData, void, void> {
@@ -97,24 +99,26 @@ export class InMemoryTableStorage<RowId, RowData>
     return new InMemoryTableStorage()
   }
 
-  get(id: RowId): RowData | undefined {
+  get(id: RowId): Promise<RowData | undefined> {
     if (this.deletedRecords.has(id)) {
-      return undefined
+      return Promise.resolve(undefined)
     }
-    return this.dirtyRecords.get(id) ?? this.data.get(id)
+    return Promise.resolve(this.dirtyRecords.get(id) ?? this.data.get(id))
   }
 
-  set(id: RowId, data: RowData): void {
+  set(id: RowId, data: RowData): Promise<void> {
     this.dirtyRecords.set(id, data)
     this.deletedRecords.delete(id)
+    return Promise.resolve()
   }
 
-  remove(id: RowId): void {
+  remove(id: RowId): Promise<void> {
     this.dirtyRecords.delete(id)
     this.deletedRecords.add(id)
+    return Promise.resolve()
   }
 
-  commit(): void {
+  commit(): Promise<void> {
     for (const [id, data] of this.dirtyRecords) {
       this.data.set(id, data)
     }
@@ -122,6 +126,7 @@ export class InMemoryTableStorage<RowId, RowData>
     for (const id of this.deletedRecords) {
       this.data.delete(id)
     }
+    return Promise.resolve()
   }
 
   values(): IteratorObject<RowData, void, void> {
