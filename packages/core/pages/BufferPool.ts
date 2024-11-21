@@ -71,14 +71,17 @@ export class FileBackedBufferPool implements IBufferPool {
     const stat = await file.stat()
     let freePageId: PageId = 0n
     if (stat.size > 0) {
-      // read existing free list offset
+      // when the file is not empty, we need to look at the first
+      // 8 bytes to see where the free list starts
       const freeListData = new Uint8Array(8)
-      const bytesRead = await file.read(freeListData)
+      const bytesRead = await readBytes(file, freeListData)
       if (bytesRead === null) {
         throw new Error("Failed to read free list")
       }
-      if (bytesRead !== pageSize) {
-        throw new Error("Unexpected number of bytes read")
+      if (bytesRead !== freeListData.length) {
+        throw new Error(
+          `Unexpected number of bytes read (${bytesRead}) wanted ${pageSize}`,
+        )
       }
       freePageId = new DataView(freeListData.buffer).getBigUint64(0)
     }
@@ -100,7 +103,7 @@ export class FileBackedBufferPool implements IBufferPool {
     }
 
     const pageId = 8n + BigInt(this.pages.size * this.pageSize)
-
+    // this.freePageId = pageId + BigInt(this.pageSize)
     this.pages.set(pageId, new Uint8Array(this.pageSize))
     return pageId
   }
@@ -124,7 +127,7 @@ export class FileBackedBufferPool implements IBufferPool {
     await this.file.seek(pageId, Deno.SeekMode.Start)
 
     const data = new Uint8Array(this.pageSize)
-    const bytesRead = await this.file.read(data)
+    const bytesRead = await readBytes(this.file, data)
     if (bytesRead === null) {
       throw new Error(`Failed to read page ${pageId}`)
     }
@@ -140,8 +143,6 @@ export class FileBackedBufferPool implements IBufferPool {
   }
 
   get isDirty(): boolean {
-    console.log("dirtyPages.size", this.dirtyPages.size)
-    console.log("freePageId", this.freePageId)
     return this.dirtyPages.size > 0 ||
       this.freePageId !== this.__lastWrittenFreePageId
   }
@@ -170,4 +171,16 @@ export class FileBackedBufferPool implements IBufferPool {
     }
     this.dirtyPages.clear()
   }
+}
+
+async function readBytes(file: Deno.FsFile, into: Uint8Array) {
+  let bytesRead = 0
+  while (bytesRead < into.length) {
+    const n = await file.read(into.subarray(bytesRead))
+    if (n === null) {
+      throw new Error("Failed to read")
+    }
+    bytesRead += n
+  }
+  return bytesRead
 }

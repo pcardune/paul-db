@@ -11,27 +11,41 @@ import {
 import { ITableStorage } from "./TableStorage.ts"
 import { FilterTuple } from "../typetools.ts"
 
-type InternalRowId = bigint
+/**
+ * A helper type that lets you declare a table type from a given
+ * schema and storage type.
+ */
+export type TableInfer<SchemaT, StorageT> = SchemaT extends
+  TableSchema<infer TName, infer ColumnSchemasT, infer ComputedColumnSchemasT>
+  ? StorageT extends ITableStorage<infer RowIdT, RecordForTableSchema<SchemaT>>
+    ? Table<
+      RowIdT,
+      TName,
+      ColumnSchemasT,
+      ComputedColumnSchemasT,
+      SchemaT,
+      ITableStorage<RowIdT, RecordForTableSchema<SchemaT>>
+    >
+  : never
+  : never
 
 export class Table<
+  RowIdT,
   TName extends string,
   ColumnSchemasT extends SomeColumnSchema[],
   ComputedColumnSchemasT extends SomeComputedColumnSchema[],
   SchemaT extends TableSchema<TName, ColumnSchemasT, ComputedColumnSchemasT>,
-  StorageT extends ITableStorage<any, RecordForTableSchema<SchemaT>>,
+  StorageT extends ITableStorage<RowIdT, RecordForTableSchema<SchemaT>>,
 > {
   private schema: SchemaT
   private data: StorageT
-  private nextId: InternalRowId
-  private _allIndexes: Map<string, Index<unknown, InternalRowId, unknown>>
+  private _allIndexes: Map<string, Index<unknown, RowIdT, unknown>>
 
   constructor(init: {
     schema: SchemaT
-    nextId: typeof Table.prototype.nextId
     data: StorageT
   }) {
     this.schema = init.schema
-    this.nextId = init.nextId
     this.data = init.data
 
     this._allIndexes = new Map()
@@ -57,35 +71,35 @@ export class Table<
   }
 
   static create<
+    RowIdT,
     TName extends string,
     ColumnSchemasT extends SomeColumnSchema[],
     ComputedColumnSchemasT extends SomeComputedColumnSchema[],
-    SchemaT extends TableSchema<any, any, any>,
-    StorageT extends ITableStorage<any, RecordForTableSchema<SchemaT>>,
+    SchemaT extends TableSchema<TName, ColumnSchemasT, ComputedColumnSchemasT>,
   >(
     schema: SchemaT,
-    storageFactory: (schema: SchemaT) => StorageT,
+    data: ITableStorage<RowIdT, RecordForTableSchema<SchemaT>>,
   ) {
     return new Table<
+      RowIdT,
       TName,
       ColumnSchemasT,
       ComputedColumnSchemasT,
       SchemaT,
-      StorageT
+      ITableStorage<RowIdT, RecordForTableSchema<SchemaT>>
     >({
       schema,
-      nextId: 1n,
-      data: storageFactory(schema),
+      data,
     })
   }
 
   insertMany(
     records: RecordForTableSchema<SchemaT>[],
-  ): Promise<InternalRowId[]> {
+  ): Promise<RowIdT[]> {
     return Promise.all(records.map((record) => this.insert(record)))
   }
 
-  async insert(record: RecordForTableSchema<SchemaT>): Promise<InternalRowId> {
+  async insert(record: RecordForTableSchema<SchemaT>): Promise<RowIdT> {
     if (!this.schema.isValidRecord(record)) {
       throw new Error("Invalid record")
     }
@@ -106,8 +120,7 @@ export class Table<
       }
     }
 
-    const id = this.nextId++
-    await this.data.set(id, record)
+    const id = await this.data.insert(record)
     for (const column of this.schema.columns) {
       const index = this._allIndexes.get(column.name)
       if (index) {
@@ -124,15 +137,15 @@ export class Table<
         throw new Error(`Column ${column.name} is not indexed`)
       }
     }
-    this.data.commit()
+    await this.data.commit()
     return id
   }
 
-  get(id: InternalRowId): Promise<RecordForTableSchema<SchemaT> | undefined> {
+  get(id: RowIdT): Promise<RecordForTableSchema<SchemaT> | undefined> {
     return this.data.get(id)
   }
 
-  async remove(id: InternalRowId): Promise<void> {
+  async remove(id: RowIdT): Promise<void> {
     await this.data.remove(id)
     await this.data.commit()
   }

@@ -76,9 +76,13 @@ class HeaderPageRef {
  * A heap page file is a file that stores variable-length records in a
  * collection of pages.
  */
-export class HeapPageFile {
+export class HeapPageFile<AllocInfo extends { freeSpace: number }> {
   private _headerPageRef: HeaderPageRef
-  constructor(private bufferPool: IBufferPool, pageId: PageId) {
+  constructor(
+    private bufferPool: IBufferPool,
+    pageId: PageId,
+    private allocate: (pageId: PageId, bytes: number) => Promise<AllocInfo>,
+  ) {
     this._headerPageRef = new HeaderPageRef(bufferPool, pageId)
   }
 
@@ -92,15 +96,17 @@ export class HeapPageFile {
 
   async allocateSpace(
     bytes: number,
-  ): Promise<{ pageId: PageId; freeSpace: number }> {
+  ): Promise<{ pageId: PageId; allocInfo: AllocInfo }> {
     let headerPage = await this.headerPageRef.get()
     for (const [i, entry] of headerPage.entries.enumerate()) {
       if (entry.freeSpace >= bytes) {
+        const allocInfo = await this.allocate(entry.pageId, bytes)
+        this.bufferPool.markDirty(entry.pageId)
         headerPage.entries.set(i, {
           pageId: entry.pageId,
-          freeSpace: entry.freeSpace - bytes,
+          freeSpace: allocInfo.freeSpace,
         })
-        return headerPage.entries.get(i)
+        return { pageId: headerPage.entries.get(i).pageId, allocInfo }
       }
     }
 
@@ -112,15 +118,23 @@ export class HeapPageFile {
     }
 
     const newPageId = await this.bufferPool.allocatePage()
+    const allocInfo = await this.allocate(newPageId, bytes)
+    this.bufferPool.markDirty(newPageId)
     headerPage.entries.push({
       pageId: newPageId,
-      freeSpace: this.bufferPool.pageSize - bytes,
+      freeSpace: allocInfo.freeSpace,
     })
-    return headerPage.entries.get(headerPage.entries.length - 1)
+    return {
+      pageId: headerPage.entries.get(headerPage.entries.length - 1).pageId,
+      allocInfo,
+    }
   }
 
-  static async create(bufferPool: IBufferPool): Promise<HeapPageFile> {
+  static async create<AllocInfo extends { freeSpace: number }>(
+    bufferPool: IBufferPool,
+    allocate: (pageId: PageId, bytes: number) => Promise<AllocInfo>,
+  ): Promise<HeapPageFile<AllocInfo>> {
     const pageId = await bufferPool.allocatePage()
-    return new HeapPageFile(bufferPool, pageId)
+    return new HeapPageFile(bufferPool, pageId, allocate)
   }
 }

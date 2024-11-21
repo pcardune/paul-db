@@ -7,7 +7,7 @@ describe("HeapPageFile", () => {
   const filePath = "/tmp/heap-page-file-test"
   const pageSize = 100
   let bufferPool: FileBackedBufferPool
-  let heapPageFile: HeapPageFile
+  let heapPageFile: HeapPageFile<{ freeSpace: number }>
   beforeEach(async () => {
     Deno.openSync(filePath, {
       create: true,
@@ -15,7 +15,19 @@ describe("HeapPageFile", () => {
       truncate: true,
     }).close()
     bufferPool = await FileBackedBufferPool.create(filePath, pageSize)
-    heapPageFile = await HeapPageFile.create(bufferPool)
+    heapPageFile = await HeapPageFile.create(
+      bufferPool,
+      async (pageId, bytes) => {
+        const page = await bufferPool.getPage(pageId)
+        const view = new DataView(page.buffer)
+        const existingFreeSpace = view.getUint32(0)
+        const newFreeSpace = existingFreeSpace === 0
+          ? pageSize - bytes
+          : existingFreeSpace - bytes
+        view.setUint32(0, newFreeSpace)
+        return { freeSpace: newFreeSpace }
+      },
+    )
   })
   afterEach(() => {
     bufferPool.close()
@@ -30,10 +42,10 @@ describe("HeapPageFile", () => {
       )
 
       const alloc0 = await heapPageFile.allocateSpace(10)
-      expect(alloc0.freeSpace).toBe(pageSize - 10)
+      expect(alloc0.allocInfo.freeSpace).toBe(pageSize - 10)
       expect(alloc0.pageId).toBe(108n)
       const alloc1 = await heapPageFile.allocateSpace(34)
-      expect(alloc1.freeSpace).toBe(pageSize - 10 - 34)
+      expect(alloc1.allocInfo.freeSpace).toBe(pageSize - 10 - 34)
       expect(alloc1.pageId).toBe(alloc0.pageId)
 
       // eventually we'll fill up the page and a new one will be allocated
@@ -41,7 +53,7 @@ describe("HeapPageFile", () => {
       while (true) {
         const alloc = await heapPageFile.allocateSpace(10)
         if (alloc.pageId !== alloc0.pageId) {
-          expect(alloc.freeSpace).toBe(pageSize - 10)
+          expect(alloc.allocInfo.freeSpace).toBe(pageSize - 10)
           break
         }
       }

@@ -57,6 +57,30 @@ describe("FileBackedBufferPool", () => {
       expect(data.getUint32(0)).toBe(0xdeadbeef)
     })
 
+    describe("Reading data", () => {
+      let newBufferPool: FileBackedBufferPool
+      beforeEach(async () => {
+        // copy filePath to a new file
+        const page = await bufferPool.getPage(pages[1])
+        new DataView(page.buffer).setUint32(0, 0xdeadbeef)
+        bufferPool.markDirty(pages[1])
+        await bufferPool.commit()
+        Deno.copyFileSync(filePath, filePath + ".copy")
+        newBufferPool = await FileBackedBufferPool.create(
+          filePath + ".copy",
+          pageSize,
+        )
+      })
+      afterEach(() => {
+        newBufferPool.close()
+      })
+
+      it("reads the correct data from disk", async () => {
+        const page = await newBufferPool.getPage(pages[1])
+        expect(new DataView(page.buffer).getUint32(0)).toBe(0xdeadbeef)
+      })
+    })
+
     describe("Freed pages", () => {
       it("Cause the buffer pool to be dirty", () => {
         expect(bufferPool.isDirty).toBe(false)
@@ -95,7 +119,7 @@ describe("FileBackedBufferPool", () => {
         expect(newPageId).toBe(pages[0])
       })
 
-      it.skip("when a free page gets reused before the next commit, it does not effect the dirty state", () => {
+      it.skip("when a free page gets reused before the next commit, it does not affect the dirty state", () => {
         expect(bufferPool.isDirty).toBe(false)
         console.log("freeing page")
         bufferPool.freePage(pages[0])

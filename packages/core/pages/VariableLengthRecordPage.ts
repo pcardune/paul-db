@@ -81,6 +81,12 @@ export class VariableLengthRecordPage {
     return slot
   }
 
+  /**
+   * The number of bytes of free space in the page.
+   *
+   * This takes into account the fact that an allocation _might_ need to
+   * use an additional 8 bytes for the slot in the footer.
+   */
   get freeSpace(): number {
     return this.view.byteLength - this.footerSize -
       this.freeSpaceOffset -
