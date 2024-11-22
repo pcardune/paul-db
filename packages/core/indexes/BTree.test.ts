@@ -6,7 +6,7 @@ import { BTreeNode, InternalBTreeNode, LeafBTreeNode } from "./BTreeNode.ts"
 
 // TODO: consider using expect.extend to make custom matchers for this
 // see https://jsr.io/@std/expect/doc/~/expect.extend
-function assertWellFormedBtree<K, V, NodeId>(btree: BTree<K, V, NodeId>) {
+async function assertWellFormedBtree<K, V, NodeId>(btree: BTree<K, V, NodeId>) {
   /**
    * The number d is the order of a B+ tree. Each node (with the exception of
    * the root node) must have d ≤ x ≤ 2d entries assuming no deletes happen
@@ -14,43 +14,45 @@ function assertWellFormedBtree<K, V, NodeId>(btree: BTree<K, V, NodeId>) {
    * delete data). The entries within each node must be sorted.
    */
 
-  const rootNode = btree.rootNode
+  const rootNode = await btree.getRootNode()
   expect(rootNode, "Expect btree to have a root node").toBeDefined()
   expect(rootNode.type, "root node should always be an internal node")
     .toBe("internal")
   if (rootNode.type !== "internal") {
     throw new Error("Unreachable")
   }
-  assertWellFormedNode(btree, rootNode)
+  await assertWellFormedNode(btree, rootNode)
 
-  function collectLeafNodesWithDepth(
+  async function collectLeafNodesWithDepth(
     node: BTreeNode<K, V, NodeId>,
     depth: number,
-  ): { node: LeafBTreeNode<K, V, NodeId>; depth: number }[] {
+  ): Promise<{ node: LeafBTreeNode<K, V, NodeId>; depth: number }[]> {
     if (node.type === "leaf") {
       return [{ node, depth }]
     }
-    return btree.childrenForNode(node).flatMap((childNode) => {
+    const children = await btree.childrenForNode(node)
+    const descendents = await Promise.all(children.map((childNode) => {
       return collectLeafNodesWithDepth(childNode, depth + 1)
-    })
+    }))
+    return descendents.flat()
   }
   const depths = new Set(
-    collectLeafNodesWithDepth(rootNode, 0).map(({ depth }) => depth),
+    (await collectLeafNodesWithDepth(rootNode, 0)).map(({ depth }) => depth),
   )
   expect(depths.size, "All leaf nodes should be at the same depth").toBe(1)
 }
 
-function assertWellFormedNode<K, V, NodeId>(
+async function assertWellFormedNode<K, V, NodeId>(
   btree: BTree<K, V, NodeId>,
   node: BTreeNode<K, V, NodeId>,
 ) {
   expect(
-    btree.getNodeWithId(node.nodeId).serialize(),
+    (await btree.getNodeWithId(node.nodeId)).serialize(),
     "Node should have the correct id",
   )
     .toEqual(node.serialize())
   if (node.type === "internal") {
-    assertWellFormedInternalNode(btree, node)
+    await assertWellFormedInternalNode(btree, node)
   } else {
     assertWellFormedLeafNode(btree, node)
   }
@@ -94,7 +96,7 @@ function ord<A>(
   }
 }
 
-function assertWellFormedInternalNode<K, V, NodeId>(
+async function assertWellFormedInternalNode<K, V, NodeId>(
   btree: BTree<K, V, NodeId>,
   node: InternalBTreeNode<K, NodeId>,
 ) {
@@ -123,8 +125,8 @@ function assertWellFormedInternalNode<K, V, NodeId>(
    */
   for (let i = 0; i < node.keys.length; i++) {
     const key = node.keys[i]
-    const leftChild = btree.getNodeWithId(node.childrenNodeIds[i])
-    const rightChild = btree.getNodeWithId(node.childrenNodeIds[i + 1])
+    const leftChild = await btree.getNodeWithId(node.childrenNodeIds[i])
+    const rightChild = await btree.getNodeWithId(node.childrenNodeIds[i + 1])
     const leftKeys = Array.from(keysForNode(leftChild)).sort(btree.compare)
     const rightKeys = Array.from(keysForNode(rightChild)).sort(btree.compare)
     if (leftKeys.length > 0) {
@@ -141,7 +143,7 @@ function assertWellFormedInternalNode<K, V, NodeId>(
     }
   }
 
-  if (node.nodeId != btree.rootNode.nodeId) {
+  if (node.nodeId != (await btree.getRootNode()).nodeId) {
     expect(
       node.keys.length,
       "Internal nodes should have at least _order_ entries",
@@ -152,49 +154,49 @@ function assertWellFormedInternalNode<K, V, NodeId>(
     ).toBeLessThanOrEqual(2 * btree.order)
   }
 
-  for (const childNode of btree.childrenForNode(node)) {
-    assertWellFormedNode(btree, childNode)
+  for (const childNode of await btree.childrenForNode(node)) {
+    await assertWellFormedNode(btree, childNode)
   }
 }
 
-it("Starts out empty", () => {
+it("Starts out empty", async () => {
   const btree = BTree.inMemory<number, { name: string }>({
     compare: (a, b) => a - b,
   })
-  assertWellFormedBtree(btree)
-  btree.insert(1, { name: "Paul" })
-  assertWellFormedBtree(btree)
+  await assertWellFormedBtree(btree)
+  await btree.insert(1, { name: "Paul" })
+  await assertWellFormedBtree(btree)
 })
 
-it("Does basic operations", () => {
+it("Does basic operations", async () => {
   const btree = BTree.inMemory<number, { name: string }>({
     compare: (a, b) => a - b,
   })
-  expect(btree.has(1)).toBe(false)
-  expect(btree.get(1)).toEqual([])
+  expect(await btree.has(1)).toBe(false)
+  expect(await btree.get(1)).toEqual([])
 
-  btree.insert(1, { name: "Paul" })
-  expect(btree.has(1)).toBe(true)
-  expect(btree.get(1)).toEqual([{ name: "Paul" }])
+  await btree.insert(1, { name: "Paul" })
+  expect(await btree.has(1)).toBe(true)
+  expect(await btree.get(1)).toEqual([{ name: "Paul" }])
 
-  btree.insert(1, { name: "Meghan" })
-  expect(btree.get(1)).toEqual([{ name: "Paul" }, { name: "Meghan" }])
+  await btree.insert(1, { name: "Meghan" })
+  expect(await btree.get(1)).toEqual([{ name: "Paul" }, { name: "Meghan" }])
 
-  btree.insert(2, { name: "Mr. Blue" })
-  expect(btree.get(2)).toEqual([{ name: "Mr. Blue" }])
+  await btree.insert(2, { name: "Mr. Blue" })
+  expect(await btree.get(2)).toEqual([{ name: "Mr. Blue" }])
 
-  assertWellFormedBtree(btree)
+  await assertWellFormedBtree(btree)
 
-  btree.removeAll(1)
-  expect(btree.get(1)).toEqual([])
+  await btree.removeAll(1)
+  expect(await btree.get(1)).toEqual([])
 })
 
-it("Inserting multiple values with the same key will return multiple values", () => {
+it("Inserting multiple values with the same key will return multiple values", async () => {
   const btree = BTree.inMemory<number, string>({ compare: (a, b) => a - b })
-  btree.insert(1, "Paul")
-  btree.insert(1, "Meghan")
-  expect(btree.get(1)).toEqual(["Paul", "Meghan"])
-  assertWellFormedBtree(btree)
+  await btree.insert(1, "Paul")
+  await btree.insert(1, "Meghan")
+  expect(await btree.get(1)).toEqual(["Paul", "Meghan"])
+  await assertWellFormedBtree(btree)
 })
 
 describe("Inserting nodes", () => {
@@ -203,71 +205,74 @@ describe("Inserting nodes", () => {
   beforeEach(() => {
     btree = BTree.inMemory<number, string>({ order, compare: (a, b) => a - b })
   })
-  it("starts with only two nodes in the tree", () => {
+  it("starts with only two nodes in the tree", async () => {
     expect(btree.nodes.size).toBe(2)
-    expect(btree.rootNode.type).toBe("internal")
-    const children = btree.childrenForNode(btree.rootNode)
+    expect((await btree.getRootNode()).type).toBe("internal")
+    const children = await btree.childrenForNode(await btree.getRootNode())
     expect(children).toHaveLength(1)
     expect(children[0].type).toBe("leaf")
-    assertWellFormedBtree(btree)
+    await assertWellFormedBtree(btree)
   })
   describe("After inserting up to order*2 entries", () => {
-    beforeEach(() => {
-      btree.insert(0, `Person 0`)
-      btree.insert(1, `Person 1`)
+    beforeEach(async () => {
+      await btree.insert(0, `Person 0`)
+      await btree.insert(1, `Person 1`)
     })
-    it("No new nodes will be added", () => {
-      assertWellFormedBtree(btree)
+    it("No new nodes will be added", async () => {
+      await assertWellFormedBtree(btree)
       expect(btree.nodes.size).toBe(2)
     })
-    it("All nodes will have the correct values", () => {
+    it("All nodes will have the correct values", async () => {
       for (let i = 0; i < order * 2; i++) {
-        expect(btree.get(i)).toEqual([`Person ${i}`])
+        expect(await btree.get(i)).toEqual([`Person ${i}`])
       }
     })
 
     describe("After inserting one more entry", () => {
-      beforeEach(() => {
-        btree.insert(2, `Person 2`)
+      beforeEach(async () => {
+        await btree.insert(2, `Person 2`)
       })
-      it("A new node will be added", () => {
-        assertWellFormedBtree(btree)
+      it("A new node will be added", async () => {
+        await assertWellFormedBtree(btree)
         expect(btree.nodes.size).toBe(3)
-        expect(btree.childrenForNode(btree.rootNode)).toHaveLength(2)
+        expect(await btree.childrenForNode(await btree.getRootNode()))
+          .toHaveLength(2)
       })
 
-      it("All entries will have the correct values", () => {
+      it("All entries will have the correct values", async () => {
         for (let i = 0; i <= 2; i++) {
-          expect(btree.get(i)).toEqual([`Person ${i}`])
+          expect(await btree.get(i)).toEqual([`Person ${i}`])
         }
       })
 
       describe("After inserting enough entries to split things more", () => {
         let originalRootNodeId: number
-        beforeEach(() => {
-          originalRootNodeId = btree.rootNode.nodeId
-          btree.insert(3, `Person 3`)
-          btree.insert(4, `Person 4`)
+        beforeEach(async () => {
+          originalRootNodeId = (await btree.getRootNode()).nodeId
+          await btree.insert(3, `Person 3`)
+          await btree.insert(4, `Person 4`)
         })
-        it("A new node will be added", () => {
-          assertWellFormedBtree(btree)
+        it("A new node will be added", async () => {
+          await assertWellFormedBtree(btree)
         })
-        it("There will be a new root node", () => {
-          expect(btree.rootNode.nodeId).not.toBe(originalRootNodeId)
+        it("There will be a new root node", async () => {
+          expect((await btree.getRootNode()).nodeId).not.toBe(
+            originalRootNodeId,
+          )
         })
-        it("All entries will have the correct values", () => {
+        it("All entries will have the correct values", async () => {
           for (let i = 0; i <= 4; i++) {
-            expect(btree.get(i)).toEqual([`Person ${i}`])
+            expect(await btree.get(i)).toEqual([`Person ${i}`])
           }
         })
 
         describe("After inserting another 2 entries", () => {
-          beforeEach(() => {
-            btree.insert(5, `Person 5`)
-            btree.insert(6, `Person 6`)
+          beforeEach(async () => {
+            await btree.insert(5, `Person 5`)
+            await btree.insert(6, `Person 6`)
           })
-          it("it will still be well formed", () => {
-            assertWellFormedBtree(btree)
+          it("it will still be well formed", async () => {
+            await assertWellFormedBtree(btree)
           })
         })
       })
@@ -277,45 +282,45 @@ describe("Inserting nodes", () => {
 
 describe("Removing items", () => {
   let btree: ReturnType<typeof BTree.inMemory<number, string>>
-  beforeEach(() => {
+  beforeEach(async () => {
     btree = BTree.inMemory<number, string>({
       order: 3,
       compare: (a, b) => a - b,
     })
     for (let i = 0; i < 10; i++) {
-      btree.insert(i, `Person ${i}`)
+      await btree.insert(i, `Person ${i}`)
     }
-    btree.insert(5, "foo")
-    btree.insert(5, "bar")
-    btree.insert(5, "baz")
+    await btree.insert(5, "foo")
+    await btree.insert(5, "bar")
+    await btree.insert(5, "baz")
   })
-  it("Can remove all items", () => {
-    expect(btree.get(5)).toEqual(["Person 5", "foo", "bar", "baz"])
-    btree.removeAll(5)
-    expect(btree.get(5)).toEqual([])
-    assertWellFormedBtree(btree)
+  it("Can remove all items", async () => {
+    expect(await btree.get(5)).toEqual(["Person 5", "foo", "bar", "baz"])
+    await btree.removeAll(5)
+    expect(await btree.get(5)).toEqual([])
+    await assertWellFormedBtree(btree)
   })
-  it("Can remove an individual entry for a particular key", () => {
-    expect(btree.get(5)).toEqual(["Person 5", "foo", "bar", "baz"])
-    btree.remove(5, "bar")
-    expect(btree.get(5)).toEqual(["Person 5", "foo", "baz"])
-    assertWellFormedBtree(btree)
+  it("Can remove an individual entry for a particular key", async () => {
+    expect(await btree.get(5)).toEqual(["Person 5", "foo", "bar", "baz"])
+    await btree.remove(5, "bar")
+    expect(await btree.get(5)).toEqual(["Person 5", "foo", "baz"])
+    await assertWellFormedBtree(btree)
   })
 })
 
 describe("Range requests", () => {
   let btree: ReturnType<typeof BTree.inMemory<number, string>>
-  beforeEach(() => {
+  beforeEach(async () => {
     btree = BTree.inMemory<number, string>({
       order: 3,
       compare: (a, b) => a - b,
     })
     for (let i = 0; i < 10; i++) {
-      btree.insert(i, `Person ${i}`)
+      await btree.insert(i, `Person ${i}`)
     }
   })
-  it("Can get all values in a range", () => {
-    expect(btree.getRange({ gte: 3, lte: 7 })).toEqual([
+  it("Can get all values in a range", async () => {
+    expect(await btree.getRange({ gte: 3, lte: 7 })).toEqual([
       { key: 3, vals: ["Person 3"] },
       { key: 4, vals: ["Person 4"] },
       { key: 5, vals: ["Person 5"] },
@@ -323,38 +328,38 @@ describe("Range requests", () => {
       { key: 7, vals: ["Person 7"] },
     ])
   })
-  it("exclusive lower bound", () => {
-    expect(btree.getRange({ gt: 3, lte: 7 })).toEqual([
+  it("exclusive lower bound", async () => {
+    expect(await btree.getRange({ gt: 3, lte: 7 })).toEqual([
       { key: 4, vals: ["Person 4"] },
       { key: 5, vals: ["Person 5"] },
       { key: 6, vals: ["Person 6"] },
       { key: 7, vals: ["Person 7"] },
     ])
   })
-  it("exclusive upper bound", () => {
-    expect(btree.getRange({ gt: 3, lt: 7 })).toEqual([
+  it("exclusive upper bound", async () => {
+    expect(await btree.getRange({ gt: 3, lt: 7 })).toEqual([
       { key: 4, vals: ["Person 4"] },
       { key: 5, vals: ["Person 5"] },
       { key: 6, vals: ["Person 6"] },
     ])
   })
-  it("no lower bound", () => {
-    expect(btree.getRange({ lte: 3 })).toEqual([
+  it("no lower bound", async () => {
+    expect(await btree.getRange({ lte: 3 })).toEqual([
       { key: 0, vals: ["Person 0"] },
       { key: 1, vals: ["Person 1"] },
       { key: 2, vals: ["Person 2"] },
       { key: 3, vals: ["Person 3"] },
     ])
   })
-  it("no upper bound", () => {
-    expect(btree.getRange({ gte: 7 })).toEqual([
+  it("no upper bound", async () => {
+    expect(await btree.getRange({ gte: 7 })).toEqual([
       { key: 7, vals: ["Person 7"] },
       { key: 8, vals: ["Person 8"] },
       { key: 9, vals: ["Person 9"] },
     ])
   })
-  it("no bounds", () => {
-    expect(btree.getRange({})).toEqual([
+  it("no bounds", async () => {
+    expect(await btree.getRange({})).toEqual([
       { key: 0, vals: ["Person 0"] },
       { key: 1, vals: ["Person 1"] },
       { key: 2, vals: ["Person 2"] },
@@ -370,26 +375,26 @@ describe("Range requests", () => {
 })
 
 describe("Bulk tests", () => {
-  it("lots of nodes inserted in ascending order", () => {
+  it("lots of nodes inserted in ascending order", async () => {
     const btree = BTree.inMemory<number, string>({
       order: 3,
       compare: (a, b) => a - b,
     })
 
     for (let i = 0; i < 40; i++) {
-      btree.insert(i, `Person ${i}`)
+      await btree.insert(i, `Person ${i}`)
       for (let j = 0; j <= i; j++) {
-        expect({ i, j, values: btree.get(j) }).toEqual({
+        expect({ i, j, values: await btree.get(j) }).toEqual({
           i,
           j,
           values: [`Person ${j}`],
         })
       }
-      assertWellFormedBtree(btree)
+      await assertWellFormedBtree(btree)
     }
   })
 
-  it("lots of nodes inserted in descending order", () => {
+  it("lots of nodes inserted in descending order", async () => {
     const btree = BTree.inMemory<number, string>({
       compare: (a, b) => a - b,
       order: 3,
@@ -398,19 +403,19 @@ describe("Bulk tests", () => {
     const inserted: number[] = []
     for (let i = 40; i >= 0; i--) {
       inserted.push(i)
-      btree.insert(i, `Person ${i}`)
+      await btree.insert(i, `Person ${i}`)
       for (const j of inserted) {
-        expect({ i, j, values: btree.get(j) }).toEqual({
+        expect({ i, j, values: await btree.get(j) }).toEqual({
           i,
           j,
           values: [`Person ${j}`],
         })
       }
-      assertWellFormedBtree(btree)
+      await assertWellFormedBtree(btree)
     }
   })
 
-  it("lots of nodes inserted in random order", () => {
+  it("lots of nodes inserted in random order", async () => {
     const btree = BTree.inMemory<number, string>({
       compare: (a, b) => a - b,
       order: 3,
@@ -425,15 +430,15 @@ describe("Bulk tests", () => {
         index = randomIntegerBetween(1, 10000, { prng })
       } while (inserted.includes(index))
       inserted.push(index)
-      btree.insert(index, `Person ${index}`)
+      await btree.insert(index, `Person ${index}`)
       for (const j of inserted) {
-        expect({ i, j, values: btree.get(j) }).toEqual({
+        expect({ i, j, values: await btree.get(j) }).toEqual({
           i,
           j,
           values: [`Person ${j}`],
         })
       }
-      assertWellFormedBtree(btree)
+      await assertWellFormedBtree(btree)
     }
   })
 })

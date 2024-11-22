@@ -207,16 +207,18 @@ describe("Querying", () => {
       ])
     })
 
-    it("lets you query using an index on a computed column", () => {
-      expect(people.lookupComputed("lowerCaseName", "alice")).resolves.toEqual([
-        { name: "Alice", age: 25, phone: "123-456-7890" },
-      ])
+    it("lets you query using an index on a computed column", async () => {
+      expect(await people.lookupComputed("lowerCaseName", "alice"))
+        .toEqual([
+          { name: "Alice", age: 25, phone: "123-456-7890" },
+        ])
     })
 
-    it.skip("will throw if you lookup a computed indexed column with an invalid value", () => {
-      expect(people.lookupComputed("lowerCaseName", "ALICE")).rejects.toThrow(
-        "Invalid value for column lowerCaseName",
-      )
+    it.skip("will throw if you lookup a computed indexed column with an invalid value", async () => {
+      expect(await people.lookupComputed("lowerCaseName", "ALICE")).rejects
+        .toThrow(
+          "Invalid value for column lowerCaseName",
+        )
     })
   })
 })

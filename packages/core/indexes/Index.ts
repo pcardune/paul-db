@@ -20,26 +20,26 @@ export class Index<K, V, NodeId> {
     )
   }
 
-  public insert(key: K, value: V): void {
-    this.data.insert(key, value)
+  async insert(key: K, value: V): Promise<void> {
+    await this.data.insert(key, value)
   }
 
-  public get(key: K): readonly V[] {
+  get(key: K): Promise<readonly V[]> {
     return this.data.get(key)
   }
 
-  public has(key: K): boolean {
+  has(key: K): Promise<boolean> {
     return this.data.has(key)
   }
 
-  public remove(key: K, value: V): void {
-    this.data.remove(key, value)
+  async remove(key: K, value: V): Promise<void> {
+    await this.data.remove(key, value)
   }
 
-  public getRange(range: Range<K>): {
+  async getRange(range: Range<K>): Promise<{
     key: K
     vals: readonly V[]
-  }[] {
-    return this.data.getRange(range)
+  }[]> {
+    return await this.data.getRange(range)
   }
 }

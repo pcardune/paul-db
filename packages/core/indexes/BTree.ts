@@ -69,8 +69,10 @@ export class BTree<
   public readonly compare: (a: K, b: K) => number
   public readonly isEqual: (a: V, b: V) => boolean
 
-  get rootNode(): InternalBTreeNode<K, NodeId> {
-    return this.nodes.get(this.rootNodeId) as InternalBTreeNode<K, NodeId>
+  getRootNode(): Promise<InternalBTreeNode<K, NodeId>> {
+    return this.nodes.get(this.rootNodeId) as Promise<
+      InternalBTreeNode<K, NodeId>
+    >
   }
 
   static inMemory<K, V>(
@@ -88,7 +90,7 @@ export class BTree<
     })
   }
 
-  getNodeWithId(nodeId: NodeId): BTreeNode<K, V, NodeId> {
+  getNodeWithId(nodeId: NodeId): Promise<BTreeNode<K, V, NodeId>> {
     return this.nodes.get(nodeId)
   }
 
@@ -122,15 +124,17 @@ export class BTree<
     this.nodes.commit()
   }
 
-  childrenForNode(node: BTreeNode<K, V, NodeId>): BTreeNode<K, V, NodeId>[] {
+  childrenForNode(
+    node: BTreeNode<K, V, NodeId>,
+  ): Promise<BTreeNode<K, V, NodeId>[]> {
     if (node.type === "leaf") {
-      return []
+      return Promise.resolve([])
     }
-    return node.childrenNodeIds.map((id) => this.nodes.get(id))
+    return Promise.all(node.childrenNodeIds.map((id) => this.nodes.get(id)))
   }
 
-  dumpNode(nodeId: NodeId): DumpedNode<K, V, NodeId> {
-    const node = this.nodes.get(nodeId)
+  async dumpNode(nodeId: NodeId): Promise<DumpedNode<K, V, NodeId>> {
+    const node = await this.nodes.get(nodeId)
     if (node.type === "leaf") {
       return {
         type: "leaf",
@@ -142,9 +146,9 @@ export class BTree<
       type: "internal",
       nodeId: node.nodeId,
       keys: node.keys,
-      children: node.childrenNodeIds.map((id) => {
-        return this.dumpNode(id)
-      }),
+      children: await Promise.all(
+        node.childrenNodeIds.map((id) => this.dumpNode(id)),
+      ),
     }
   }
 
@@ -152,20 +156,20 @@ export class BTree<
     return this.dumpNode(this.rootNodeId)
   }
 
-  _get(
+  async _get(
     nodeId: NodeId,
     key: K,
     parents: LinkedList<NodeId> | null = null,
     depth = 1,
-  ): {
+  ): Promise<{
     nodeId: NodeId
     node: LeafBTreeNode<K, V, NodeId>
     parents: LinkedList<NodeId>
     key: K
     keyval: Readonly<{ key: K; vals: readonly V[] }> | null
     keyIndex: number
-  } {
-    const node = this.nodes.get(nodeId)
+  }> {
+    const node = await this.nodes.get(nodeId)
     if (node.type === "leaf") {
       if (parents == null) {
         throw new Error("all leaf nodes should have a parent")
@@ -211,8 +215,8 @@ export class BTree<
     )
   }
 
-  insert(key: K, value: V) {
-    const found = this._get(this.rootNodeId, key)
+  async insert(key: K, value: V) {
+    const found = await this._get(this.rootNodeId, key)
     if (found.keyval != null) {
       found.node.pushValue(found.keyIndex, value)
       this.nodes.commit()
@@ -225,11 +229,11 @@ export class BTree<
       this.nodes.commit()
       return
     }
-    this.splitNode(found.nodeId, found.parents)
+    await this.splitNode(found.nodeId, found.parents)
     this.nodes.commit()
   }
 
-  private insertIntoParent(
+  private async insertIntoParent(
     parent: InternalBTreeNode<K, NodeId>,
     grandParents: LinkedList<NodeId>,
     node: BTreeNode<K, V, NodeId>,
@@ -240,10 +244,10 @@ export class BTree<
     if (parent.keys.length <= this.order * 2) {
       return
     }
-    this.splitNode(parent.nodeId, grandParents, depth + 1)
+    await this.splitNode(parent.nodeId, grandParents, depth + 1)
   }
 
-  private splitLeafNode(
+  private async splitLeafNode(
     node: LeafBTreeNode<K, V, NodeId>,
     parents: LinkedList<NodeId>,
     depth: number,
@@ -256,8 +260,11 @@ export class BTree<
       keyvals: node.copyKeyvals(0, this.order),
       nextLeafNodeId: L2.nodeId,
     })
-    this.insertIntoParent(
-      this.nodes.get(parents.head as NodeId) as InternalBTreeNode<K, NodeId>,
+    await this.insertIntoParent(
+      await this.nodes.get(parents.head as NodeId) as InternalBTreeNode<
+        K,
+        NodeId
+      >,
       parents.tail as LinkedList<NodeId>,
       L2,
       L2.keyvals[0].key,
@@ -265,7 +272,7 @@ export class BTree<
     )
   }
 
-  private splitInternalNode(
+  private async splitInternalNode(
     node: InternalBTreeNode<K, NodeId>,
     parents: LinkedList<NodeId> | null,
     depth: number,
@@ -283,7 +290,7 @@ export class BTree<
       this.rootNodeId = parentNode.nodeId
       parents = new LinkedList(parentNode.nodeId)
     } else {
-      parentNode = this.nodes.get(parents.head) as InternalBTreeNode<
+      parentNode = await this.nodes.get(parents.head) as InternalBTreeNode<
         K,
         NodeId
       >
@@ -303,28 +310,28 @@ export class BTree<
     })
     parentNode.insertNode(keyToMove, L2.nodeId, this.compare)
     if (parentNode.keys.length > this.order * 2) {
-      this.splitNode(parentNode.nodeId, parents.tail, depth + 1)
+      await this.splitNode(parentNode.nodeId, parents.tail, depth + 1)
     }
   }
 
-  private splitNode(
+  private async splitNode(
     nodeId: NodeId,
     parents: LinkedList<NodeId> | null,
     depth = 1,
   ) {
-    const node = this.nodes.get(nodeId)
+    const node = await this.nodes.get(nodeId)
     if (node.type === "leaf") {
       if (parents == null) {
         throw new Error("all leaf nodes should have a parent")
       }
-      this.splitLeafNode(node, parents, depth)
+      await this.splitLeafNode(node, parents, depth)
     } else {
-      this.splitInternalNode(node, parents, depth)
+      await this.splitInternalNode(node, parents, depth)
     }
   }
 
-  removeAll(key: K) {
-    const found = this._get(this.rootNodeId, key)
+  async removeAll(key: K) {
+    const found = await this._get(this.rootNodeId, key)
     if (found.keyval == null) {
       return
     }
@@ -333,8 +340,8 @@ export class BTree<
     this.nodes.commit()
   }
 
-  remove(key: K, value: V) {
-    const found = this._get(this.rootNodeId, key)
+  async remove(key: K, value: V) {
+    const found = await this._get(this.rootNodeId, key)
     if (found.keyval == null) {
       return
     }
@@ -342,27 +349,30 @@ export class BTree<
     this.nodes.commit()
   }
 
-  has(key: K): boolean {
-    const found = this._get(this.rootNodeId, key)
+  async has(key: K): Promise<boolean> {
+    const found = await this._get(this.rootNodeId, key)
     return found.keyval !== null && found.keyval.vals.length > 0
   }
 
-  get(key: K): readonly V[] {
-    return this._get(this.rootNodeId, key).keyval?.vals ?? []
+  async get(key: K): Promise<readonly V[]> {
+    return (await this._get(this.rootNodeId, key)).keyval?.vals ?? []
   }
 
-  private getMinNode(
-    node: BTreeNode<K, V, NodeId> = this.rootNode,
-  ): LeafBTreeNode<K, V, NodeId> {
+  private async getMinNode(
+    node?: BTreeNode<K, V, NodeId>,
+  ): Promise<LeafBTreeNode<K, V, NodeId>> {
+    if (node == null) {
+      node = await this.getRootNode()
+    }
     if (node.type === "leaf") {
       return node
     }
-    return this.getMinNode(this.nodes.get(node.childrenNodeIds[0]))
+    return this.getMinNode(await this.nodes.get(node.childrenNodeIds[0]))
   }
 
-  getRange(
+  async getRange(
     { gt, gte, lte, lt }: Range<K>,
-  ): { key: K; vals: readonly V[] }[] {
+  ): Promise<{ key: K; vals: readonly V[] }[]> {
     const results: { key: K; vals: readonly V[] }[] = []
 
     let current: LeafBTreeNode<K, V, NodeId>
@@ -373,12 +383,12 @@ export class BTree<
         throw new Error("Cannot have both gt and gte")
       }
       isGt = (k) => this.compare(k, gt) > 0
-      current = this._get(this.rootNodeId, gt).node
+      current = (await this._get(this.rootNodeId, gt)).node
     } else if (gte !== undefined) {
       isGt = (k) => this.compare(k, gte) >= 0
-      current = this._get(this.rootNodeId, gte).node
+      current = (await this._get(this.rootNodeId, gte)).node
     } else {
-      current = this.getMinNode()
+      current = await this.getMinNode()
     }
 
     if (lt !== undefined) {
@@ -401,7 +411,7 @@ export class BTree<
         results.push(keyval)
       }
       if (current.nextLeafNodeId == null) return results
-      current = this.nodes.get(current.nextLeafNodeId) as LeafBTreeNode<
+      current = await this.nodes.get(current.nextLeafNodeId) as LeafBTreeNode<
         K,
         V,
         NodeId
@@ -412,7 +422,7 @@ export class BTree<
       while (true) {
         results.push(...current.keyvals)
         if (current.nextLeafNodeId == null) break
-        current = this.nodes.get(current.nextLeafNodeId) as LeafBTreeNode<
+        current = await this.nodes.get(current.nextLeafNodeId) as LeafBTreeNode<
           K,
           V,
           NodeId
@@ -429,7 +439,7 @@ export class BTree<
         results.push(keyval)
       }
       if (current.nextLeafNodeId == null) break
-      current = this.nodes.get(current.nextLeafNodeId) as LeafBTreeNode<
+      current = await this.nodes.get(current.nextLeafNodeId) as LeafBTreeNode<
         K,
         V,
         NodeId

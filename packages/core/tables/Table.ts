@@ -93,10 +93,14 @@ export class Table<
     })
   }
 
-  insertMany(
+  async insertMany(
     records: RecordForTableSchema<SchemaT>[],
   ): Promise<RowIdT[]> {
-    return Promise.all(records.map((record) => this.insert(record)))
+    const rowIds: RowIdT[] = []
+    for (const record of records) {
+      rowIds.push(await this.insert(record))
+    }
+    return rowIds
   }
 
   async insert(record: RecordForTableSchema<SchemaT>): Promise<RowIdT> {
@@ -112,7 +116,7 @@ export class Table<
           )
         }
         const value = (record as any)[column.name]
-        if (index.has(value)) {
+        if (await index.has(value)) {
           throw new Error(
             `Record with given ${column.name} value already exists`,
           )
@@ -124,7 +128,7 @@ export class Table<
     for (const column of this.schema.columns) {
       const index = this._allIndexes.get(column.name)
       if (index) {
-        index.insert((record as any)[column.name], id)
+        await index.insert((record as any)[column.name], id)
       } else if (column.indexed) {
         throw new Error(`Column ${column.name} is not indexed`)
       }
@@ -132,7 +136,7 @@ export class Table<
     for (const column of this.schema.computedColumns) {
       const index = this._allIndexes.get(column.name)
       if (index) {
-        index.insert(column.compute(record), id)
+        await index.insert(column.compute(record), id)
       } else if (column.indexed) {
         throw new Error(`Column ${column.name} is not indexed`)
       }
@@ -150,7 +154,7 @@ export class Table<
     await this.data.commit()
   }
 
-  public lookup<
+  async lookup<
     IName extends FilterTuple<SchemaT["columns"], { indexed: true }>["name"],
     ValueT extends ValueForColumnSchema<
       FilterTuple<SchemaT["columns"], { name: IName }>
@@ -164,13 +168,13 @@ export class Table<
       throw new Error(`Index ${indexName} does not exist`)
     }
     return Promise.all(
-      index.get(value).map((id) => {
+      (await index.get(value)).map((id) => {
         return this.data.get(id) as Promise<RecordForTableSchema<SchemaT>>
       }),
     )
   }
 
-  lookupComputed<
+  async lookupComputed<
     IName extends FilterTuple<
       SchemaT["computedColumns"],
       { indexed: true }
@@ -188,7 +192,7 @@ export class Table<
       throw new Error(`Column ${indexName} is not a computed column`)
     }
     return Promise.all(
-      index.get(value).map((id) =>
+      (await index.get(value)).map((id) =>
         this.data.get(id) as Promise<RecordForTableSchema<SchemaT>>
       ),
     )

@@ -8,8 +8,8 @@ import {
 export interface INodeList<K, V, NodeId> {
   getNextNodeId(): NodeId
   size: number
-  get(nodeId: NodeId): BTreeNode<K, V, NodeId>
-  set(nodeId: NodeId, node: BTreeNode<K, V, NodeId>): void
+  get(nodeId: NodeId): Promise<BTreeNode<K, V, NodeId>>
+  set(nodeId: NodeId, node: BTreeNode<K, V, NodeId>): Promise<void>
   markDirty(node: BTreeNode<K, V, NodeId>): void
   createLeafNode(
     nodeId: NodeId,
@@ -19,7 +19,7 @@ export interface INodeList<K, V, NodeId> {
     nodeId: NodeId,
     state: { keys: K[]; childrenNodeIds: NodeId[] },
   ): InternalBTreeNode<K, NodeId>
-  commit(): void
+  commit(): Promise<void>
 }
 
 export class InMemoryNodeList<K, V> implements INodeList<K, V, number> {
@@ -42,15 +42,15 @@ export class InMemoryNodeList<K, V> implements INodeList<K, V, number> {
 
   private _nodeCache = new Map<number, BTreeNode<K, V, number>>()
 
-  get(nodeId: number): BTreeNode<K, V, number> {
+  get(nodeId: number): Promise<BTreeNode<K, V, number>> {
     const serialized = this._nodes[nodeId]
     const existingDirty = this.dirtyNodes.get(nodeId)
     if (existingDirty != null) {
-      return existingDirty
+      return Promise.resolve(existingDirty)
     }
     const existing = this._nodeCache.get(nodeId) as BTreeNode<K, V, number>
     if (existing != null) {
-      return existing
+      return Promise.resolve(existing)
     }
     if (serialized[0] === "leaf") {
       const node = new LeafBTreeNode(
@@ -70,7 +70,7 @@ export class InMemoryNodeList<K, V> implements INodeList<K, V, number> {
       )
       // TODO this shouldn't be necessary
       this._nodeCache.set(nodeId, node)
-      return node
+      return Promise.resolve(node)
     }
     const node = new InternalBTreeNode(
       () => {
@@ -84,7 +84,7 @@ export class InMemoryNodeList<K, V> implements INodeList<K, V, number> {
     )
     // TODO this shouldn't be necessary
     this._nodeCache.set(nodeId, node)
-    return node
+    return Promise.resolve(node)
   }
 
   set(nodeId: number, node: BTreeNode<K, V, number>) {
@@ -94,6 +94,7 @@ export class InMemoryNodeList<K, V> implements INodeList<K, V, number> {
       this._nodes[nodeId] = ["internal", node.keys, node.childrenNodeIds]
     }
     this.markDirty(node)
+    return Promise.resolve()
   }
 
   createLeafNode(
@@ -120,7 +121,7 @@ export class InMemoryNodeList<K, V> implements INodeList<K, V, number> {
     return node
   }
 
-  commit(): void {
+  commit(): Promise<void> {
     for (const node of this.dirtyNodes.values()) {
       if (node.type === "leaf") {
         this._nodes[node.nodeId] = ["leaf", node.keyvals, node.nextLeafNodeId]
@@ -130,5 +131,6 @@ export class InMemoryNodeList<K, V> implements INodeList<K, V, number> {
     }
     this.dirtyNodes.clear()
     this._nodeCache.clear()
+    return Promise.resolve()
   }
 }
