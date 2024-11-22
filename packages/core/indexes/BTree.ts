@@ -5,7 +5,7 @@ import {
   InternalBTreeNode,
   LeafBTreeNode,
 } from "./NodeList.ts"
-import { Comparator, EqualityChecker, Range } from "./types.ts"
+import { Comparator, EqualityChecker, Range } from "../types.ts"
 
 type DumpedNode<K, V, NodeId> =
   | { type: "leaf"; nodeId: NodeId; keyvals: [K, readonly V[]][] }

@@ -1,5 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
-import { Index } from "../Index.ts"
+import { Index } from "../indexes/Index.ts"
 import {
   OutputForComputedColumnSchema,
   RecordForTableSchema,

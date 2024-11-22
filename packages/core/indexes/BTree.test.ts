@@ -1,6 +1,6 @@
 import { expect } from "jsr:@std/expect"
 import { beforeEach, describe, it } from "jsr:@std/testing/bdd"
-import { BTree } from "./BTree.ts"
+import { BTree } from "../indexes/BTree.ts"
 import { randomIntegerBetween, randomSeeded } from "@std/random"
 import { BTreeNode, InternalBTreeNode, LeafBTreeNode } from "./NodeList.ts"
 

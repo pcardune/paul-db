@@ -1,5 +1,5 @@
-import { binarySearch } from "./binarySearch.ts"
-import { Comparator, EqualityChecker } from "./types.ts"
+import { binarySearch } from "../binarySearch.ts"
+import { Comparator, EqualityChecker } from "../types.ts"
 
 class INode<NodeId> {
   constructor(

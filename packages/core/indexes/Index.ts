@@ -1,6 +1,6 @@
 import { BTree, InMemoryBTreeConfig } from "./BTree.ts"
 import { InMemoryNodeList } from "./NodeList.ts"
-import { Range } from "./types.ts"
+import { Range } from "../types.ts"
 
 export class Index<K, V, NodeId> {
   private data: BTree<K, V, NodeId>
