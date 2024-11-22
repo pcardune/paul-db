@@ -55,6 +55,30 @@ export class VariableWidthStruct<ValueT> implements IStruct<ValueT> {
       new DataView(view.buffer, view.byteOffset + offset + 4, size),
     )
   }
+
+  array(): VariableWidthStruct<ValueT[]> {
+    return new VariableWidthStruct({
+      sizeof: (value) => {
+        return value.reduce((acc, val) => this.sizeof(val) + acc, 0)
+      },
+      write: (value, view) => {
+        let offset = 0
+        for (const val of value) {
+          this.writeAt(val, view, offset)
+          offset += this.sizeof(val)
+        }
+      },
+      read: (view) => {
+        const result = []
+        let offset = 0
+        while (offset < view.byteLength) {
+          result.push(this.readAt(view, offset))
+          offset += this.sizeof(result[result.length - 1])
+        }
+        return result
+      },
+    })
+  }
 }
 
 /**
@@ -109,4 +133,44 @@ export class FixedWidthStruct<ValueT> implements IStruct<ValueT> {
       new DataView(view.buffer, view.byteOffset + offset, this.size),
     )
   }
+
+  array(): VariableWidthStruct<ValueT[]> {
+    return new VariableWidthStruct({
+      sizeof: (value) => value.length * this.size,
+      write: (value, view) => {
+        for (let i = 0; i < value.length; i++) {
+          this.writeAt(value[i], view, i * this.size)
+        }
+      },
+      read: (view) => {
+        const length = view.byteLength / this.size
+        const values = []
+        for (let i = 0; i < length; i++) {
+          values.push(this.readAt(view, i * this.size))
+        }
+        return values
+      },
+    })
+  }
+}
+
+export function arrayStructFor<V>(
+  valueStruct: FixedWidthStruct<V>,
+): VariableWidthStruct<V[]> {
+  return new VariableWidthStruct({
+    sizeof: (value) => value.length * valueStruct.size,
+    write(value, view) {
+      for (let i = 0; i < value.length; i++) {
+        valueStruct.writeAt(value[i], view, i * valueStruct.size)
+      }
+    },
+    read(view) {
+      const length = view.byteLength / valueStruct.size
+      const values = []
+      for (let i = 0; i < length; i++) {
+        values.push(valueStruct.readAt(view, i * valueStruct.size))
+      }
+      return values
+    },
+  })
 }

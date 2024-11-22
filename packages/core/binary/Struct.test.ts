@@ -14,7 +14,7 @@ const pointStruct = new FixedWidthStruct<{ x: number; y: number }>({
   }),
 })
 
-describe("Struct", () => {
+describe("FixedWidthStruct", () => {
   it("lets you read and write values that take a fixed amount of space", () => {
     const view = new DataView(new ArrayBuffer(pointStruct.size * 4))
     pointStruct.writeAt({ x: 1, y: 2 }, view, 0)
@@ -51,6 +51,32 @@ describe("Struct", () => {
     ).toThrow(
       "Writing past the end of the view",
     )
+  })
+
+  describe(".array()", () => {
+    it("Creates a struct for storing an array of fixed-width values", () => {
+      const pointArrayStruct = pointStruct.array()
+
+      const points = [
+        { x: 1, y: 2 },
+        { x: 3, y: 4 },
+        { x: 5, y: 6 },
+        { x: 7, y: 8 },
+      ]
+
+      const view = new DataView(
+        new ArrayBuffer(pointArrayStruct.sizeof(points)),
+      )
+
+      pointArrayStruct.writeAt(points, view, 0)
+
+      expect(pointArrayStruct.readAt(view, 0)).toEqual([
+        { x: 1, y: 2 },
+        { x: 3, y: 4 },
+        { x: 5, y: 6 },
+        { x: 7, y: 8 },
+      ])
+    })
   })
 })
 
@@ -98,5 +124,22 @@ describe("VariableWidthStruct", () => {
       { x: 5, y: 6 },
       { x: 7, y: 8 },
     ])
+  })
+  describe(".array()", () => {
+    it("Creates a struct for storing an array of variable-width values", () => {
+      const pointMatrixStruct = pointListStruct.array()
+      const pointMatrix = [
+        [{ x: 1, y: 2 }, { x: 3, y: 4 }],
+        [{ x: 5, y: 6 }, { x: 7, y: 8 }, { x: 9, y: 10 }],
+      ]
+      const view = new DataView(
+        new ArrayBuffer(pointMatrixStruct.sizeof(pointMatrix)),
+      )
+      pointMatrixStruct.writeAt(pointMatrix, view, 0)
+      expect(pointMatrixStruct.readAt(view, 0)).toEqual([
+        [{ x: 1, y: 2 }, { x: 3, y: 4 }],
+        [{ x: 5, y: 6 }, { x: 7, y: 8 }, { x: 9, y: 10 }],
+      ])
+    })
   })
 })
