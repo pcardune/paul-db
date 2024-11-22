@@ -1,10 +1,10 @@
 import { FixedWidthArray } from "../binary/FixedWidthArray.ts"
-import { Struct } from "../binary/Struct.ts"
+import { FixedWidthStruct } from "../binary/Struct.ts"
 import { IBufferPool, PageId } from "./BufferPool.ts"
 
 type PageEntry = Readonly<{ pageId: PageId; freeSpace: number }>
 
-const headerPageEntryStruct: Struct<PageEntry> = {
+const headerPageEntryStruct = new FixedWidthStruct<PageEntry>({
   size: 12,
   write: (value, view) => {
     view.setBigUint64(0, value.pageId)
@@ -14,29 +14,30 @@ const headerPageEntryStruct: Struct<PageEntry> = {
     pageId: view.getBigUint64(0),
     freeSpace: view.getUint32(8),
   }),
-}
+})
 
 type HeaderPage = Readonly<{
   nextPageId: bigint | null
   entries: FixedWidthArray<PageEntry>
 }>
 
-const headerPageStruct = (pageSize: number) => ({
-  size: pageSize,
-  write: (value: Pick<HeaderPage, "nextPageId">, view) => {
-    view.setBigUint64(0, value.nextPageId ?? 0n)
-  },
-  read: (view) => {
-    const nextPageId = view.getBigUint64(0)
-    return ({
-      nextPageId: nextPageId === 0n ? null : nextPageId,
-      entries: new FixedWidthArray(
-        new DataView(view.buffer, 8, view.byteLength - 8),
-        headerPageEntryStruct,
-      ),
-    })
-  },
-} satisfies Struct<HeaderPage>)
+const headerPageStruct = (pageSize: number) =>
+  new FixedWidthStruct<HeaderPage>({
+    size: pageSize,
+    write: (value: Pick<HeaderPage, "nextPageId">, view) => {
+      view.setBigUint64(0, value.nextPageId ?? 0n)
+    },
+    read: (view) => {
+      const nextPageId = view.getBigUint64(0)
+      return ({
+        nextPageId: nextPageId === 0n ? null : nextPageId,
+        entries: new FixedWidthArray(
+          new DataView(view.buffer, 8, view.byteLength - 8),
+          headerPageEntryStruct,
+        ),
+      })
+    },
+  })
 
 class HeaderPageRef {
   constructor(
@@ -47,8 +48,9 @@ class HeaderPageRef {
 
   async get(): Promise<HeaderPage> {
     const data = await this.bufferPool.getPage(this.pageId)
-    return headerPageStruct(this.bufferPool.pageSize).read(
+    return headerPageStruct(this.bufferPool.pageSize).readAt(
       new DataView(data.buffer),
+      0,
     )
   }
 
@@ -56,9 +58,16 @@ class HeaderPageRef {
     const newHeaderPageId = await this.bufferPool.allocatePage()
     const headerPageData = await this.bufferPool.getPage(newHeaderPageId)
     const dataView = new DataView(headerPageData.buffer)
-    headerPageStruct(this.bufferPool.pageSize).write(
-      { nextPageId: this.pageId },
+    headerPageStruct(this.bufferPool.pageSize).writeAt(
+      {
+        nextPageId: this.pageId,
+        entries: FixedWidthArray.empty({
+          type: headerPageEntryStruct,
+          length: 0,
+        }),
+      },
       dataView,
+      0,
     )
     return new HeaderPageRef(this.bufferPool, newHeaderPageId)
   }

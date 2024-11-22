@@ -1,9 +1,9 @@
 import { expect } from "jsr:@std/expect"
 import { FixedWidthArray } from "./FixedWidthArray.ts"
 import { describe, it } from "jsr:@std/testing/bdd"
-import { Struct } from "./Struct.ts"
+import { FixedWidthStruct } from "./Struct.ts"
 
-const pointType: Struct<{ x: number; y: number }> = {
+const pointType = new FixedWidthStruct<{ x: number; y: number }>({
   size: 8,
   write: (value, view) => {
     view.setInt32(0, value.x)
@@ -13,7 +13,7 @@ const pointType: Struct<{ x: number; y: number }> = {
     x: view.getInt32(0),
     y: view.getInt32(4),
   }),
-}
+})
 
 describe("Creating FixedWidthArray", () => {
   it("can create an empty array that can hold a given number of element", () => {

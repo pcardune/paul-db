@@ -1,4 +1,4 @@
-import { Struct } from "./Struct.ts"
+import { FixedWidthStruct } from "./Struct.ts"
 
 /**
  * A fixed-width array that stores elements of a fixed width.
@@ -6,7 +6,7 @@ import { Struct } from "./Struct.ts"
 export class FixedWidthArray<V> {
   constructor(
     private view: DataView,
-    private type: Struct<V>,
+    private valueStruct: FixedWidthStruct<V>,
   ) {
   }
 
@@ -19,16 +19,7 @@ export class FixedWidthArray<V> {
   }
 
   get maxLength(): number {
-    return Math.floor((this.view.byteLength - 4) / this.type.size)
-  }
-
-  private dataViewForElement(index: number): DataView {
-    const offset = 4 + index * this.type.size
-    return new DataView(
-      this.view.buffer,
-      this.view.byteOffset + offset,
-      this.type.size,
-    )
+    return Math.floor((this.view.byteLength - 4) / this.valueStruct.size)
   }
 
   get bufferSize(): number {
@@ -39,16 +30,17 @@ export class FixedWidthArray<V> {
     if (index >= this.length) {
       throw new Error("Index out of bounds")
     }
-    return this.type.read(this.dataViewForElement(index))
+    return this.valueStruct.readAt(this.view, 4 + index * this.valueStruct.size)
   }
 
   set(index: number, value: V): void {
     if (index >= this.length) {
       throw new Error("Index out of bounds")
     }
-    this.type.write(
+    this.valueStruct.writeAt(
       value,
-      this.dataViewForElement(index),
+      this.view,
+      4 + index * this.valueStruct.size,
     )
   }
 
@@ -90,7 +82,7 @@ export class FixedWidthArray<V> {
    */
   static empty<V>(
     config:
-      & { type: Struct<V> }
+      & { type: FixedWidthStruct<V> }
       & ({ bufferSize: number } | { length: number }),
   ): FixedWidthArray<V> {
     let size: number

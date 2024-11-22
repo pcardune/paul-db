@@ -1,8 +1,8 @@
-import { Struct } from "../binary/Struct.ts"
+import { FixedWidthStruct } from "../binary/Struct.ts"
 
 type Slot = { offset: number; length: number }
 
-const slotStruct: Struct<Slot> = {
+const slotStruct = new FixedWidthStruct<Slot>({
   size: 8,
   write(value, view) {
     view.setUint32(0, value.offset)
@@ -14,7 +14,7 @@ const slotStruct: Struct<Slot> = {
       length: view.getUint32(4),
     }
   },
-}
+})
 
 export class VariableLengthRecordPage {
   constructor(private view: DataView) {}
@@ -41,10 +41,10 @@ export class VariableLengthRecordPage {
   }
 
   getSlotEntry(slotIndex: number): Slot {
-    return slotStruct.read(this.getSlotView(slotIndex))
+    return slotStruct.readAt(this.getSlotView(slotIndex), 0)
   }
   private setSlotEntry(slotIndex: number, slot: Slot): void {
-    slotStruct.write(slot, this.getSlotView(slotIndex))
+    slotStruct.writeAt(slot, this.getSlotView(slotIndex), 0)
   }
 
   freeSlot(slotIndex: number): void {
@@ -71,9 +71,10 @@ export class VariableLengthRecordPage {
       }
     }
 
-    slotStruct.write(
+    slotStruct.writeAt(
       slot,
       this.nextSlotSpace,
+      0,
     )
 
     this.slotCount++
