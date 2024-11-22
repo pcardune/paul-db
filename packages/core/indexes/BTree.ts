@@ -1,11 +1,6 @@
-import {
-  BTreeNode,
-  InMemoryNodeList,
-  INodeList,
-  InternalBTreeNode,
-  LeafBTreeNode,
-} from "./NodeList.ts"
+import { InMemoryNodeList, INodeList } from "./NodeList.ts"
 import { Comparator, EqualityChecker, Range } from "../types.ts"
+import { BTreeNode, InternalBTreeNode, LeafBTreeNode } from "./BTreeNode.ts"
 
 type DumpedNode<K, V, NodeId> =
   | { type: "leaf"; nodeId: NodeId; keyvals: [K, readonly V[]][] }
