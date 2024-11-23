@@ -14,18 +14,25 @@ describe("HeapPageFile", () => {
       write: true,
       truncate: true,
     }).close()
-    bufferPool = await FileBackedBufferPool.create(filePath, pageSize)
+    bufferPool = await FileBackedBufferPool.create(
+      await Deno.open(filePath, {
+        read: true,
+        write: true,
+        create: true,
+      }),
+      pageSize,
+    )
     heapPageFile = await HeapPageFile.create(
       bufferPool,
-      async (pageId, bytes) => {
-        const page = await bufferPool.getPage(pageId)
-        const view = new DataView(page.buffer)
-        const existingFreeSpace = view.getUint32(0)
-        const newFreeSpace = existingFreeSpace === 0
-          ? pageSize - bytes
-          : existingFreeSpace - bytes
-        view.setUint32(0, newFreeSpace)
-        return { freeSpace: newFreeSpace }
+      {
+        allocateSpaceInPage: (pageView, numBytes) => {
+          const existingFreeSpace = pageView.getUint32(0)
+          const newFreeSpace = existingFreeSpace === 0
+            ? pageSize - numBytes
+            : existingFreeSpace - numBytes
+          pageView.setUint32(0, newFreeSpace)
+          return { freeSpace: newFreeSpace }
+        },
       },
     )
   })

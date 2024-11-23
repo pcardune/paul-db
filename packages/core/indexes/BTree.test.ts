@@ -3,6 +3,7 @@ import { beforeEach, describe, it } from "jsr:@std/testing/bdd"
 import { BTree } from "../indexes/BTree.ts"
 import { randomIntegerBetween, randomSeeded } from "@std/random"
 import { BTreeNode, InternalBTreeNode, LeafBTreeNode } from "./BTreeNode.ts"
+import { uint32Struct, unicodeStringStruct } from "../binary/Struct.ts"
 
 // TODO: consider using expect.extend to make custom matchers for this
 // see https://jsr.io/@std/expect/doc/~/expect.extend
@@ -159,47 +160,85 @@ async function assertWellFormedInternalNode<K, V, NodeId>(
   }
 }
 
-it("Starts out empty", async () => {
-  const btree = await BTree.inMemory<number, { name: string }>({
-    compare: (a, b) => a - b,
+const makeInFileBTree = async () => {
+  const file = await Deno.open("/tmp/btree.data", {
+    read: true,
+    write: true,
+    create: true,
   })
-  await assertWellFormedBtree(btree)
-  await btree.insert(1, { name: "Paul" })
-  await assertWellFormedBtree(btree)
-})
+  return {
+    btree: await BTree.inFile<number, string>(
+      file,
+      uint32Struct,
+      unicodeStringStruct,
+    ),
+    [Symbol.dispose]: () => {
+      file.close()
+    },
+  }
+}
 
-it("Does basic operations", async () => {
-  const btree = await BTree.inMemory<number, { name: string }>({
-    compare: (a, b) => a - b,
+const makeInMemoryBTree = async () => {
+  return {
+    btree: await BTree.inMemory<number, string>({
+      compare: (a, b) => a - b,
+    }),
+    [Symbol.dispose]: () => {},
+  }
+}
+
+const fixtures: {
+  name: string
+  makeBTree: () => Promise<
+    { btree: BTree<number, string, unknown>; [Symbol.dispose]: () => void }
+  >
+}[] = [
+  { name: "inmemory", makeBTree: makeInMemoryBTree },
+  { name: "infile", makeBTree: makeInFileBTree },
+]
+
+for (const { name, makeBTree } of fixtures) {
+  describe(`BTree (${name})`, () => {
+    it("Starts out empty", async () => {
+      using handle = await makeBTree()
+      const { btree } = handle
+      await assertWellFormedBtree(btree)
+      await btree.insert(1, "Paul")
+      await assertWellFormedBtree(btree)
+    })
+
+    it("Does basic operations", async () => {
+      using handle = await makeBTree()
+      const { btree } = handle
+      expect(await btree.has(1)).toBe(false)
+      expect(await btree.get(1)).toEqual([])
+
+      await btree.insert(1, "Paul")
+      expect(await btree.has(1)).toBe(true)
+      expect(await btree.get(1)).toEqual(["Paul"])
+
+      await btree.insert(1, "Meghan")
+      expect(await btree.get(1)).toEqual(["Paul", "Meghan"])
+
+      await btree.insert(2, "Mr. Blue")
+      expect(await btree.get(2)).toEqual(["Mr. Blue"])
+
+      await assertWellFormedBtree(btree)
+
+      await btree.removeAll(1)
+      expect(await btree.get(1)).toEqual([])
+    })
+
+    it("Inserting multiple values with the same key will return multiple values", async () => {
+      using handle = await makeBTree()
+      const { btree } = handle
+      await btree.insert(1, "Paul")
+      await btree.insert(1, "Meghan")
+      expect(await btree.get(1)).toEqual(["Paul", "Meghan"])
+      await assertWellFormedBtree(btree)
+    })
   })
-  expect(await btree.has(1)).toBe(false)
-  expect(await btree.get(1)).toEqual([])
-
-  await btree.insert(1, { name: "Paul" })
-  expect(await btree.has(1)).toBe(true)
-  expect(await btree.get(1)).toEqual([{ name: "Paul" }])
-
-  await btree.insert(1, { name: "Meghan" })
-  expect(await btree.get(1)).toEqual([{ name: "Paul" }, { name: "Meghan" }])
-
-  await btree.insert(2, { name: "Mr. Blue" })
-  expect(await btree.get(2)).toEqual([{ name: "Mr. Blue" }])
-
-  await assertWellFormedBtree(btree)
-
-  await btree.removeAll(1)
-  expect(await btree.get(1)).toEqual([])
-})
-
-it("Inserting multiple values with the same key will return multiple values", async () => {
-  const btree = await BTree.inMemory<number, string>({
-    compare: (a, b) => a - b,
-  })
-  await btree.insert(1, "Paul")
-  await btree.insert(1, "Meghan")
-  expect(await btree.get(1)).toEqual(["Paul", "Meghan"])
-  await assertWellFormedBtree(btree)
-})
+}
 
 describe("Inserting nodes", () => {
   const order = 1

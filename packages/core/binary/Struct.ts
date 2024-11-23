@@ -154,3 +154,29 @@ export class FixedWidthStruct<ValueT> implements IStruct<ValueT> {
     })
   }
 }
+
+export const unicodeStringStruct = new VariableWidthStruct<string>({
+  read: (view) => {
+    const length = view.getUint32(0)
+    const decoder = new TextDecoder()
+    return decoder.decode(
+      new DataView(view.buffer, view.byteOffset + 4, length),
+    )
+  },
+  write: (value, view) => {
+    const encoder = new TextEncoder()
+    const bytes = encoder.encode(value)
+    view.setUint32(0, bytes.length)
+    new Uint8Array(view.buffer, view.byteOffset, view.byteLength).set(
+      bytes,
+      4,
+    )
+  },
+  sizeof: (value) => 4 + new TextEncoder().encode(value).length,
+})
+
+export const uint32Struct = new FixedWidthStruct<number>({
+  read: (view) => view.getUint32(0),
+  write: (value, view) => view.setUint32(0, value),
+  size: 4,
+})

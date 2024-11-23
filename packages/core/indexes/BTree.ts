@@ -1,6 +1,16 @@
 import { InMemoryNodeList, INodeList } from "./NodeList.ts"
 import { Comparator, EqualityChecker, Range } from "../types.ts"
 import { BTreeNode, InternalBTreeNode, LeafBTreeNode } from "./BTreeNode.ts"
+import { FileBackedBufferPool } from "../pages/BufferPool.ts"
+import { HeapPageFile } from "../pages/HeapPageFile.ts"
+import { VariableLengthRecordPage } from "../pages/VariableLengthRecordPage.ts"
+import {
+  FileNodeId,
+  internalBTreeNodeStruct,
+  leafBTreeNodeStruct,
+} from "./Serializers.ts"
+import { IStruct } from "../binary/Struct.ts"
+import { FileBackedNodeList } from "./FileBackedNodeList.ts"
 
 type DumpedNode<K, V, NodeId> =
   | { type: "leaf"; nodeId: NodeId; keyvals: [K, readonly V[]][] }
@@ -73,6 +83,47 @@ export class BTree<
     return this.nodes.get(this.rootNodeId) as Promise<
       InternalBTreeNode<K, NodeId>
     >
+  }
+
+  static async inFile<K, V>(
+    file: Deno.FsFile,
+    keySerializer: IStruct<K>,
+    valueSerializer: IStruct<V>,
+  ) {
+    const bufferPool = await FileBackedBufferPool.create(file, 4096)
+    const heapPageFile = await HeapPageFile.create(
+      bufferPool,
+      VariableLengthRecordPage.allocator,
+    )
+    const leafNodeSerializer = leafBTreeNodeStruct<K, V>(
+      keySerializer,
+      valueSerializer,
+    )
+    const internalNodeSerializer = internalBTreeNodeStruct<K>(keySerializer)
+    const nodes = new FileBackedNodeList<K, V>(
+      bufferPool,
+      heapPageFile,
+      leafNodeSerializer,
+      internalNodeSerializer,
+    )
+    const childNode = await nodes.createLeafNode({
+      keyvals: [],
+      nextLeafNodeId: null,
+    })
+    const rootNode = await nodes.createInternalNode({
+      keys: [],
+      childrenNodeIds: [childNode.nodeId],
+    })
+    await nodes.commit()
+    return new BTree<K, V, FileNodeId, FileBackedNodeList<K, V>>(
+      {
+        order: 2,
+        compare: (a, b) => a < b ? -1 : a > b ? 1 : 0,
+        isEqual: (a, b) => a === b,
+        nodes: nodes,
+        rootNodeId: rootNode.nodeId,
+      },
+    )
   }
 
   static async inMemory<K, V>(

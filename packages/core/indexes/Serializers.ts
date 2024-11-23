@@ -6,7 +6,7 @@ import {
 import { PageId } from "../pages/BufferPool.ts"
 import { InternalBTreeNode, LeafBTreeNode } from "./BTreeNode.ts"
 
-export type FileNodeId = { pageId: PageId; slotId: number }
+export type FileNodeId = { pageId: PageId; slotIndex: number }
 
 const fileNodeIdStruct = new FixedWidthStruct<FileNodeId | null>({
   size: 12,
@@ -17,14 +17,14 @@ const fileNodeIdStruct = new FixedWidthStruct<FileNodeId | null>({
       return
     }
     view.setBigUint64(0, value.pageId)
-    view.setUint32(8, value.slotId)
+    view.setUint32(8, value.slotIndex)
   },
   read: (view) => {
     const nodeId = {
       pageId: view.getBigUint64(0),
-      slotId: view.getUint32(8),
+      slotIndex: view.getUint32(8),
     }
-    if (nodeId.pageId === 0n && nodeId.slotId === 0) {
+    if (nodeId.pageId === 0n && nodeId.slotIndex === 0) {
       return null
     }
     return nodeId
@@ -60,6 +60,19 @@ export function keyValsStruct<K, V>(
   })
 }
 
+enum NodeType {
+  LEAF = 1,
+  INTERNAL = 2,
+}
+
+export class WrongNodeTypeError extends Error {
+  constructor(nodeType: NodeType, expected: NodeType) {
+    super(
+      `Expected node type ${expected} found ${nodeType}`,
+    )
+  }
+}
+
 export function leafBTreeNodeStruct<K, V>(
   keySerializer: IStruct<K>,
   valSerializer: IStruct<V>,
@@ -73,9 +86,9 @@ export function leafBTreeNodeStruct<K, V>(
         fileNodeIdStruct.sizeof(value.nextLeafNodeId)
     },
     write: (value, view) => {
-      // Write the node type: 0 means leaf node
+      // Write the node type
       let offset = 0
-      view.setUint8(0, offset)
+      view.setUint8(offset, NodeType.LEAF)
       offset += 1
       // next write the keyvals
       keyValsSerializer.writeAt(value.keyvals, view, offset)
@@ -92,8 +105,8 @@ export function leafBTreeNodeStruct<K, V>(
       let offset = 0
       const nodeType = view.getUint8(offset)
       offset += 1
-      if (nodeType !== 0) {
-        throw new Error("Expected leaf node type")
+      if (nodeType !== NodeType.LEAF) {
+        throw new WrongNodeTypeError(nodeType, NodeType.LEAF)
       }
       // read the keyvals
       const keyvals = keyValsSerializer.readAt(view, offset)
@@ -121,7 +134,7 @@ export function internalBTreeNodeStruct<K>(keySerializer: IStruct<K>) {
     write: (value, view) => {
       // Write the node type: 1 means internal node
       let offset = 0
-      view.setUint8(1, offset)
+      view.setUint8(offset, NodeType.INTERNAL)
       offset += 1
       // next write the keys
       keyArraySerializer.writeAt(value.keys, view, offset)
@@ -138,8 +151,8 @@ export function internalBTreeNodeStruct<K>(keySerializer: IStruct<K>) {
       let offset = 0
       const nodeType = view.getUint8(offset)
       offset += 1
-      if (nodeType !== 1) {
-        throw new Error("Expected internal node type")
+      if (nodeType !== NodeType.INTERNAL) {
+        throw new WrongNodeTypeError(nodeType, NodeType.INTERNAL)
       }
       // read the keys
       const keys = keyArraySerializer.readAt(view, offset)

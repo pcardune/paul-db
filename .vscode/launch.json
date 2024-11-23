@@ -6,6 +6,17 @@
   "configurations": [
     {
       "request": "launch",
+      "name": "Launch Program",
+      "type": "node",
+      "program": "${workspaceFolder}/main.ts",
+      "cwd": "${workspaceFolder}",
+      "env": {},
+      "runtimeExecutable": "/Users/pcardune/.deno/bin/deno",
+      "runtimeArgs": ["run", "--unstable", "--inspect-wait", "--allow-all"],
+      "attachSimplePort": 9229
+    },
+    {
+      "request": "launch",
       "name": "Debug tests",
       "type": "node",
       // "program": "${workspaceFolder}/main.ts",
@@ -14,12 +25,12 @@
       "runtimeExecutable": "/Users/pcardune/.deno/bin/deno",
       "runtimeArgs": [
         "test",
-        // "--unstable",
-        // "--inspect-wait",
-        // "--allow-all",
-        "${file}"
-      ]
-      // "attachSimplePort": 9229
+        "${file}",
+        "--unstable",
+        "--inspect-wait",
+        "--allow-all"
+      ],
+      "attachSimplePort": 9229
     }
   ]
 }

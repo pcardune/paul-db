@@ -1,4 +1,5 @@
 import { FixedWidthStruct } from "../binary/Struct.ts"
+import { PageSpaceAllocator } from "./HeapPageFile.ts"
 
 type Slot = { offset: number; length: number }
 
@@ -16,8 +17,26 @@ const slotStruct = new FixedWidthStruct<Slot>({
   },
 })
 
+export type VariableLengthRecordPageAllocInfo = {
+  freeSpace: number
+  slot: Slot
+  slotIndex: number
+}
+
 export class VariableLengthRecordPage {
   constructor(private view: DataView) {}
+
+  static allocator: PageSpaceAllocator<VariableLengthRecordPageAllocInfo> = {
+    allocateSpaceInPage: (pageView: DataView, numBytes: number) => {
+      const recordPage = new VariableLengthRecordPage(pageView)
+      const { slot, slotIndex } = recordPage.allocateSlot(numBytes)
+      return {
+        freeSpace: recordPage.freeSpace,
+        slot,
+        slotIndex,
+      }
+    },
+  }
 
   get slotCount(): number {
     return this.view.getUint32(this.view.byteLength - 4)
@@ -57,7 +76,7 @@ export class VariableLengthRecordPage {
     this.setSlotEntry(slotIndex, { offset: 0, length: 0 })
   }
 
-  allocateSlot(length: number): Slot {
+  allocateSlot(length: number): { slot: Slot; slotIndex: number } {
     if (this.freeSpace < length) {
       throw new Error("Not enough free space")
     }
@@ -70,7 +89,7 @@ export class VariableLengthRecordPage {
       if (existingSlot.length === 0) {
         this.setSlotEntry(i, slot)
         this.freeSpaceOffset += length
-        return slot
+        return { slot, slotIndex: i }
       }
     }
 
@@ -82,7 +101,7 @@ export class VariableLengthRecordPage {
 
     this.slotCount++
     this.freeSpaceOffset += length
-    return slot
+    return { slot, slotIndex: this.slotCount - 1 }
   }
 
   /**

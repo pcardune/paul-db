@@ -12,7 +12,14 @@ describe("FileBackedBufferPool", () => {
       write: true,
       truncate: true,
     }).close()
-    bufferPool = await FileBackedBufferPool.create(filePath, pageSize)
+    bufferPool = await FileBackedBufferPool.create(
+      await Deno.open(filePath, {
+        read: true,
+        write: true,
+        create: true,
+      }),
+      pageSize,
+    )
   })
   afterEach(() => {
     bufferPool.close()
@@ -67,7 +74,11 @@ describe("FileBackedBufferPool", () => {
         await bufferPool.commit()
         Deno.copyFileSync(filePath, filePath + ".copy")
         newBufferPool = await FileBackedBufferPool.create(
-          filePath + ".copy",
+          await Deno.open(filePath + ".copy", {
+            read: true,
+            write: true,
+            create: true,
+          }),
           pageSize,
         )
       })

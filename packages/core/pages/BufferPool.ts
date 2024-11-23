@@ -5,15 +5,34 @@ export interface IBufferPool {
   allocatePage(): Promise<PageId>
   freePage(pageId: PageId): void
   getPage(pageId: PageId): Promise<Uint8Array>
+
+  /**
+   * Get a DataView for the given page ID.
+   */
+  getPageView(pageId: PageId): Promise<DataView>
   markDirty(pageId: PageId): void
   commit(): Promise<void>
 }
 
-export class InMemoryBufferPool implements IBufferPool {
+abstract class BaseBufferPool implements IBufferPool {
+  abstract get pageSize(): number
+  abstract allocatePage(): Promise<PageId>
+  abstract freePage(pageId: PageId): void
+  abstract getPage(pageId: PageId): Promise<Uint8Array>
+  getPageView(pageId: PageId): Promise<DataView> {
+    return this.getPage(pageId).then((page) => new DataView(page.buffer))
+  }
+  abstract markDirty(pageId: PageId): void
+  abstract commit(): Promise<void>
+}
+
+export class InMemoryBufferPool extends BaseBufferPool implements IBufferPool {
   private pages: Map<PageId, Uint8Array> = new Map()
   private freeList: PageId[] = []
 
-  constructor(readonly pageSize: number) {}
+  constructor(readonly pageSize: number) {
+    super()
+  }
 
   allocatePage(): Promise<PageId> {
     if (this.freeList.length > 0) {
@@ -46,7 +65,8 @@ export class InMemoryBufferPool implements IBufferPool {
   }
 }
 
-export class FileBackedBufferPool implements IBufferPool {
+export class FileBackedBufferPool extends BaseBufferPool
+  implements IBufferPool {
   private pages: Map<PageId, Uint8Array> = new Map()
   private dirtyPages: Set<PageId> = new Set()
   private __lastWrittenFreePageId: PageId = 0n
@@ -56,18 +76,14 @@ export class FileBackedBufferPool implements IBufferPool {
     readonly pageSize: number,
     private freePageId: PageId,
   ) {
+    super()
     this.__lastWrittenFreePageId = freePageId
   }
 
   static async create(
-    filename: string,
+    file: Deno.FsFile,
     pageSize: number,
   ): Promise<FileBackedBufferPool> {
-    const file = await Deno.open(filename, {
-      read: true,
-      write: true,
-      create: true,
-    })
     const stat = await file.stat()
     let freePageId: PageId = 0n
     if (stat.size > 0) {
@@ -86,6 +102,10 @@ export class FileBackedBufferPool implements IBufferPool {
       freePageId = new DataView(freeListData.buffer).getBigUint64(0)
     }
     return new FileBackedBufferPool(file, pageSize, freePageId)
+  }
+
+  [Symbol.dispose](): void {
+    this.file.close()
   }
 
   close(): void {

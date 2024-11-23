@@ -25,7 +25,8 @@ describe("VariableLengthRecordPage", () => {
 
   it("Can allocate a slot", () => {
     const initialFreeSpace = page.freeSpace
-    const slot = page.allocateSlot(10)
+    const { slot, slotIndex } = page.allocateSlot(10)
+    expect(slotIndex).toBe(0)
     expect(page.slotCount).toBe(1)
     expect(page.freeSpaceOffset).toBe(10)
     expect(page.getSlotEntry(0)).toEqual(slot)
@@ -41,8 +42,10 @@ describe("VariableLengthRecordPage", () => {
     const slot2 = page.allocateSlot(20)
     expect(page.slotCount).toBe(2)
     expect(page.freeSpaceOffset).toBe(30)
-    expect(page.getSlotEntry(0)).toEqual(slot1)
-    expect(page.getSlotEntry(1)).toEqual(slot2)
+    expect(slot1.slotIndex).toBe(0)
+    expect(slot2.slotIndex).toBe(1)
+    expect(page.getSlotEntry(slot1.slotIndex)).toEqual(slot1.slot)
+    expect(page.getSlotEntry(slot2.slotIndex)).toEqual(slot2.slot)
   })
 
   it("throws an error if there's not enough space", () => {

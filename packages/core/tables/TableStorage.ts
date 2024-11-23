@@ -1,6 +1,9 @@
 import { IBufferPool, PageId } from "../pages/BufferPool.ts"
 import { HeapPageFile } from "../pages/HeapPageFile.ts"
-import { VariableLengthRecordPage } from "../pages/VariableLengthRecordPage.ts"
+import {
+  VariableLengthRecordPage,
+  VariableLengthRecordPageAllocInfo,
+} from "../pages/VariableLengthRecordPage.ts"
 import {
   makeTableSchemaSerializer,
   RecordForTableSchema,
@@ -160,27 +163,27 @@ export class InMemoryTableStorage<RowId, RowData>
   }
 }
 
-export type HeapFileRowId = { pageId: PageId; slotId: number }
+export type HeapFileRowId = { pageId: PageId; slotIndex: number }
 export class HeapFileTableStorage<RowData>
   implements ITableStorage<HeapFileRowId, RowData> {
   private constructor(
     private bufferPool: IBufferPool,
-    private heapPageFile: HeapPageFile<{ freeSpace: number; slotId: number }>,
+    private heapPageFile: HeapPageFile<VariableLengthRecordPageAllocInfo>,
     private serializer: Serializer<RowData>,
   ) {
   }
 
-  private async getRecordView(id: { pageId: PageId; slotId: number }) {
+  private async getRecordView(id: HeapFileRowId) {
     const page = await this.bufferPool.getPage(id.pageId)
     const view = new DataView(page.buffer)
     const recordPage = new VariableLengthRecordPage(view)
-    const slot = recordPage.getSlotEntry(id.slotId)
+    const slot = recordPage.getSlotEntry(id.slotIndex)
     if (slot.length === 0) return undefined // this was deleted
     return new DataView(page.buffer, slot.offset, slot.length)
   }
 
   async get(
-    id: { pageId: PageId; slotId: number },
+    id: HeapFileRowId,
   ): Promise<RowData | undefined> {
     const view = await this.getRecordView(id)
     if (view == null) return // this was deleted
@@ -188,42 +191,48 @@ export class HeapFileTableStorage<RowData>
   }
 
   async set(
-    id: { pageId: PageId; slotId: number },
+    id: HeapFileRowId,
     data: RowData,
   ): Promise<void> {
     const page = await this.bufferPool.getPage(id.pageId)
     const view = new DataView(page.buffer)
     const recordPage = new VariableLengthRecordPage(view)
-    let slot = recordPage.getSlotEntry(id.slotId)
+    const slot = recordPage.getSlotEntry(id.slotIndex)
     if (slot.length === 0) {
       throw new Error("Cannot set a deleted record")
     }
     const serialized = this.serializer.serialize(data)
-    recordPage.freeSlot(id.slotId)
+    recordPage.freeSlot(id.slotIndex)
     recordPage.freeSpace
     try {
-      slot = recordPage.allocateSlot(serialized.byteLength)
+      recordPage.allocateSlot(serialized.byteLength)
     } catch {
       // not enough space, need to move the record
       throw new Error("Not implemented")
     }
   }
 
-  async insert(data: RowData): Promise<{ pageId: PageId; slotId: number }> {
+  async insert(data: RowData): Promise<HeapFileRowId> {
     const serialized = this.serializer.serialize(data)
-    const { pageId, allocInfo } = await this.heapPageFile.allocateSpace(
-      serialized.byteLength,
-    )
+    const { pageId, allocInfo: { slot, slotIndex } } = await this.heapPageFile
+      .allocateSpace(
+        serialized.byteLength,
+      )
+    if (slot.length < serialized.byteLength) {
+      // This should never happen since we just allocated the space
+      // but we'll check just in case to make it easier to find bugs.
+      throw new Error("Record too large")
+    }
     const page = await this.bufferPool.getPage(pageId)
-    page.set(new Uint8Array(serialized), allocInfo.slotId)
-    return { pageId, slotId: allocInfo.slotId }
+    page.set(new Uint8Array(serialized), slot.offset)
+    return { pageId, slotIndex }
   }
 
-  async remove(id: { pageId: PageId; slotId: number }): Promise<void> {
+  async remove(id: HeapFileRowId): Promise<void> {
     const page = await this.bufferPool.getPage(id.pageId)
     const view = new DataView(page.buffer)
     const recordPage = new VariableLengthRecordPage(view)
-    recordPage.freeSlot(id.slotId)
+    recordPage.freeSlot(id.slotIndex)
   }
 
   values(): IteratorObject<RowData, void, void> {
@@ -244,13 +253,7 @@ export class HeapFileTableStorage<RowData>
     }
     const heapPageFile = await HeapPageFile.create(
       bufferPool,
-      async (pageId, bytes) => {
-        const page = await bufferPool.getPage(pageId)
-        const view = new DataView(page.buffer)
-        const recordPage = new VariableLengthRecordPage(view)
-        const slot = recordPage.allocateSlot(bytes)
-        return { freeSpace: recordPage.freeSpace, slotId: slot.offset }
-      },
+      VariableLengthRecordPage.allocator,
     )
     return new HeapFileTableStorage<RecordForTableSchema<SchemaT>>(
       bufferPool,

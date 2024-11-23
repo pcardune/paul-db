@@ -262,7 +262,14 @@ describe("Heap file backed table storage", () => {
     filePath: string,
     fn: (bufferPool: FileBackedBufferPool) => Promise<void>,
   ): Promise<void> {
-    bufferPool = await FileBackedBufferPool.create(filePath, 4096)
+    bufferPool = await FileBackedBufferPool.create(
+      await Deno.open(filePath, {
+        read: true,
+        write: true,
+        create: true,
+      }),
+      4096,
+    )
     try {
       await fn(bufferPool)
     } finally {
