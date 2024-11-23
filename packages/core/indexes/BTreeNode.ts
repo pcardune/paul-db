@@ -8,7 +8,7 @@ class INode<NodeId> {
   ) {}
 }
 
-type SerializedLeafNode<K, V, NodeId> = readonly [
+export type SerializedLeafNode<K, V, NodeId> = readonly [
   "leaf",
   readonly { key: K; vals: readonly V[] }[],
   NodeId | null,
@@ -61,13 +61,15 @@ export class InternalBTreeNode<K, NodeId> extends INode<NodeId> {
   }
 }
 
+export type KeyVals<K, V> = { key: K; vals: V[] }
+
 export class LeafBTreeNode<K, V, NodeId> extends INode<NodeId> {
   readonly type: "leaf"
 
   private _keyvals: { key: K; vals: V[] }[]
   private _nextLeafNodeId: NodeId | null
 
-  get keyvals(): readonly { key: K; vals: readonly V[] }[] {
+  get keyvals(): KeyVals<K, V>[] {
     return this._keyvals
   }
 

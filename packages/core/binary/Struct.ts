@@ -1,7 +1,8 @@
 export interface IStruct<ValueT> {
   sizeof(value: ValueT): number
-  readAt(view: DataView, offset: number): Readonly<ValueT>
+  readAt(view: DataView, offset: number): ValueT
   writeAt(value: ValueT, view: DataView, offset: number): void
+  array(): IStruct<ValueT[]>
 }
 
 export class VariableWidthStruct<ValueT> implements IStruct<ValueT> {
@@ -18,7 +19,7 @@ export class VariableWidthStruct<ValueT> implements IStruct<ValueT> {
   /**
    * Reads a value from a DataView.
    */
-  private read: (view: DataView) => Readonly<ValueT>
+  private read: (view: DataView) => ValueT
 
   constructor({ sizeof, write, read }: {
     /**
@@ -29,7 +30,7 @@ export class VariableWidthStruct<ValueT> implements IStruct<ValueT> {
      */
     sizeof: (value: ValueT) => number
     write: (value: ValueT, view: DataView) => void
-    read: (view: DataView) => Readonly<ValueT>
+    read: (view: DataView) => ValueT
   }) {
     this._sizeof = sizeof
     this.write = write
@@ -40,7 +41,7 @@ export class VariableWidthStruct<ValueT> implements IStruct<ValueT> {
     return this._sizeof(value) + 4
   }
 
-  readAt(view: DataView, offset: number): Readonly<ValueT> {
+  readAt(view: DataView, offset: number): ValueT {
     const size = view.getUint32(offset)
     return this.read(
       new DataView(view.buffer, view.byteOffset + offset + 4, size),
@@ -99,12 +100,12 @@ export class FixedWidthStruct<ValueT> implements IStruct<ValueT> {
   /**
    * Reads a value from a DataView.
    */
-  private read: (view: DataView) => Readonly<ValueT>
+  private read: (view: DataView) => ValueT
 
   constructor({ size, write, read }: {
     size: number
     write: (value: ValueT, view: DataView) => void
-    read: (view: DataView) => Readonly<ValueT>
+    read: (view: DataView) => ValueT
   }) {
     this.size = size
     this.write = write
@@ -115,7 +116,7 @@ export class FixedWidthStruct<ValueT> implements IStruct<ValueT> {
     return this.size
   }
 
-  readAt(view: DataView, offset: number): Readonly<ValueT> {
+  readAt(view: DataView, offset: number): ValueT {
     if (offset + this.size > view.byteLength) {
       throw new Error("Reading past the end of the view")
     }
@@ -152,25 +153,4 @@ export class FixedWidthStruct<ValueT> implements IStruct<ValueT> {
       },
     })
   }
-}
-
-export function arrayStructFor<V>(
-  valueStruct: FixedWidthStruct<V>,
-): VariableWidthStruct<V[]> {
-  return new VariableWidthStruct({
-    sizeof: (value) => value.length * valueStruct.size,
-    write(value, view) {
-      for (let i = 0; i < value.length; i++) {
-        valueStruct.writeAt(value[i], view, i * valueStruct.size)
-      }
-    },
-    read(view) {
-      const length = view.byteLength / valueStruct.size
-      const values = []
-      for (let i = 0; i < length; i++) {
-        values.push(valueStruct.readAt(view, i * valueStruct.size))
-      }
-      return values
-    },
-  })
 }
