@@ -75,18 +75,29 @@ export class BTree<
     >
   }
 
-  static inMemory<K, V>(
+  static async inMemory<K, V>(
     {
       order = 2,
       compare = (a, b) => a < b ? -1 : a > b ? 1 : 0,
       isEqual = (a, b) => a === b,
     }: InMemoryBTreeConfig<K, V> = {},
   ) {
+    const nodes = new InMemoryNodeList<K, V>([])
+    const childNode = await nodes.createLeafNode({
+      keyvals: [],
+      nextLeafNodeId: null,
+    })
+    const rootNode = await nodes.createInternalNode({
+      keys: [],
+      childrenNodeIds: [childNode.nodeId],
+    })
+    await nodes.commit()
     return new BTree<K, V, number, InMemoryNodeList<K, V>>({
       order,
       compare,
       isEqual,
-      nodes: new InMemoryNodeList<K, V>([]),
+      nodes,
+      rootNodeId: rootNode.nodeId,
     })
   }
 
@@ -100,28 +111,20 @@ export class BTree<
       compare,
       isEqual,
       nodes,
+      rootNodeId,
     }: {
       order?: number
       compare: (a: K, b: K) => number
       isEqual: (a: V, b: V) => boolean
       nodes: NodeListT
+      rootNodeId: NodeId
     },
   ) {
     this.compare = compare
     this.isEqual = isEqual
     this.nodes = nodes
     this.order = order
-    this.rootNodeId = this.nodes.getNextNodeId()
-    const childNodeId = this.nodes.getNextNodeId()
-    this.nodes.createInternalNode(this.rootNodeId, {
-      keys: [],
-      childrenNodeIds: [childNodeId],
-    })
-    this.nodes.createLeafNode(childNodeId, {
-      keyvals: [],
-      nextLeafNodeId: null,
-    })
-    this.nodes.commit()
+    this.rootNodeId = rootNodeId
   }
 
   childrenForNode(
@@ -219,18 +222,18 @@ export class BTree<
     const found = await this._get(this.rootNodeId, key)
     if (found.keyval != null) {
       found.node.pushValue(found.keyIndex, value)
-      this.nodes.commit()
+      await this.nodes.commit()
       return
     }
     const { node } = found
 
     node.pushKey(key, [value], this.compare)
     if (node.keyvals.length <= this.order * 2) {
-      this.nodes.commit()
+      await this.nodes.commit()
       return
     }
     await this.splitNode(found.nodeId, found.parents)
-    this.nodes.commit()
+    await this.nodes.commit()
   }
 
   private async insertIntoParent(
@@ -252,14 +255,14 @@ export class BTree<
     parents: LinkedList<NodeId>,
     depth: number,
   ) {
-    const L2 = this.nodes.createLeafNode(this.nodes.getNextNodeId(), {
+    const L2 = await this.nodes.createLeafNode({
       keyvals: node.copyKeyvals(this.order),
       nextLeafNodeId: node.nextLeafNodeId,
     })
-    this.nodes.createLeafNode(node.nodeId, {
+    await this.nodes.createLeafNode({
       keyvals: node.copyKeyvals(0, this.order),
       nextLeafNodeId: L2.nodeId,
-    })
+    }, node.nodeId)
     await this.insertIntoParent(
       await this.nodes.get(parents.head as NodeId) as InternalBTreeNode<
         K,
@@ -280,8 +283,7 @@ export class BTree<
     let parentNode: InternalBTreeNode<K, NodeId>
     if (parents == null) {
       // make a new parent node
-      parentNode = this.nodes.createInternalNode(
-        this.nodes.getNextNodeId(),
+      parentNode = await this.nodes.createInternalNode(
         {
           keys: [],
           childrenNodeIds: [node.nodeId],
@@ -297,17 +299,16 @@ export class BTree<
     }
 
     const keyToMove = node.keys[this.order]
-    const L2 = this.nodes.createInternalNode(
-      this.nodes.getNextNodeId(),
+    const L2 = await this.nodes.createInternalNode(
       {
         keys: node.keys.slice(this.order + 1),
         childrenNodeIds: node.childrenNodeIds.slice(this.order + 1),
       },
     )
-    this.nodes.createInternalNode(node.nodeId, {
+    await this.nodes.createInternalNode({
       keys: node.keys.slice(0, this.order),
       childrenNodeIds: node.childrenNodeIds.slice(0, this.order + 1),
-    })
+    }, node.nodeId)
     parentNode.insertNode(keyToMove, L2.nodeId, this.compare)
     if (parentNode.keys.length > this.order * 2) {
       await this.splitNode(parentNode.nodeId, parents.tail, depth + 1)
@@ -337,7 +338,7 @@ export class BTree<
     }
     const { node, keyIndex } = found
     node.removeKey(keyIndex)
-    this.nodes.commit()
+    await this.nodes.commit()
   }
 
   async remove(key: K, value: V) {
@@ -346,7 +347,7 @@ export class BTree<
       return
     }
     found.node.removeValue(found.keyIndex, value, this.isEqual)
-    this.nodes.commit()
+    await this.nodes.commit()
   }
 
   async has(key: K): Promise<boolean> {

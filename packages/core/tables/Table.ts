@@ -41,7 +41,7 @@ export class Table<
   private data: StorageT
   private _allIndexes: Map<string, Index<unknown, RowIdT, unknown>>
 
-  constructor(init: {
+  private constructor(init: {
     schema: SchemaT
     data: StorageT
   }) {
@@ -49,11 +49,14 @@ export class Table<
     this.data = init.data
 
     this._allIndexes = new Map()
+  }
+
+  private async setupIndexes() {
     for (const column of this.schema.columns) {
       if (column.indexed) {
         this._allIndexes.set(
           column.name,
-          Index.inMemory({
+          await Index.inMemory({
             isEqual: column.type.isEqual,
             compare: column.type.compare,
           }),
@@ -64,13 +67,13 @@ export class Table<
       if (column.indexed) {
         this._allIndexes.set(
           column.name,
-          Index.inMemory({}),
+          await Index.inMemory({}),
         )
       }
     }
   }
 
-  static create<
+  static async create<
     RowIdT,
     TName extends string,
     ColumnSchemasT extends SomeColumnSchema[],
@@ -80,7 +83,7 @@ export class Table<
     schema: SchemaT,
     data: ITableStorage<RowIdT, RecordForTableSchema<SchemaT>>,
   ) {
-    return new Table<
+    const table = new Table<
       RowIdT,
       TName,
       ColumnSchemasT,
@@ -91,6 +94,8 @@ export class Table<
       schema,
       data,
     })
+    await table.setupIndexes()
+    return table
   }
 
   async insertMany(

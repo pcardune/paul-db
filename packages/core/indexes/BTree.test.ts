@@ -160,7 +160,7 @@ async function assertWellFormedInternalNode<K, V, NodeId>(
 }
 
 it("Starts out empty", async () => {
-  const btree = BTree.inMemory<number, { name: string }>({
+  const btree = await BTree.inMemory<number, { name: string }>({
     compare: (a, b) => a - b,
   })
   await assertWellFormedBtree(btree)
@@ -169,7 +169,7 @@ it("Starts out empty", async () => {
 })
 
 it("Does basic operations", async () => {
-  const btree = BTree.inMemory<number, { name: string }>({
+  const btree = await BTree.inMemory<number, { name: string }>({
     compare: (a, b) => a - b,
   })
   expect(await btree.has(1)).toBe(false)
@@ -192,7 +192,9 @@ it("Does basic operations", async () => {
 })
 
 it("Inserting multiple values with the same key will return multiple values", async () => {
-  const btree = BTree.inMemory<number, string>({ compare: (a, b) => a - b })
+  const btree = await BTree.inMemory<number, string>({
+    compare: (a, b) => a - b,
+  })
   await btree.insert(1, "Paul")
   await btree.insert(1, "Meghan")
   expect(await btree.get(1)).toEqual(["Paul", "Meghan"])
@@ -201,9 +203,12 @@ it("Inserting multiple values with the same key will return multiple values", as
 
 describe("Inserting nodes", () => {
   const order = 1
-  let btree: ReturnType<typeof BTree.inMemory<number, string>>
-  beforeEach(() => {
-    btree = BTree.inMemory<number, string>({ order, compare: (a, b) => a - b })
+  let btree: Awaited<ReturnType<typeof BTree.inMemory<number, string>>>
+  beforeEach(async () => {
+    btree = await BTree.inMemory<number, string>({
+      order,
+      compare: (a, b) => a - b,
+    })
   })
   it("starts with only two nodes in the tree", async () => {
     expect(btree.nodes.size).toBe(2)
@@ -233,10 +238,10 @@ describe("Inserting nodes", () => {
         await btree.insert(2, `Person 2`)
       })
       it("A new node will be added", async () => {
-        await assertWellFormedBtree(btree)
         expect(btree.nodes.size).toBe(3)
         expect(await btree.childrenForNode(await btree.getRootNode()))
           .toHaveLength(2)
+        await assertWellFormedBtree(btree)
       })
 
       it("All entries will have the correct values", async () => {
@@ -281,9 +286,9 @@ describe("Inserting nodes", () => {
 })
 
 describe("Removing items", () => {
-  let btree: ReturnType<typeof BTree.inMemory<number, string>>
+  let btree: Awaited<ReturnType<typeof BTree.inMemory<number, string>>>
   beforeEach(async () => {
-    btree = BTree.inMemory<number, string>({
+    btree = await BTree.inMemory<number, string>({
       order: 3,
       compare: (a, b) => a - b,
     })
@@ -309,9 +314,9 @@ describe("Removing items", () => {
 })
 
 describe("Range requests", () => {
-  let btree: ReturnType<typeof BTree.inMemory<number, string>>
+  let btree: Awaited<ReturnType<typeof BTree.inMemory<number, string>>>
   beforeEach(async () => {
-    btree = BTree.inMemory<number, string>({
+    btree = await BTree.inMemory<number, string>({
       order: 3,
       compare: (a, b) => a - b,
     })
@@ -376,7 +381,7 @@ describe("Range requests", () => {
 
 describe("Bulk tests", () => {
   it("lots of nodes inserted in ascending order", async () => {
-    const btree = BTree.inMemory<number, string>({
+    const btree = await BTree.inMemory<number, string>({
       order: 3,
       compare: (a, b) => a - b,
     })
@@ -395,7 +400,7 @@ describe("Bulk tests", () => {
   })
 
   it("lots of nodes inserted in descending order", async () => {
-    const btree = BTree.inMemory<number, string>({
+    const btree = await BTree.inMemory<number, string>({
       compare: (a, b) => a - b,
       order: 3,
     })
@@ -416,7 +421,7 @@ describe("Bulk tests", () => {
   })
 
   it("lots of nodes inserted in random order", async () => {
-    const btree = BTree.inMemory<number, string>({
+    const btree = await BTree.inMemory<number, string>({
       compare: (a, b) => a - b,
       order: 3,
     })

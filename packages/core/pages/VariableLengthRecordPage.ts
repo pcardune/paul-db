@@ -47,6 +47,9 @@ export class VariableLengthRecordPage {
     slotStruct.writeAt(slot, this.getSlotView(slotIndex), 0)
   }
 
+  /**
+   * Marks a slot as free for future allocations
+   */
   freeSlot(slotIndex: number): void {
     if (slotIndex >= this.slotCount) {
       throw new Error("Slot index out of bounds")

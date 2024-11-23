@@ -6,19 +6,17 @@ import {
 } from "./BTreeNode.ts"
 
 export interface INodeList<K, V, NodeId> {
-  getNextNodeId(): NodeId
   size: number
   get(nodeId: NodeId): Promise<BTreeNode<K, V, NodeId>>
-  set(nodeId: NodeId, node: BTreeNode<K, V, NodeId>): Promise<void>
   markDirty(node: BTreeNode<K, V, NodeId>): void
   createLeafNode(
-    nodeId: NodeId,
     state: { keyvals: { key: K; vals: V[] }[]; nextLeafNodeId: NodeId | null },
-  ): LeafBTreeNode<K, V, NodeId>
+    replaceNodeId?: NodeId,
+  ): Promise<LeafBTreeNode<K, V, NodeId>>
   createInternalNode(
-    nodeId: NodeId,
     state: { keys: K[]; childrenNodeIds: NodeId[] },
-  ): InternalBTreeNode<K, NodeId>
+    replaceNodeId?: NodeId,
+  ): Promise<InternalBTreeNode<K, NodeId>>
   commit(): Promise<void>
 }
 
@@ -36,7 +34,7 @@ export class InMemoryNodeList<K, V> implements INodeList<K, V, number> {
     this.dirtyNodes.set(node.nodeId, node)
   }
 
-  getNextNodeId(): number {
+  private getNextNodeId(): number {
     return this.nextNodeId++
   }
 
@@ -87,30 +85,22 @@ export class InMemoryNodeList<K, V> implements INodeList<K, V, number> {
     return Promise.resolve(node)
   }
 
-  set(nodeId: number, node: BTreeNode<K, V, number>) {
-    if (node.type === "leaf") {
-      this._nodes[nodeId] = ["leaf", node.keyvals, node.nextLeafNodeId]
-    } else {
-      this._nodes[nodeId] = ["internal", node.keys, node.childrenNodeIds]
-    }
-    this.markDirty(node)
-    return Promise.resolve()
-  }
-
   createLeafNode(
-    nodeId: number,
     state: { keyvals: { key: K; vals: V[] }[]; nextLeafNodeId: number | null },
-  ): LeafBTreeNode<K, V, number> {
+    replaceNodeId?: number,
+  ): Promise<LeafBTreeNode<K, V, number>> {
+    const nodeId = replaceNodeId ?? this.getNextNodeId()
     const node = new LeafBTreeNode(() => this.markDirty(node), nodeId, state)
     this._nodeCache.set(nodeId, node)
     this.markDirty(node)
-    return node
+    return Promise.resolve(node)
   }
 
   createInternalNode(
-    nodeId: number,
     state: { keys: K[]; childrenNodeIds: number[] },
-  ): InternalBTreeNode<K, number> {
+    replaceNodeId?: number,
+  ): Promise<InternalBTreeNode<K, number>> {
+    const nodeId = replaceNodeId ?? this.getNextNodeId()
     const node = new InternalBTreeNode(
       () => this.markDirty(node),
       nodeId,
@@ -118,7 +108,7 @@ export class InMemoryNodeList<K, V> implements INodeList<K, V, number> {
     )
     this._nodeCache.set(nodeId, node)
     this.markDirty(node)
-    return node
+    return Promise.resolve(node)
   }
 
   commit(): Promise<void> {

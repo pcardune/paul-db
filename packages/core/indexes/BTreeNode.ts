@@ -27,11 +27,11 @@ export class InternalBTreeNode<K, NodeId> extends INode<NodeId> {
   private _keys: K[]
   private _childrenNodeIds: NodeId[]
 
-  get keys(): readonly K[] {
+  get keys(): K[] {
     return this._keys
   }
 
-  get childrenNodeIds(): readonly NodeId[] {
+  get childrenNodeIds(): NodeId[] {
     return this._childrenNodeIds
   }
 
