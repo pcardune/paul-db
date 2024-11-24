@@ -79,7 +79,7 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
 
   private dirtyNodes = new Map<string, BTreeNode<K, V, FileNodeId>>()
   private cacheKey(nodeId: FileNodeId): string {
-    return `${nodeId.pageId}-${nodeId.slotIndex}`
+    return nodeId.serialize()
   }
 
   markDirty(node: BTreeNode<K, V, FileNodeId>): void {
@@ -94,7 +94,8 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
       prevLeafNodeId: FileNodeId | null
     },
   ): Promise<LeafBTreeNode<K, V, FileNodeId>> {
-    const buffer = new ArrayBuffer(this.leafNodeSerializer.sizeof(data))
+    const size = this.leafNodeSerializer.sizeof(data)
+    const buffer = new ArrayBuffer(size)
     const { pageId, allocInfo: { slot, slotIndex } } = await this.heapPageFile
       .allocateSpace(buffer.byteLength)
     const page = await this.bufferPool.getPage(pageId)
@@ -143,13 +144,19 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
       const view = await this.getRecordView(node.nodeId)
       if (view == null) throw new Error("Node not found")
       if (node instanceof LeafBTreeNode) {
-        if (this.leafNodeSerializer.sizeof(node) > view.byteLength) {
-          throw new Error("Node too large")
+        const size = this.leafNodeSerializer.sizeof(node)
+        if (size > view.byteLength) {
+          throw new Error(
+            `Leaf Node ${node.nodeId.serialize()} too large: ${size} > ${view.byteLength}`,
+          )
         }
         this.leafNodeSerializer.writeAt(node, view, 0)
       } else {
+        const size = this.internalNodeSerializer.sizeof(node)
         if (this.internalNodeSerializer.sizeof(node) > view.byteLength) {
-          throw new Error("Node too large")
+          throw new Error(
+            `Internal Node ${node.nodeId.serialize()} too large: ${size} > ${view.byteLength}`,
+          )
         }
         this.internalNodeSerializer.writeAt(node, view, 0)
       }

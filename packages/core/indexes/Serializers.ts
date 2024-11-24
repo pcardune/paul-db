@@ -22,6 +22,10 @@ export class FileNodeId implements INodeId {
   serialize(): string {
     return `${this.pageId}:${this.slotIndex}`
   }
+
+  toString(): string {
+    return this.serialize()
+  }
 }
 
 const fileNodeIdStruct = new FixedWidthStruct<FileNodeId | null>({

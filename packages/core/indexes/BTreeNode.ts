@@ -4,6 +4,7 @@ import { Comparator, EqualityChecker } from "../types.ts"
 export interface INodeId {
   equals(other: INodeId): boolean
   serialize(): string
+  toString(): string
 }
 
 class INode<NodeId extends INodeId> {
@@ -76,6 +77,15 @@ export class InternalBTreeNode<K, NodeId extends INodeId>
     ]
   }
 
+  override toString() {
+    return `InternalBTreeNode(${JSON.stringify(this.nodeId.serialize())}, ${
+      JSON.stringify({
+        keys: this._keys,
+        childrenNodeIds: this._childrenNodeIds.map((c) => c.serialize()),
+      })
+    })`
+  }
+
   /**
    * Returns data for a new node that is the result of inserting new child node
    */
@@ -127,6 +137,15 @@ export class LeafBTreeNode<K, V, NodeId extends INodeId> extends INode<NodeId> {
       this._nextLeafNodeId?.serialize() ?? null,
       this._prevLeafNodeId?.serialize() ?? null,
     ]
+  }
+  override toString() {
+    return `LeafBTreeNode(${JSON.stringify(this.nodeId.serialize())}, ${
+      JSON.stringify({
+        keys: this._keyvals,
+        nextLeafNodeId: this._nextLeafNodeId?.serialize(),
+        prevLeafNodeId: this._prevLeafNodeId?.serialize(),
+      })
+    })`
   }
 
   constructor(

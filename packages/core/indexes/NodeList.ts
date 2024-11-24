@@ -33,6 +33,10 @@ export class InMemoryNodeId implements INodeId {
   serialize(): string {
     return this.index.toString()
   }
+
+  toString(): string {
+    return this.serialize()
+  }
 }
 export class InMemoryNodeList<K, V> implements INodeList<K, V, InMemoryNodeId> {
   private nextNodeId = 0
