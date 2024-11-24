@@ -1,6 +1,15 @@
 import { FixedWidthStruct } from "../binary/Struct.ts"
 import { PageSpaceAllocator } from "./HeapPageFile.ts"
 
+/**
+ * Represents a slot in a variable-length record page.
+ *
+ * The slot is a pair of 32-bit unsigned integers, the first representing the
+ * offset of the record in the page, and the second representing the length of
+ * the record.
+ *
+ * If a slot has a length of 0, it is considered free space.
+ */
 type Slot = { offset: number; length: number }
 
 const slotStruct = new FixedWidthStruct<Slot>({
@@ -38,14 +47,23 @@ export class VariableLengthRecordPage {
     },
   }
 
+  /**
+   * The number of slots in the page.
+   */
   get slotCount(): number {
     return this.view.getUint32(this.view.byteLength - 4)
   }
 
-  set slotCount(value: number) {
+  private set slotCount(value: number) {
     this.view.setUint32(this.view.byteLength - 4, value)
   }
 
+  /**
+   * The offset of the free space in the page.
+   *
+   * Note that this is the offset to use if and only if there is no space
+   * in a previously freed slot.
+   */
   get freeSpaceOffset(): number {
     return this.view.getUint32(this.view.byteLength - 8)
   }
@@ -59,6 +77,9 @@ export class VariableLengthRecordPage {
     return new DataView(this.view.buffer, this.view.byteOffset + slotOffset, 8)
   }
 
+  /**
+   * Retrieves the slot at the given index.
+   */
   getSlotEntry(slotIndex: number): Slot {
     return slotStruct.readAt(this.getSlotView(slotIndex), 0)
   }
@@ -76,31 +97,61 @@ export class VariableLengthRecordPage {
     this.setSlotEntry(slotIndex, { offset: 0, length: 0 })
   }
 
-  allocateSlot(length: number): { slot: Slot; slotIndex: number } {
-    if (this.freeSpace < length) {
+  /**
+   * Allocate space for `numBytes` bytes in the page and return the slot.
+   * @param numBytes that are needed
+   * @returns a slot with _at least_ `numBytes` of space, though may be bigger
+   * if it reuses an existing slot.
+   */
+  allocateSlot(numBytes: number): { slot: Slot; slotIndex: number } {
+    if (this.freeSpace < numBytes) {
       throw new Error("Not enough free space")
     }
 
-    const slot = { offset: this.freeSpaceOffset, length }
-
     // try to reuse an existing slot first
+    let offset = 0
     for (let i = 0; i < this.slotCount; i++) {
       const existingSlot = this.getSlotEntry(i)
-      if (existingSlot.length === 0) {
+      if (existingSlot.length > 0) {
+        offset += existingSlot.length
+        continue
+      }
+      // well, this slot is free. Let's find out how much space there is
+      // until the next used slot
+      let freeSpace = 0
+      let j = i + 1
+      for (; j < this.slotCount; j++) {
+        if (this.getSlotEntry(j).length > 0) break
+      }
+      if (j < this.slotCount) {
+        // we found a used slot before we reached the end of all the slots
+        freeSpace = this.getSlotEntry(j).offset - offset
+        if (freeSpace >= numBytes) {
+          const slot = { offset, length: numBytes }
+          this.setSlotEntry(i, slot)
+          return { slot, slotIndex: i }
+        } else {
+          // not enough free space here, keep looking, starting
+          // from the next slot
+          i = j + 1
+        }
+      } else {
+        // all the remaining slots are free. Let's use this one.
+        const slot = { offset, length: numBytes }
         this.setSlotEntry(i, slot)
-        this.freeSpaceOffset += length
+        this.freeSpaceOffset = offset + numBytes
         return { slot, slotIndex: i }
       }
     }
 
+    const slot = { offset: this.freeSpaceOffset, length: numBytes }
     slotStruct.writeAt(
       slot,
       this.nextSlotSpace,
       0,
     )
-
     this.slotCount++
-    this.freeSpaceOffset += length
+    this.freeSpaceOffset += numBytes
     return { slot, slotIndex: this.slotCount - 1 }
   }
 

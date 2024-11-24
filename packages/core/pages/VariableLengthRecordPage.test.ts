@@ -55,23 +55,66 @@ describe("VariableLengthRecordPage", () => {
     expect(() => page.allocateSlot(30)).toThrow("Not enough free space")
   })
 
-  it("Can delete a slot", () => {
-    page.allocateSlot(10)
-    page.allocateSlot(5)
-    page.allocateSlot(4)
+  function makeSlots() {
+    return [
+      page.allocateSlot(10),
+      page.allocateSlot(5),
+      page.allocateSlot(4),
+    ] as const
+  }
+
+  it("Can free a slot", () => {
+    const slots = makeSlots()
     expect(page.slotCount).toBe(3)
     expect(page.freeSpaceOffset).toBe(19)
     expect(page.freeSpace).toBe(21)
 
-    page.freeSlot(1)
+    const freedSlotIndex = slots[1].slotIndex
+    page.freeSlot(freedSlotIndex)
     expect(page.slotCount).toBe(3)
     expect(page.freeSpaceOffset).toBe(19)
     expect(page.freeSpace).toBe(21)
+    // a freed slot is marked as having length and offset of 0
+    expect(page.getSlotEntry(freedSlotIndex).length).toBe(0)
+    expect(page.getSlotEntry(freedSlotIndex).offset).toBe(0)
+  })
 
-    // if we allocate again, it should reuse the slot (but not the space)
-    const priorFreeSpace = page.freeSpace
-    page.allocateSlot(10)
-    expect(page.freeSpace).toBe(priorFreeSpace - 10)
+  it("Will reuse a freed slot if the new allocation fits in it", () => {
+    const [firstSlot] = makeSlots()
+    page.freeSlot(firstSlot.slotIndex)
+
+    expect(page.getSlotEntry(firstSlot.slotIndex).length).toBe(0)
+    const { slotIndex: reusedSlotIndex, slot: reusedSlot } = page.allocateSlot(
+      firstSlot.slot.length - 2,
+    )
+    expect(reusedSlotIndex).toBe(firstSlot.slotIndex)
+    expect(reusedSlot.offset).toBe(firstSlot.slot.offset)
+    expect(reusedSlot.length).toBe(firstSlot.slot.length - 2)
+  })
+
+  it("Will allocate a new slot if the freed one is too small", () => {
+    const [firstSlot] = makeSlots()
+    page.freeSlot(firstSlot.slotIndex)
+
+    const numSlotsAfterFirstFree = page.slotCount
+    const newSlot = page.allocateSlot(firstSlot.slot.length + 1)
+    expect(newSlot.slotIndex).not.toBe(firstSlot.slotIndex)
+    expect(newSlot.slotIndex).toBe(numSlotsAfterFirstFree)
+    expect(newSlot.slot.offset).not.toBe(firstSlot.slot.length)
+    expect(newSlot.slot.length).toBe(firstSlot.slot.length + 1)
+  })
+
+  it("Will reuse a slot if it's the last one", () => {
+    const slots = makeSlots()
+    const lastSlot = slots.at(-1)!
+    const secondToLastSlot = slots.at(-2)!
+    page.freeSlot(lastSlot.slotIndex)
+    const newSlot = page.allocateSlot(lastSlot.slot.length + 1)
+    expect(newSlot.slotIndex).toBe(lastSlot.slotIndex)
+    expect(newSlot.slot.offset).toBe(
+      secondToLastSlot.slot.offset + secondToLastSlot.slot.length,
+    )
+    expect(newSlot.slot.length).toBe(lastSlot.slot.length + 1)
   })
 
   it.skip("Can compact the page", () => {
