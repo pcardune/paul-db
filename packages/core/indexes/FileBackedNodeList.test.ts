@@ -34,6 +34,7 @@ Deno.test("FileBackedNodeList.createLeafNode()", async (t) => {
     const node = await n.nodelist.createLeafNode({
       keyvals: [{ key: 1, vals: ["hello"] }, { key: 2, vals: ["world"] }],
       nextLeafNodeId: null,
+      prevLeafNodeId: null,
     })
 
     assertEquals(node.keyvals, [{ key: 1, vals: ["hello"] }, {
@@ -46,8 +47,8 @@ Deno.test("FileBackedNodeList.createLeafNode()", async (t) => {
       "Uses the given nextLeafNodeId",
     )
     assertEquals(
-      node.nodeId,
-      { pageId: 4104n, slotIndex: 0 },
+      node.nodeId.serialize(),
+      "4104:0",
       "Creates a new node id",
     )
 
@@ -78,30 +79,6 @@ Deno.test("FileBackedNodeList.createLeafNode()", async (t) => {
         )
       },
     )
-
-    await t.step("lets you replace the node with a new one", async (t) => {
-      const newNode = await n.nodelist.createLeafNode({
-        keyvals: [{ key: 3, vals: ["a new value"] }],
-        nextLeafNodeId: null,
-      }, node.nodeId)
-      assertEquals(newNode.keyvals, [{ key: 3, vals: ["a new value"] }])
-      assertEquals(newNode.nodeId, node.nodeId)
-
-      await n.nodelist.commit()
-      await t.step("reads the new node back after commit", async () => {
-        const sameNode = await n.nodelist.get(newNode.nodeId)
-        assertNotStrictEquals(
-          sameNode,
-          newNode,
-          "Expected a new instance to be retrieved",
-        )
-        assertEquals(
-          sameNode.serialize(),
-          newNode.serialize(),
-          "Expected the same data to be retrieved",
-        )
-      })
-    })
   })
 })
 
@@ -111,6 +88,7 @@ Deno.test("FileBackedNodeList.createInternalNode()", async (t) => {
     const childNode = await n.nodelist.createLeafNode({
       keyvals: [],
       nextLeafNodeId: null,
+      prevLeafNodeId: null,
     })
     const node = await n.nodelist.createInternalNode({
       keys: [],
@@ -119,8 +97,8 @@ Deno.test("FileBackedNodeList.createInternalNode()", async (t) => {
     assert(node.keys.length === 0, "Uses the given keys")
     assert(node.childrenNodeIds.length === 1, "Uses the given childrenNodeIds")
     assertEquals(
-      node.nodeId,
-      { pageId: 4104n, slotIndex: 1 },
+      node.nodeId.serialize(),
+      "4104:1",
       "Creates a new node in the next slot of the page",
     )
   })

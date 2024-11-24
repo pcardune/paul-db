@@ -1,7 +1,9 @@
 import { BTree, InMemoryBTreeConfig } from "./BTree.ts"
 import { Range } from "../types.ts"
+import { INodeId } from "./BTreeNode.ts"
+import { InMemoryNodeId } from "./NodeList.ts"
 
-export class Index<K, V, NodeId> {
+export class Index<K, V, NodeId extends INodeId> {
   private data: BTree<K, V, NodeId>
   constructor(data: BTree<K, V, NodeId>) {
     this.data = data
@@ -9,7 +11,7 @@ export class Index<K, V, NodeId> {
 
   static async inMemory<K, V>(
     config: InMemoryBTreeConfig<K, V>,
-  ): Promise<Index<K, V, number>> {
+  ): Promise<Index<K, V, InMemoryNodeId>> {
     return new Index(
       await BTree.inMemory<K, V>({
         compare: config.compare ?? ((a, b) => a < b ? -1 : a > b ? 1 : 0),

@@ -91,28 +91,19 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
     data: {
       keyvals: { key: K; vals: V[] }[]
       nextLeafNodeId: FileNodeId | null
+      prevLeafNodeId: FileNodeId | null
     },
-    replaceNodeId?: FileNodeId,
   ): Promise<LeafBTreeNode<K, V, FileNodeId>> {
-    let nodeId: FileNodeId
-    if (replaceNodeId) {
-      const view = await this.getRecordView(replaceNodeId)
-      if (view == null) throw new Error("Node not found")
-      this.leafNodeSerializer.writeAt(data, view, 0)
-      nodeId = replaceNodeId
-    } else {
-      const buffer = new ArrayBuffer(this.leafNodeSerializer.sizeof(data))
-      const { pageId, allocInfo: { slot, slotIndex } } = await this.heapPageFile
-        .allocateSpace(
-          buffer.byteLength,
-        )
-      const page = await this.bufferPool.getPage(pageId)
-      // TODO: instead of writing to buffer first and then copying,
-      // just write directly to the page.
-      this.leafNodeSerializer.writeAt(data, new DataView(buffer), 0)
-      page.set(new Uint8Array(buffer), slot.offset)
-      nodeId = { pageId, slotIndex }
-    }
+    const buffer = new ArrayBuffer(this.leafNodeSerializer.sizeof(data))
+    const { pageId, allocInfo: { slot, slotIndex } } = await this.heapPageFile
+      .allocateSpace(buffer.byteLength)
+    const page = await this.bufferPool.getPage(pageId)
+    // TODO: instead of writing to buffer first and then copying,
+    // just write directly to the page.
+    this.leafNodeSerializer.writeAt(data, new DataView(buffer), 0)
+    page.set(new Uint8Array(buffer), slot.offset)
+    const nodeId = new FileNodeId({ pageId, slotIndex })
+
     this.bufferPool.markDirty(nodeId.pageId)
     const node = new LeafBTreeNode<K, V, FileNodeId>(
       () => this.markDirty(node),
@@ -125,27 +116,18 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
 
   async createInternalNode(
     data: { keys: K[]; childrenNodeIds: FileNodeId[] },
-    replaceNodeId?: FileNodeId,
   ): Promise<InternalBTreeNode<K, FileNodeId>> {
-    let nodeId: FileNodeId
-    if (replaceNodeId) {
-      const view = await this.getRecordView(replaceNodeId)
-      if (view == null) throw new Error("Node not found")
-      this.internalNodeSerializer.writeAt(data, view, 0)
-      nodeId = replaceNodeId
-    } else {
-      const buffer = new ArrayBuffer(this.internalNodeSerializer.sizeof(data))
-      const { pageId, allocInfo: { slot, slotIndex } } = await this.heapPageFile
-        .allocateSpace(
-          buffer.byteLength,
-        )
-      const page = await this.bufferPool.getPage(pageId)
-      // TODO: instead of writing to buffer first and then copying,
-      // just write directly to the page.
-      this.internalNodeSerializer.writeAt(data, new DataView(buffer), 0)
-      page.set(new Uint8Array(buffer), slot.offset)
-      nodeId = { pageId, slotIndex }
-    }
+    const buffer = new ArrayBuffer(this.internalNodeSerializer.sizeof(data))
+    const { pageId, allocInfo: { slot, slotIndex } } = await this.heapPageFile
+      .allocateSpace(buffer.byteLength)
+    const page = await this.bufferPool.getPage(pageId)
+    // TODO: instead of writing to buffer first and then copying,
+    // just write directly to the page.
+    this.internalNodeSerializer.writeAt(data, new DataView(buffer), 0)
+    page.set(new Uint8Array(buffer), slot.offset)
+
+    const nodeId = new FileNodeId({ pageId, slotIndex })
+
     this.bufferPool.markDirty(nodeId.pageId)
     const node = new InternalBTreeNode<K, FileNodeId>(
       () => this.markDirty(node),
@@ -161,13 +143,27 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
       const view = await this.getRecordView(node.nodeId)
       if (view == null) throw new Error("Node not found")
       if (node instanceof LeafBTreeNode) {
+        if (this.leafNodeSerializer.sizeof(node) > view.byteLength) {
+          throw new Error("Node too large")
+        }
         this.leafNodeSerializer.writeAt(node, view, 0)
       } else {
+        if (this.internalNodeSerializer.sizeof(node) > view.byteLength) {
+          throw new Error("Node too large")
+        }
         this.internalNodeSerializer.writeAt(node, view, 0)
       }
       this.dirtyNodes.delete(this.cacheKey(node.nodeId))
       this.bufferPool.markDirty(node.nodeId.pageId)
     }
     await this.bufferPool.commit()
+  }
+
+  async deleteNode(nodeId: FileNodeId): Promise<void> {
+    const page = await this.bufferPool.getPage(nodeId.pageId)
+    const recordPage = new VariableLengthRecordPage(new DataView(page.buffer))
+    recordPage.freeSlot(nodeId.slotIndex)
+    this.bufferPool.markDirty(nodeId.pageId)
+    this.dirtyNodes.delete(this.cacheKey(nodeId))
   }
 }

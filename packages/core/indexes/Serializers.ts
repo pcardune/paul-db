@@ -4,9 +4,25 @@ import {
   VariableWidthStruct,
 } from "../binary/Struct.ts"
 import { PageId } from "../pages/BufferPool.ts"
-import { InternalBTreeNode, LeafBTreeNode } from "./BTreeNode.ts"
+import { INodeId, InternalBTreeNode, LeafBTreeNode } from "./BTreeNode.ts"
 
-export type FileNodeId = { pageId: PageId; slotIndex: number }
+export class FileNodeId implements INodeId {
+  readonly pageId: bigint
+  readonly slotIndex: number
+  constructor({ pageId, slotIndex }: { pageId: PageId; slotIndex: number }) {
+    this.pageId = pageId
+    this.slotIndex = slotIndex
+  }
+
+  equals(other: INodeId): boolean {
+    return other instanceof FileNodeId && other.pageId === this.pageId &&
+      other.slotIndex === this.slotIndex
+  }
+
+  serialize(): string {
+    return `${this.pageId}:${this.slotIndex}`
+  }
+}
 
 const fileNodeIdStruct = new FixedWidthStruct<FileNodeId | null>({
   size: 12,
@@ -20,10 +36,10 @@ const fileNodeIdStruct = new FixedWidthStruct<FileNodeId | null>({
     view.setUint32(8, value.slotIndex)
   },
   read: (view) => {
-    const nodeId = {
+    const nodeId = new FileNodeId({
       pageId: view.getBigUint64(0),
       slotIndex: view.getUint32(8),
-    }
+    })
     if (nodeId.pageId === 0n && nodeId.slotIndex === 0) {
       return null
     }
@@ -79,26 +95,38 @@ export function leafBTreeNodeStruct<K, V>(
 ) {
   const keyValsSerializer = keyValsStruct(keySerializer, valSerializer).array()
   return new VariableWidthStruct<
-    Pick<LeafBTreeNode<K, V, FileNodeId>, "keyvals" | "nextLeafNodeId">
+    Pick<
+      LeafBTreeNode<K, V, FileNodeId>,
+      "keyvals" | "nextLeafNodeId" | "prevLeafNodeId"
+    >
   >({
     sizeof: (value) => {
-      return 1 + keyValsSerializer.sizeof(value.keyvals) +
-        fileNodeIdStruct.sizeof(value.nextLeafNodeId)
+      return 1 + fileNodeIdStruct.sizeof(value.prevLeafNodeId) +
+        fileNodeIdStruct.sizeof(value.nextLeafNodeId) +
+        keyValsSerializer.sizeof(value.keyvals)
     },
     write: (value, view) => {
       // Write the node type
       let offset = 0
       view.setUint8(offset, NodeType.LEAF)
       offset += 1
-      // next write the keyvals
-      keyValsSerializer.writeAt(value.keyvals, view, offset)
-      offset += keyValsSerializer.sizeof(value.keyvals)
+      // next write the prevLeafNodeId
+      fileNodeIdStruct.writeAt(
+        value.prevLeafNodeId,
+        view,
+        offset,
+      )
+      offset += fileNodeIdStruct.sizeof(value.prevLeafNodeId)
       // next write the nextLeafNodeId
       fileNodeIdStruct.writeAt(
         value.nextLeafNodeId,
         view,
         offset,
       )
+      offset += fileNodeIdStruct.sizeof(value.prevLeafNodeId)
+      // next write the keyvals
+      keyValsSerializer.writeAt(value.keyvals, view, offset)
+      offset += keyValsSerializer.sizeof(value.keyvals)
     },
     read: (view) => {
       // read the node type
@@ -108,14 +136,19 @@ export function leafBTreeNodeStruct<K, V>(
       if (nodeType !== NodeType.LEAF) {
         throw new WrongNodeTypeError(nodeType, NodeType.LEAF)
       }
+      // read the prevLeafNodeId
+      const prevLeafNodeId = fileNodeIdStruct.readAt(view, offset)
+      offset += fileNodeIdStruct.sizeof(prevLeafNodeId)
+      // read the nextLeafNodeId
+      const nextLeafNodeId = fileNodeIdStruct.readAt(view, offset)
+      offset += fileNodeIdStruct.sizeof(nextLeafNodeId)
       // read the keyvals
       const keyvals = keyValsSerializer.readAt(view, offset)
       offset += keyValsSerializer.sizeof(keyvals)
-      // read the nextLeafNodeId
-      const nextLeafNodeId = fileNodeIdStruct.readAt(view, offset)
       return {
         keyvals,
         nextLeafNodeId,
+        prevLeafNodeId,
       }
     },
   })

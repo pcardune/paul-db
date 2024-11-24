@@ -10,6 +10,7 @@ import {
 } from "../schema/schema.ts"
 import { ITableStorage } from "./TableStorage.ts"
 import { FilterTuple } from "../typetools.ts"
+import { INodeId } from "../indexes/BTreeNode.ts"
 
 /**
  * A helper type that lets you declare a table type from a given
@@ -39,7 +40,7 @@ export class Table<
 > {
   private schema: SchemaT
   private data: StorageT
-  private _allIndexes: Map<string, Index<unknown, RowIdT, unknown>>
+  private _allIndexes: Map<string, Index<unknown, RowIdT, INodeId>>
 
   private constructor(init: {
     schema: SchemaT

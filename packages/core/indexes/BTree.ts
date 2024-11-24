@@ -1,6 +1,11 @@
-import { InMemoryNodeList, INodeList } from "./NodeList.ts"
+import { InMemoryNodeId, InMemoryNodeList, INodeList } from "./NodeList.ts"
 import { Comparator, EqualityChecker, Range } from "../types.ts"
-import { BTreeNode, InternalBTreeNode, LeafBTreeNode } from "./BTreeNode.ts"
+import {
+  BTreeNode,
+  INodeId,
+  InternalBTreeNode,
+  LeafBTreeNode,
+} from "./BTreeNode.ts"
 import { FileBackedBufferPool } from "../pages/BufferPool.ts"
 import { HeapPageFile } from "../pages/HeapPageFile.ts"
 import { VariableLengthRecordPage } from "../pages/VariableLengthRecordPage.ts"
@@ -66,7 +71,7 @@ export type InMemoryBTree<K, V> = ReturnType<typeof BTree.inMemory<K, V>>
 export class BTree<
   K,
   V,
-  NodeId,
+  NodeId extends INodeId,
   NodeListT extends INodeList<K, V, NodeId> = INodeList<K, V, NodeId>,
 > {
   public nodes: NodeListT
@@ -105,6 +110,7 @@ export class BTree<
     const childNode = await nodes.createLeafNode({
       keyvals: [],
       nextLeafNodeId: null,
+      prevLeafNodeId: null,
     })
     const rootNode = await nodes.createInternalNode({
       keys: [],
@@ -129,17 +135,18 @@ export class BTree<
       isEqual = (a, b) => a === b,
     }: InMemoryBTreeConfig<K, V> = {},
   ) {
-    const nodes = new InMemoryNodeList<K, V>([])
+    const nodes = new InMemoryNodeList<K, V>(new Map())
     const childNode = await nodes.createLeafNode({
       keyvals: [],
       nextLeafNodeId: null,
+      prevLeafNodeId: null,
     })
     const rootNode = await nodes.createInternalNode({
       keys: [],
       childrenNodeIds: [childNode.nodeId],
     })
     await nodes.commit()
-    return new BTree<K, V, number, InMemoryNodeList<K, V>>({
+    return new BTree<K, V, InMemoryNodeId, InMemoryNodeList<K, V>>({
       order,
       compare,
       isEqual,
@@ -281,36 +288,114 @@ export class BTree<
     )
   }
 
+  /**
+   * Replace one leaf node with a new leaf node by updating pointers.
+   *
+   * IT IS ONLY SAFE TO USE THIS IF NEXT/PREV/PARENT NODES ARE THE SAME.
+   */
+  private async replaceLeafNode(
+    oldNode: LeafBTreeNode<K, V, NodeId>,
+    newNode: LeafBTreeNode<K, V, NodeId>,
+    parentNodeId: NodeId,
+  ) {
+    this.nodes.deleteNode(oldNode.nodeId)
+    if (oldNode.prevLeafNodeId != null) {
+      const prevNode = await this.nodes.get(
+        oldNode.prevLeafNodeId,
+      ) as LeafBTreeNode<K, V, NodeId>
+      prevNode.nextLeafNodeId = newNode.nodeId
+      newNode.prevLeafNodeId = oldNode.prevLeafNodeId
+    }
+    if (oldNode.nextLeafNodeId != null) {
+      const nextNode = await this.nodes.get(
+        oldNode.nextLeafNodeId,
+      ) as LeafBTreeNode<K, V, NodeId>
+      nextNode.prevLeafNodeId = newNode.nodeId
+      newNode.nextLeafNodeId = oldNode.nextLeafNodeId
+    }
+    const parent = await this.nodes.get(parentNodeId) as InternalBTreeNode<
+      K,
+      NodeId
+    >
+    parent.swapChildNodeId(oldNode.nodeId, newNode.nodeId)
+    this.nodes.deleteNode(oldNode.nodeId)
+  }
+
+  /**
+   * Replace an internal node with a new internal node by updating pointers.
+   */
+  private async replaceInternalNode(
+    oldNode: InternalBTreeNode<K, NodeId>,
+    newNode: InternalBTreeNode<K, NodeId>,
+    parentNodeId: NodeId | null,
+  ) {
+    if (parentNodeId == null) {
+      // TODO: The root node id actually has to be stored somewhere...
+      this.rootNodeId = newNode.nodeId
+    } else {
+      const parent = await this.nodes.get(parentNodeId) as InternalBTreeNode<
+        K,
+        NodeId
+      >
+      parent.swapChildNodeId(oldNode.nodeId, newNode.nodeId)
+    }
+    this.nodes.deleteNode(oldNode.nodeId)
+  }
+
   async insert(key: K, value: V) {
     const found = await this._get(this.rootNodeId, key)
     if (found.keyval != null) {
-      found.node.pushValue(found.keyIndex, value)
+      const newNode = await this.nodes.createLeafNode({
+        keyvals: [
+          ...found.node.keyvals.slice(0, found.keyIndex),
+          {
+            key,
+            vals: [...found.keyval.vals, value],
+          },
+          ...found.node.keyvals.slice(found.keyIndex + 1),
+        ],
+        nextLeafNodeId: found.node.nextLeafNodeId,
+        prevLeafNodeId: found.node.prevLeafNodeId,
+      })
+      this.replaceLeafNode(found.node, newNode, found.parents.head)
       await this.nodes.commit()
       return
     }
-    const { node } = found
 
-    node.pushKey(key, [value], this.compare)
-    if (node.keyvals.length <= this.order * 2) {
+    const newNode = await this.nodes.createLeafNode({
+      keyvals: [
+        ...found.node.keyvals,
+        { key, vals: [value] },
+      ].sort((a, b) => this.compare(a.key, b.key)),
+      nextLeafNodeId: found.node.nextLeafNodeId,
+      prevLeafNodeId: found.node.prevLeafNodeId,
+    })
+    this.replaceLeafNode(found.node, newNode, found.parents.head)
+
+    if (newNode.keyvals.length <= this.order * 2) {
       await this.nodes.commit()
       return
     }
-    await this.splitNode(found.nodeId, found.parents)
+    await this.splitNode(newNode.nodeId, found.parents)
     await this.nodes.commit()
   }
 
   private async insertIntoParent(
     parent: InternalBTreeNode<K, NodeId>,
-    grandParents: LinkedList<NodeId>,
+    grandParents: LinkedList<NodeId> | null,
     node: BTreeNode<K, V, NodeId>,
     key: K,
     depth: number,
   ) {
-    parent.insertNode(key, node.nodeId, this.compare)
-    if (parent.keys.length <= this.order * 2) {
+    const newNode = await this.nodes.createInternalNode(
+      parent.withInsertedNode(key, node.nodeId, this.compare),
+    )
+    this.replaceInternalNode(parent, newNode, grandParents?.head ?? null)
+
+    if (newNode.keys.length <= this.order * 2) {
       return
     }
-    await this.splitNode(parent.nodeId, grandParents, depth + 1)
+    await this.splitNode(newNode.nodeId, grandParents, depth + 1)
   }
 
   private async splitLeafNode(
@@ -321,17 +406,35 @@ export class BTree<
     const L2 = await this.nodes.createLeafNode({
       keyvals: node.copyKeyvals(this.order),
       nextLeafNodeId: node.nextLeafNodeId,
+      prevLeafNodeId: null,
     })
-    await this.nodes.createLeafNode({
+    const L1 = await this.nodes.createLeafNode({
       keyvals: node.copyKeyvals(0, this.order),
       nextLeafNodeId: L2.nodeId,
-    }, node.nodeId)
+      prevLeafNodeId: node.prevLeafNodeId,
+    })
+    L2.prevLeafNodeId = L1.nodeId
+    const parent = await this.nodes.get(parents.head) as InternalBTreeNode<
+      K,
+      NodeId
+    >
+    parent.swapChildNodeId(node.nodeId, L1.nodeId)
+    if (node.prevLeafNodeId != null) {
+      const prevNode = await this.nodes.get(
+        node.prevLeafNodeId,
+      ) as LeafBTreeNode<K, V, NodeId>
+      prevNode.nextLeafNodeId = L1.nodeId
+    }
+    if (node.nextLeafNodeId != null) {
+      const nextNode = await this.nodes.get(
+        node.nextLeafNodeId,
+      ) as LeafBTreeNode<K, V, NodeId>
+      nextNode.prevLeafNodeId = L2.nodeId
+    }
+    await this.nodes.deleteNode(node.nodeId)
     await this.insertIntoParent(
-      await this.nodes.get(parents.head as NodeId) as InternalBTreeNode<
-        K,
-        NodeId
-      >,
-      parents.tail as LinkedList<NodeId>,
+      parent,
+      parents.tail,
       L2,
       L2.keyvals[0].key,
       depth,
@@ -344,6 +447,7 @@ export class BTree<
     depth: number,
   ) {
     let parentNode: InternalBTreeNode<K, NodeId>
+    let grandParents: LinkedList<NodeId> | null
     if (parents == null) {
       // make a new parent node
       parentNode = await this.nodes.createInternalNode(
@@ -354,11 +458,13 @@ export class BTree<
       )
       this.rootNodeId = parentNode.nodeId
       parents = new LinkedList(parentNode.nodeId)
+      grandParents = null
     } else {
       parentNode = await this.nodes.get(parents.head) as InternalBTreeNode<
         K,
         NodeId
       >
+      grandParents = parents.tail
     }
 
     const keyToMove = node.keys[this.order]
@@ -368,13 +474,24 @@ export class BTree<
         childrenNodeIds: node.childrenNodeIds.slice(this.order + 1),
       },
     )
-    await this.nodes.createInternalNode({
+    const L1 = await this.nodes.createInternalNode({
       keys: node.keys.slice(0, this.order),
       childrenNodeIds: node.childrenNodeIds.slice(0, this.order + 1),
-    }, node.nodeId)
-    parentNode.insertNode(keyToMove, L2.nodeId, this.compare)
-    if (parentNode.keys.length > this.order * 2) {
-      await this.splitNode(parentNode.nodeId, parents.tail, depth + 1)
+    })
+    parentNode.swapChildNodeId(node.nodeId, L1.nodeId)
+    await this.nodes.deleteNode(node.nodeId)
+
+    const newParentNode = await this.nodes.createInternalNode(
+      parentNode.withInsertedNode(keyToMove, L2.nodeId, this.compare),
+    )
+    this.replaceInternalNode(
+      parentNode,
+      newParentNode,
+      grandParents?.head ?? null,
+    )
+
+    if (newParentNode.keys.length > this.order * 2) {
+      await this.splitNode(newParentNode.nodeId, parents.tail, depth + 1)
     }
   }
 

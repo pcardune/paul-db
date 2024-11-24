@@ -2,12 +2,19 @@ import { expect } from "jsr:@std/expect"
 import { beforeEach, describe, it } from "jsr:@std/testing/bdd"
 import { BTree } from "../indexes/BTree.ts"
 import { randomIntegerBetween, randomSeeded } from "@std/random"
-import { BTreeNode, InternalBTreeNode, LeafBTreeNode } from "./BTreeNode.ts"
+import {
+  BTreeNode,
+  INodeId,
+  InternalBTreeNode,
+  LeafBTreeNode,
+} from "./BTreeNode.ts"
 import { uint32Struct, unicodeStringStruct } from "../binary/Struct.ts"
 
 // TODO: consider using expect.extend to make custom matchers for this
 // see https://jsr.io/@std/expect/doc/~/expect.extend
-async function assertWellFormedBtree<K, V, NodeId>(btree: BTree<K, V, NodeId>) {
+async function assertWellFormedBtree<K, V, NodeId extends INodeId>(
+  btree: BTree<K, V, NodeId>,
+) {
   /**
    * The number d is the order of a B+ tree. Each node (with the exception of
    * the root node) must have d ≤ x ≤ 2d entries assuming no deletes happen
@@ -43,7 +50,7 @@ async function assertWellFormedBtree<K, V, NodeId>(btree: BTree<K, V, NodeId>) {
   expect(depths.size, "All leaf nodes should be at the same depth").toBe(1)
 }
 
-async function assertWellFormedNode<K, V, NodeId>(
+async function assertWellFormedNode<K, V, NodeId extends INodeId>(
   btree: BTree<K, V, NodeId>,
   node: BTreeNode<K, V, NodeId>,
 ) {
@@ -55,18 +62,18 @@ async function assertWellFormedNode<K, V, NodeId>(
   if (node.type === "internal") {
     await assertWellFormedInternalNode(btree, node)
   } else {
-    assertWellFormedLeafNode(btree, node)
+    await assertWellFormedLeafNode(btree, node)
   }
 }
 
-function keysForNode<K>(node: BTreeNode<K, unknown, unknown>): readonly K[] {
+function keysForNode<K>(node: BTreeNode<K, unknown, INodeId>): readonly K[] {
   if (node.type === "leaf") {
     return node.keyvals.map((keyval) => keyval.key)
   }
   return node.keys
 }
 
-function assertWellFormedLeafNode<K, V, NodeId>(
+async function assertWellFormedLeafNode<K, V, NodeId extends INodeId>(
   btree: BTree<K, V, NodeId>,
   node: LeafBTreeNode<K, V, NodeId>,
 ) {
@@ -75,6 +82,34 @@ function assertWellFormedLeafNode<K, V, NodeId>(
   expect(keys, "Keys should be sorted").toEqual(sortedKeys)
   expect(keys.length, "Leaf nodes should have at most 2 * _order_ keys")
     .toBeLessThanOrEqual(2 * btree.order)
+  if (node.prevLeafNodeId != null) {
+    const prevLeaf = await btree.getNodeWithId(
+      node.prevLeafNodeId,
+    ) as LeafBTreeNode<K, V, NodeId>
+    expect(prevLeaf).toBeInstanceOf(LeafBTreeNode)
+    expect(
+      prevLeaf.nextLeafNodeId?.serialize(),
+      "previous leaf node should point to this leaf node",
+    ).toEqual(node.nodeId.serialize())
+    expect(
+      btree.compare(keys[0], keysForNode(prevLeaf).at(-1)!),
+      "Keys in the previous leaf should be less than the keys in this leaf",
+    ).toBeGreaterThan(0)
+  }
+  if (node.nextLeafNodeId != null) {
+    const nextLeaf = await btree.getNodeWithId(
+      node.nextLeafNodeId,
+    ) as LeafBTreeNode<K, V, NodeId>
+    expect(nextLeaf).toBeInstanceOf(LeafBTreeNode)
+    expect(
+      nextLeaf.prevLeafNodeId?.serialize(),
+      "next leaf node should point to this leaf node",
+    ).toEqual(node.nodeId.serialize())
+    expect(
+      btree.compare(keys.at(-1)!, keysForNode(nextLeaf)[0]),
+      "Keys in the next leaf should be greater than the keys in this leaf",
+    ).toBeLessThan(0)
+  }
 }
 
 function ord<A>(
@@ -97,7 +132,7 @@ function ord<A>(
   }
 }
 
-async function assertWellFormedInternalNode<K, V, NodeId>(
+async function assertWellFormedInternalNode<K, V, NodeId extends INodeId>(
   btree: BTree<K, V, NodeId>,
   node: InternalBTreeNode<K, NodeId>,
 ) {
@@ -193,7 +228,7 @@ const makeInMemoryBTree = async (order = 2) => {
 const fixtures: {
   name: string
   makeBTree: (order?: number) => Promise<
-    { btree: BTree<number, string, unknown>; [Symbol.dispose]: () => void }
+    { btree: BTree<number, string, INodeId>; [Symbol.dispose]: () => void }
   >
 }[] = [
   { name: "inmemory", makeBTree: makeInMemoryBTree },
@@ -276,20 +311,20 @@ for (const { name, makeBTree } of fixtures) {
     })
 
     await btree.insert(2, `Person 2`)
-    // await t.step("After inserting one more entry", async (t) => {
-    //   await t.step("A new node will be added", async () => {
-    //     expect(await btree.countNodes()).toBe(3)
-    //     expect(await btree.childrenForNode(await btree.getRootNode()))
-    //       .toHaveLength(2)
-    //     await assertWellFormedBtree(btree)
-    //   })
+    await t.step("After inserting one more entry", async (t) => {
+      await t.step("A new node will be added", async () => {
+        expect(await btree.countNodes()).toBe(3)
+        expect(await btree.childrenForNode(await btree.getRootNode()))
+          .toHaveLength(2)
+        await assertWellFormedBtree(btree)
+      })
 
-    //   await t.step("All entries will have the correct values", async () => {
-    //     for (let i = 0; i <= 2; i++) {
-    //       expect(await btree.get(i)).toEqual([`Person ${i}`])
-    //     }
-    //   })
-    // })
+      await t.step("All entries will have the correct values", async () => {
+        for (let i = 0; i <= 2; i++) {
+          expect(await btree.get(i)).toEqual([`Person ${i}`])
+        }
+      })
+    })
   })
 }
 
@@ -326,7 +361,7 @@ describe("Inserting nodes", () => {
       })
 
       describe("After inserting enough entries to split things more", () => {
-        let originalRootNodeId: number
+        let originalRootNodeId: INodeId
         beforeEach(async () => {
           originalRootNodeId = (await btree.getRootNode()).nodeId
           await btree.insert(3, `Person 3`)
