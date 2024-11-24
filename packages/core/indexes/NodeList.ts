@@ -6,7 +6,6 @@ import {
 } from "./BTreeNode.ts"
 
 export interface INodeList<K, V, NodeId> {
-  size: number
   get(nodeId: NodeId): Promise<BTreeNode<K, V, NodeId>>
   markDirty(node: BTreeNode<K, V, NodeId>): void
   createLeafNode(

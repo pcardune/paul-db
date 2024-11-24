@@ -4,11 +4,7 @@ import { BTreeNode, InternalBTreeNode, LeafBTreeNode } from "./BTreeNode.ts"
 import { FileBackedBufferPool } from "../pages/BufferPool.ts"
 import { HeapPageFile } from "../pages/HeapPageFile.ts"
 import { VariableLengthRecordPage } from "../pages/VariableLengthRecordPage.ts"
-import {
-  FileNodeId,
-  internalBTreeNodeStruct,
-  leafBTreeNodeStruct,
-} from "./Serializers.ts"
+import { FileNodeId } from "./Serializers.ts"
 import { IStruct } from "../binary/Struct.ts"
 import { FileBackedNodeList } from "./FileBackedNodeList.ts"
 
@@ -87,24 +83,24 @@ export class BTree<
 
   static async inFile<K, V>(
     file: Deno.FsFile,
-    keySerializer: IStruct<K>,
-    valueSerializer: IStruct<V>,
+    keyStruct: IStruct<K>,
+    valStruct: IStruct<V>,
+    {
+      order = 2,
+      compare = (a, b) => a < b ? -1 : a > b ? 1 : 0,
+      isEqual = (a, b) => a === b,
+    }: InMemoryBTreeConfig<K, V> = {},
   ) {
     const bufferPool = await FileBackedBufferPool.create(file, 4096)
     const heapPageFile = await HeapPageFile.create(
       bufferPool,
       VariableLengthRecordPage.allocator,
     )
-    const leafNodeSerializer = leafBTreeNodeStruct<K, V>(
-      keySerializer,
-      valueSerializer,
-    )
-    const internalNodeSerializer = internalBTreeNodeStruct<K>(keySerializer)
     const nodes = new FileBackedNodeList<K, V>(
       bufferPool,
       heapPageFile,
-      leafNodeSerializer,
-      internalNodeSerializer,
+      keyStruct,
+      valStruct,
     )
     const childNode = await nodes.createLeafNode({
       keyvals: [],
@@ -117,9 +113,9 @@ export class BTree<
     await nodes.commit()
     return new BTree<K, V, FileNodeId, FileBackedNodeList<K, V>>(
       {
-        order: 2,
-        compare: (a, b) => a < b ? -1 : a > b ? 1 : 0,
-        isEqual: (a, b) => a === b,
+        order,
+        compare,
+        isEqual,
         nodes: nodes,
         rootNodeId: rootNode.nodeId,
       },
@@ -154,6 +150,22 @@ export class BTree<
 
   getNodeWithId(nodeId: NodeId): Promise<BTreeNode<K, V, NodeId>> {
     return this.nodes.get(nodeId)
+  }
+
+  private async _countNodes(rootNodeId: NodeId): Promise<number> {
+    const node = await this.nodes.get(rootNodeId)
+    if (node.type === "leaf") {
+      return 1
+    }
+    const children = await this.childrenForNode(node)
+    const childCounts = await Promise.all(
+      children.map((child) => this._countNodes(child.nodeId)),
+    )
+    return 1 + childCounts.reduce((a, b) => a + b, 0)
+  }
+
+  countNodes(): Promise<number> {
+    return this._countNodes(this.rootNodeId)
   }
 
   constructor(

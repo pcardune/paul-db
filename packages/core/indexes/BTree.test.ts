@@ -160,17 +160,19 @@ async function assertWellFormedInternalNode<K, V, NodeId>(
   }
 }
 
-const makeInFileBTree = async () => {
+const makeInFileBTree = async (order = 2) => {
   const file = await Deno.open("/tmp/btree.data", {
     read: true,
     write: true,
     create: true,
+    truncate: true,
   })
   return {
     btree: await BTree.inFile<number, string>(
       file,
       uint32Struct,
       unicodeStringStruct,
+      { order, compare: (a, b) => a - b },
     ),
     [Symbol.dispose]: () => {
       file.close()
@@ -178,9 +180,10 @@ const makeInFileBTree = async () => {
   }
 }
 
-const makeInMemoryBTree = async () => {
+const makeInMemoryBTree = async (order = 2) => {
   return {
     btree: await BTree.inMemory<number, string>({
+      order,
       compare: (a, b) => a - b,
     }),
     [Symbol.dispose]: () => {},
@@ -189,7 +192,7 @@ const makeInMemoryBTree = async () => {
 
 const fixtures: {
   name: string
-  makeBTree: () => Promise<
+  makeBTree: (order?: number) => Promise<
     { btree: BTree<number, string, unknown>; [Symbol.dispose]: () => void }
   >
 }[] = [
@@ -198,8 +201,8 @@ const fixtures: {
 ]
 
 for (const { name, makeBTree } of fixtures) {
-  describe(`BTree (${name})`, () => {
-    it("Starts out empty", async () => {
+  Deno.test(`BTree (${name})`, async (t) => {
+    await t.step("Starts out empty", async () => {
       using handle = await makeBTree()
       const { btree } = handle
       await assertWellFormedBtree(btree)
@@ -207,7 +210,7 @@ for (const { name, makeBTree } of fixtures) {
       await assertWellFormedBtree(btree)
     })
 
-    it("Does basic operations", async () => {
+    await t.step("Does basic operations", async () => {
       using handle = await makeBTree()
       const { btree } = handle
       expect(await btree.has(1)).toBe(false)
@@ -229,14 +232,64 @@ for (const { name, makeBTree } of fixtures) {
       expect(await btree.get(1)).toEqual([])
     })
 
-    it("Inserting multiple values with the same key will return multiple values", async () => {
-      using handle = await makeBTree()
-      const { btree } = handle
-      await btree.insert(1, "Paul")
-      await btree.insert(1, "Meghan")
-      expect(await btree.get(1)).toEqual(["Paul", "Meghan"])
+    await t.step(
+      "Inserting multiple values with the same key will return multiple values",
+      async () => {
+        using handle = await makeBTree()
+        const { btree } = handle
+        await btree.insert(1, "Paul")
+        await btree.insert(1, "Meghan")
+        expect(await btree.get(1)).toEqual(["Paul", "Meghan"])
+        await assertWellFormedBtree(btree)
+      },
+    )
+  })
+
+  Deno.test(`Inserting nodes ${name}`, async (t) => {
+    const order = 1
+    using handle = await makeBTree(order)
+    const { btree } = handle
+
+    await t.step("starts with only two nodes in the tree", async () => {
+      expect(await btree.countNodes()).toBe(2)
+      expect((await btree.getRootNode()).type).toBe("internal")
+      const children = await btree.childrenForNode(await btree.getRootNode())
+      expect(children).toHaveLength(1)
+      expect(children[0].type).toBe("leaf")
       await assertWellFormedBtree(btree)
     })
+
+    await btree.insert(0, `Person 0`)
+    await btree.insert(1, `Person 1`)
+
+    await t.step("After inserting up to order*2 entries", async (t) => {
+      await t.step("No new nodes will be added", async () => {
+        await assertWellFormedBtree(btree)
+        expect(await btree.countNodes()).toBe(2)
+      })
+
+      await t.step("All nodes will have the correct values", async () => {
+        for (let i = 0; i < order * 2; i++) {
+          expect(await btree.get(i)).toEqual([`Person ${i}`])
+        }
+      })
+    })
+
+    await btree.insert(2, `Person 2`)
+    // await t.step("After inserting one more entry", async (t) => {
+    //   await t.step("A new node will be added", async () => {
+    //     expect(await btree.countNodes()).toBe(3)
+    //     expect(await btree.childrenForNode(await btree.getRootNode()))
+    //       .toHaveLength(2)
+    //     await assertWellFormedBtree(btree)
+    //   })
+
+    //   await t.step("All entries will have the correct values", async () => {
+    //     for (let i = 0; i <= 2; i++) {
+    //       expect(await btree.get(i)).toEqual([`Person ${i}`])
+    //     }
+    //   })
+    // })
   })
 }
 
@@ -249,27 +302,10 @@ describe("Inserting nodes", () => {
       compare: (a, b) => a - b,
     })
   })
-  it("starts with only two nodes in the tree", async () => {
-    expect(btree.nodes.size).toBe(2)
-    expect((await btree.getRootNode()).type).toBe("internal")
-    const children = await btree.childrenForNode(await btree.getRootNode())
-    expect(children).toHaveLength(1)
-    expect(children[0].type).toBe("leaf")
-    await assertWellFormedBtree(btree)
-  })
   describe("After inserting up to order*2 entries", () => {
     beforeEach(async () => {
       await btree.insert(0, `Person 0`)
       await btree.insert(1, `Person 1`)
-    })
-    it("No new nodes will be added", async () => {
-      await assertWellFormedBtree(btree)
-      expect(btree.nodes.size).toBe(2)
-    })
-    it("All nodes will have the correct values", async () => {
-      for (let i = 0; i < order * 2; i++) {
-        expect(await btree.get(i)).toEqual([`Person ${i}`])
-      }
     })
 
     describe("After inserting one more entry", () => {

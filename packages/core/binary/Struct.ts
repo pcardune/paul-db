@@ -51,6 +51,13 @@ export class VariableWidthStruct<ValueT> implements IStruct<ValueT> {
   writeAt(value: ValueT, view: DataView, offset: number): void {
     const size = this._sizeof(value)
     view.setUint32(offset, size)
+    if (size > view.byteLength - offset - 4) {
+      throw new Error(
+        `Need to write ${size} bytes, but only ${
+          view.byteLength - offset - 4
+        } bytes available in this view`,
+      )
+    }
     this.write(
       value,
       new DataView(view.buffer, view.byteOffset + offset + 4, size),

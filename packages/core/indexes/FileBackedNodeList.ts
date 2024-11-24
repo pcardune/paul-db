@@ -1,3 +1,4 @@
+import { IStruct } from "../binary/Struct.ts"
 import { IBufferPool } from "../pages/BufferPool.ts"
 import { HeapPageFile } from "../pages/HeapPageFile.ts"
 import {
@@ -14,17 +15,19 @@ import {
 } from "./Serializers.ts"
 
 export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
+  private leafNodeSerializer: ReturnType<typeof leafBTreeNodeStruct<K, V>>
+  private internalNodeSerializer: ReturnType<
+    typeof internalBTreeNodeStruct<K>
+  >
+
   constructor(
     private bufferPool: IBufferPool,
     private heapPageFile: HeapPageFile<VariableLengthRecordPageAllocInfo>,
-    private leafNodeSerializer: ReturnType<typeof leafBTreeNodeStruct<K, V>>,
-    private internalNodeSerializer: ReturnType<
-      typeof internalBTreeNodeStruct<K>
-    >,
+    keyStruct: IStruct<K>,
+    valStruct: IStruct<V>,
   ) {
-  }
-  get size(): number {
-    throw new Error("Method not implemented.")
+    this.leafNodeSerializer = leafBTreeNodeStruct(keyStruct, valStruct)
+    this.internalNodeSerializer = internalBTreeNodeStruct(keyStruct)
   }
 
   // TODO: this was copied from HeapFileTableStorage,
@@ -74,16 +77,11 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
     return node
   }
 
-  set(
-    _nodeId: FileNodeId,
-    _node: BTreeNode<K, V, FileNodeId>,
-  ): Promise<void> {
-    throw new Error("Method not implemented.")
-  }
   private dirtyNodes = new Map<string, BTreeNode<K, V, FileNodeId>>()
   private cacheKey(nodeId: FileNodeId): string {
     return `${nodeId.pageId}-${nodeId.slotIndex}`
   }
+
   markDirty(node: BTreeNode<K, V, FileNodeId>): void {
     this.dirtyNodes.set(this.cacheKey(node.nodeId), node)
     this.bufferPool.markDirty(node.nodeId.pageId)
@@ -121,8 +119,10 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
       nodeId,
       data,
     )
+    this.markDirty(node)
     return node
   }
+
   async createInternalNode(
     data: { keys: K[]; childrenNodeIds: FileNodeId[] },
     replaceNodeId?: FileNodeId,
@@ -155,6 +155,7 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
     this.markDirty(node)
     return node
   }
+
   async commit(): Promise<void> {
     for (const node of this.dirtyNodes.values()) {
       const view = await this.getRecordView(node.nodeId)
@@ -164,12 +165,9 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
       } else {
         this.internalNodeSerializer.writeAt(node, view, 0)
       }
+      this.dirtyNodes.delete(this.cacheKey(node.nodeId))
       this.bufferPool.markDirty(node.nodeId.pageId)
     }
     await this.bufferPool.commit()
-  }
-
-  getNextNodeId(): FileNodeId {
-    throw new Error("Method not implemented.")
   }
 }
