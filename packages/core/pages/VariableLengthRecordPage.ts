@@ -93,7 +93,7 @@ export class VariableLengthRecordPage {
    */
   freeSlot(slotIndex: number): void {
     if (slotIndex >= this.slotCount) {
-      throw new Error("Slot index out of bounds")
+      return // already deleted
     }
     this.setSlotEntry(slotIndex, { offset: 0, length: 0 })
     if (slotIndex === this.slotCount - 1) {

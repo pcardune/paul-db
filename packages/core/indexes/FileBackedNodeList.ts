@@ -190,7 +190,7 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
   }
 
   async deleteNode(nodeId: FileNodeId): Promise<void> {
-    console.trace(`deleteNode(${nodeId})`)
+    debugLog(`deleteNode(${nodeId})`)
     const page = await this.bufferPool.getPage(nodeId.pageId)
     const recordPage = new VariableLengthRecordPage(new DataView(page.buffer))
     recordPage.freeSlot(nodeId.slotIndex)

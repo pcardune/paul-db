@@ -1,5 +1,4 @@
 import { expect } from "jsr:@std/expect"
-import { beforeEach, describe, it } from "jsr:@std/testing/bdd"
 import { BTree } from "../indexes/BTree.ts"
 import { randomIntegerBetween, randomSeeded } from "@std/random"
 import {
@@ -348,230 +347,200 @@ for (const { name, makeBTree } of fixtures) {
           }
         })
 
+        await btree.insert(5, `Person 5`)
+        await btree.insert(6, `Person 6`)
         await t.step("After inserting another 2 entries", async () => {
-          await btree.insert(5, `Person 5`)
-          await btree.insert(6, `Person 6`)
           await assertWellFormedBtree(btree)
         })
       },
     )
   })
+
+  Deno.test("Removing items", async (t) => {
+    const setup = async () => {
+      const handle = await makeBTree(3)
+      const { btree } = handle
+      for (let i = 0; i < 10; i++) {
+        await btree.insert(i, `Person ${i}`)
+      }
+      await btree.insert(5, "foo")
+      await btree.insert(5, "bar")
+      await btree.insert(5, "baz")
+      return handle
+    }
+
+    await t.step("Can remove all items", async () => {
+      using handle = await setup()
+      const { btree } = handle
+      expect(await btree.get(5)).toEqual(["Person 5", "foo", "bar", "baz"])
+      await btree.removeAll(5)
+      expect(await btree.get(5)).toEqual([])
+      await assertWellFormedBtree(btree)
+    })
+
+    await t.step(
+      "Can remove an individual entry for a particular key",
+      async () => {
+        using handle = await setup()
+        const { btree } = handle
+        expect(await btree.get(5)).toEqual(["Person 5", "foo", "bar", "baz"])
+        await btree.remove(5, "bar")
+        expect(await btree.get(5)).toEqual(["Person 5", "foo", "baz"])
+        await assertWellFormedBtree(btree)
+      },
+    )
+  })
+
+  Deno.test("Range requests", async (t) => {
+    const setup = async () => {
+      const handle = await makeBTree(3)
+      const { btree } = handle
+      for (let i = 0; i < 10; i++) {
+        await btree.insert(i, `Person ${i}`)
+      }
+      return handle
+    }
+
+    await t.step("Can get all values in a range", async () => {
+      using handle = await setup()
+      const { btree } = handle
+      expect(await btree.getRange({ gte: 3, lte: 7 })).toEqual([
+        { key: 3, vals: ["Person 3"] },
+        { key: 4, vals: ["Person 4"] },
+        { key: 5, vals: ["Person 5"] },
+        { key: 6, vals: ["Person 6"] },
+        { key: 7, vals: ["Person 7"] },
+      ])
+    })
+
+    await t.step(
+      "Can get all values in a range with exclusive lower bound",
+      async () => {
+        using handle = await setup()
+        const { btree } = handle
+        expect(await btree.getRange({ gt: 3, lte: 7 })).toEqual([
+          { key: 4, vals: ["Person 4"] },
+          { key: 5, vals: ["Person 5"] },
+          { key: 6, vals: ["Person 6"] },
+          { key: 7, vals: ["Person 7"] },
+        ])
+      },
+    )
+
+    await t.step(
+      "Can get all values in a range with exclusive upper bound",
+      async () => {
+        using handle = await setup()
+        const { btree } = handle
+        expect(await btree.getRange({ gte: 3, lt: 7 })).toEqual([
+          { key: 3, vals: ["Person 3"] },
+          { key: 4, vals: ["Person 4"] },
+          { key: 5, vals: ["Person 5"] },
+          { key: 6, vals: ["Person 6"] },
+        ])
+      },
+    )
+
+    await t.step(
+      "Can get all values in a range with exclusive lower and upper bounds",
+      async () => {
+        using handle = await setup()
+        const { btree } = handle
+        expect(await btree.getRange({ gt: 3, lt: 7 })).toEqual([
+          { key: 4, vals: ["Person 4"] },
+          { key: 5, vals: ["Person 5"] },
+          { key: 6, vals: ["Person 6"] },
+        ])
+      },
+    )
+
+    await t.step("Can get all values with no bounds", async () => {
+      using handle = await setup()
+      const { btree } = handle
+      expect(await btree.getRange({})).toEqual([
+        { key: 0, vals: ["Person 0"] },
+        { key: 1, vals: ["Person 1"] },
+        { key: 2, vals: ["Person 2"] },
+        { key: 3, vals: ["Person 3"] },
+        { key: 4, vals: ["Person 4"] },
+        { key: 5, vals: ["Person 5"] },
+        { key: 6, vals: ["Person 6"] },
+        { key: 7, vals: ["Person 7"] },
+        { key: 8, vals: ["Person 8"] },
+        { key: 9, vals: ["Person 9"] },
+      ])
+    })
+
+    await t.step("Can get all values with no lower bound", async () => {
+      using handle = await setup()
+      const { btree } = handle
+      expect(await btree.getRange({ lte: 3 })).toEqual([
+        { key: 0, vals: ["Person 0"] },
+        { key: 1, vals: ["Person 1"] },
+        { key: 2, vals: ["Person 2"] },
+        { key: 3, vals: ["Person 3"] },
+      ])
+    })
+
+    await t.step("Can get all values with no upper bound", async () => {
+      using handle = await setup()
+      const { btree } = handle
+      expect(await btree.getRange({ gte: 7 })).toEqual([
+        { key: 7, vals: ["Person 7"] },
+        { key: 8, vals: ["Person 8"] },
+        { key: 9, vals: ["Person 9"] },
+      ])
+    })
+  })
+
+  Deno.test("Bulk insertions", async (t) => {
+    await t.step("lots of nodes inserted in ascending order", async () => {
+      using handle = await makeBTree(3)
+      const { btree } = handle
+
+      for (let i = 0; i < 40; i++) {
+        await btree.insert(i, `Person ${i}`)
+        for (let j = 0; j <= i; j++) {
+          expect(await btree.get(j)).toEqual([`Person ${j}`])
+        }
+        await assertWellFormedBtree(btree)
+      }
+    })
+
+    await t.step("lots of nodes inserted in descending order", async () => {
+      using handle = await makeBTree(3)
+      const { btree } = handle
+
+      const inserted: number[] = []
+      for (let i = 40; i >= 0; i--) {
+        inserted.push(i)
+        await btree.insert(i, `Person ${i}`)
+        for (const j of inserted) {
+          expect(await btree.get(j)).toEqual([`Person ${j}`])
+        }
+        await assertWellFormedBtree(btree)
+      }
+    })
+
+    await t.step("lots of nodes inserted in random order", async () => {
+      using handle = await makeBTree(3)
+      const { btree } = handle
+
+      const prng = randomSeeded(0n)
+
+      const inserted: number[] = []
+      for (let i = 0; i < 40; i++) {
+        let index: number
+        do {
+          index = randomIntegerBetween(1, 10000, { prng })
+        } while (inserted.includes(index))
+        inserted.push(index)
+        await btree.insert(index, `Person ${index}`)
+        for (const j of inserted) {
+          expect(await btree.get(j)).toEqual([`Person ${j}`])
+        }
+        await assertWellFormedBtree(btree)
+      }
+    })
+  })
 }
-
-describe("Inserting nodes", () => {
-  const order = 1
-  let btree: Awaited<ReturnType<typeof BTree.inMemory<number, string>>>
-  beforeEach(async () => {
-    btree = await BTree.inMemory<number, string>({
-      order,
-      compare: (a, b) => a - b,
-    })
-  })
-  describe("After inserting up to order*2 entries", () => {
-    beforeEach(async () => {
-      await btree.insert(0, `Person 0`)
-      await btree.insert(1, `Person 1`)
-    })
-
-    describe("After inserting one more entry", () => {
-      beforeEach(async () => {
-        await btree.insert(2, `Person 2`)
-      })
-
-      describe("After inserting enough entries to split things more", () => {
-        let originalRootNodeId: INodeId
-        beforeEach(async () => {
-          originalRootNodeId = (await btree.getRootNode()).nodeId
-          await btree.insert(3, `Person 3`)
-          await btree.insert(4, `Person 4`)
-        })
-        it("A new node will be added", async () => {
-          await assertWellFormedBtree(btree)
-        })
-        it("There will be a new root node", async () => {
-          expect((await btree.getRootNode()).nodeId).not.toBe(
-            originalRootNodeId,
-          )
-        })
-        it("All entries will have the correct values", async () => {
-          for (let i = 0; i <= 4; i++) {
-            expect(await btree.get(i)).toEqual([`Person ${i}`])
-          }
-        })
-
-        describe("After inserting another 2 entries", () => {
-          beforeEach(async () => {
-            await btree.insert(5, `Person 5`)
-            await btree.insert(6, `Person 6`)
-          })
-          it("it will still be well formed", async () => {
-            await assertWellFormedBtree(btree)
-          })
-        })
-      })
-    })
-  })
-})
-
-describe("Removing items", () => {
-  let btree: Awaited<ReturnType<typeof BTree.inMemory<number, string>>>
-  beforeEach(async () => {
-    btree = await BTree.inMemory<number, string>({
-      order: 3,
-      compare: (a, b) => a - b,
-    })
-    for (let i = 0; i < 10; i++) {
-      await btree.insert(i, `Person ${i}`)
-    }
-    await btree.insert(5, "foo")
-    await btree.insert(5, "bar")
-    await btree.insert(5, "baz")
-  })
-  it("Can remove all items", async () => {
-    expect(await btree.get(5)).toEqual(["Person 5", "foo", "bar", "baz"])
-    await btree.removeAll(5)
-    expect(await btree.get(5)).toEqual([])
-    await assertWellFormedBtree(btree)
-  })
-  it("Can remove an individual entry for a particular key", async () => {
-    expect(await btree.get(5)).toEqual(["Person 5", "foo", "bar", "baz"])
-    await btree.remove(5, "bar")
-    expect(await btree.get(5)).toEqual(["Person 5", "foo", "baz"])
-    await assertWellFormedBtree(btree)
-  })
-})
-
-describe("Range requests", () => {
-  let btree: Awaited<ReturnType<typeof BTree.inMemory<number, string>>>
-  beforeEach(async () => {
-    btree = await BTree.inMemory<number, string>({
-      order: 3,
-      compare: (a, b) => a - b,
-    })
-    for (let i = 0; i < 10; i++) {
-      await btree.insert(i, `Person ${i}`)
-    }
-  })
-  it("Can get all values in a range", async () => {
-    expect(await btree.getRange({ gte: 3, lte: 7 })).toEqual([
-      { key: 3, vals: ["Person 3"] },
-      { key: 4, vals: ["Person 4"] },
-      { key: 5, vals: ["Person 5"] },
-      { key: 6, vals: ["Person 6"] },
-      { key: 7, vals: ["Person 7"] },
-    ])
-  })
-  it("exclusive lower bound", async () => {
-    expect(await btree.getRange({ gt: 3, lte: 7 })).toEqual([
-      { key: 4, vals: ["Person 4"] },
-      { key: 5, vals: ["Person 5"] },
-      { key: 6, vals: ["Person 6"] },
-      { key: 7, vals: ["Person 7"] },
-    ])
-  })
-  it("exclusive upper bound", async () => {
-    expect(await btree.getRange({ gt: 3, lt: 7 })).toEqual([
-      { key: 4, vals: ["Person 4"] },
-      { key: 5, vals: ["Person 5"] },
-      { key: 6, vals: ["Person 6"] },
-    ])
-  })
-  it("no lower bound", async () => {
-    expect(await btree.getRange({ lte: 3 })).toEqual([
-      { key: 0, vals: ["Person 0"] },
-      { key: 1, vals: ["Person 1"] },
-      { key: 2, vals: ["Person 2"] },
-      { key: 3, vals: ["Person 3"] },
-    ])
-  })
-  it("no upper bound", async () => {
-    expect(await btree.getRange({ gte: 7 })).toEqual([
-      { key: 7, vals: ["Person 7"] },
-      { key: 8, vals: ["Person 8"] },
-      { key: 9, vals: ["Person 9"] },
-    ])
-  })
-  it("no bounds", async () => {
-    expect(await btree.getRange({})).toEqual([
-      { key: 0, vals: ["Person 0"] },
-      { key: 1, vals: ["Person 1"] },
-      { key: 2, vals: ["Person 2"] },
-      { key: 3, vals: ["Person 3"] },
-      { key: 4, vals: ["Person 4"] },
-      { key: 5, vals: ["Person 5"] },
-      { key: 6, vals: ["Person 6"] },
-      { key: 7, vals: ["Person 7"] },
-      { key: 8, vals: ["Person 8"] },
-      { key: 9, vals: ["Person 9"] },
-    ])
-  })
-})
-
-describe("Bulk tests", () => {
-  it("lots of nodes inserted in ascending order", async () => {
-    const btree = await BTree.inMemory<number, string>({
-      order: 3,
-      compare: (a, b) => a - b,
-    })
-
-    for (let i = 0; i < 40; i++) {
-      await btree.insert(i, `Person ${i}`)
-      for (let j = 0; j <= i; j++) {
-        expect({ i, j, values: await btree.get(j) }).toEqual({
-          i,
-          j,
-          values: [`Person ${j}`],
-        })
-      }
-      await assertWellFormedBtree(btree)
-    }
-  })
-
-  it("lots of nodes inserted in descending order", async () => {
-    const btree = await BTree.inMemory<number, string>({
-      compare: (a, b) => a - b,
-      order: 3,
-    })
-
-    const inserted: number[] = []
-    for (let i = 40; i >= 0; i--) {
-      inserted.push(i)
-      await btree.insert(i, `Person ${i}`)
-      for (const j of inserted) {
-        expect({ i, j, values: await btree.get(j) }).toEqual({
-          i,
-          j,
-          values: [`Person ${j}`],
-        })
-      }
-      await assertWellFormedBtree(btree)
-    }
-  })
-
-  it("lots of nodes inserted in random order", async () => {
-    const btree = await BTree.inMemory<number, string>({
-      compare: (a, b) => a - b,
-      order: 3,
-    })
-
-    const prng = randomSeeded(0n)
-
-    const inserted: number[] = []
-    for (let i = 0; i < 40; i++) {
-      let index: number
-      do {
-        index = randomIntegerBetween(1, 10000, { prng })
-      } while (inserted.includes(index))
-      inserted.push(index)
-      await btree.insert(index, `Person ${index}`)
-      for (const j of inserted) {
-        expect({ i, j, values: await btree.get(j) }).toEqual({
-          i,
-          j,
-          values: [`Person ${j}`],
-        })
-      }
-      await assertWellFormedBtree(btree)
-    }
-  })
-})
