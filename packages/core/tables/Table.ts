@@ -12,6 +12,7 @@ import {
 import { ITableStorage } from "./TableStorage.ts"
 import { FilterTuple } from "../typetools.ts"
 import { INodeId } from "../indexes/BTreeNode.ts"
+import { AsyncIterableWrapper } from "../async.ts"
 
 /**
  * A helper type that lets you declare a table type from a given
@@ -171,21 +172,39 @@ export class Table<
     )
   }
 
-  public iterate(): IteratorObject<
-    StoredRecordForTableSchema<SchemaT>,
-    void,
-    void
+  iterate(): AsyncIterableWrapper<
+    StoredRecordForTableSchema<SchemaT>
   > {
-    return this.data.values()
+    const pkIndex = this._allIndexes.get(this.schema.columns[0].name)
+    if (!pkIndex) {
+      throw new Error("Primary key index not found")
+    }
+
+    const data = this.data
+
+    const iterator = {
+      [Symbol.asyncIterator]: async function* () {
+        const allKeys = await pkIndex.getRange({})
+        for (const key of allKeys) {
+          for (const id of key.vals) {
+            const record = await data.get(id)
+            if (record) {
+              yield record
+            }
+          }
+        }
+      },
+    }
+    return new AsyncIterableWrapper(iterator)
   }
 
-  public scanIter<
+  scanIter<
     IName extends ColumnSchemasT[number]["name"],
     IValue extends StoredRecordForTableSchema<SchemaT>[IName],
   >(
     columnName: IName,
     value: IValue,
-  ): IteratorObject<StoredRecordForTableSchema<SchemaT>, void, void> {
+  ): AsyncIterableWrapper<StoredRecordForTableSchema<SchemaT>> {
     const columnType =
       this.schema.columns.find((c) => c.name === columnName)!.type
     return this.iterate().filter((record) =>
@@ -193,13 +212,13 @@ export class Table<
     )
   }
 
-  public scan<
+  scan<
     IName extends ColumnSchemasT[number]["name"],
     IValue extends StoredRecordForTableSchema<SchemaT>[IName],
   >(
     columnName: IName,
     value: IValue,
-  ): StoredRecordForTableSchema<SchemaT>[] {
-    return Array.from(this.scanIter(columnName, value))
+  ): Promise<StoredRecordForTableSchema<SchemaT>[]> {
+    return this.scanIter(columnName, value).toArray()
   }
 }

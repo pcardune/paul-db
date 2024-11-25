@@ -18,7 +18,6 @@ export interface ITableStorage<RowId, RowData> {
   set(id: RowId, data: RowData): Promise<void>
   insert(data: RowData): Promise<RowId>
   remove(id: RowId): Promise<void>
-  values(): IteratorObject<RowData, void, void>
   commit(): Promise<void>
 }
 
@@ -116,13 +115,6 @@ export class JsonFileTableStorage<RowData>
     }
     await Deno.writeTextFile(this.filename, JSON.stringify(this.data, null, 2))
   }
-
-  values(): IteratorObject<RowData, void, void> {
-    return Object.entries(this.data).values().filter(([id]) =>
-      !this.deletedRecords.has(parseInt(id))
-    )
-      .map(([_, data]) => data)
-  }
 }
 
 export class InMemoryTableStorage<RowId, RowData>
@@ -201,11 +193,6 @@ export class InMemoryTableStorage<RowId, RowData>
     }
     return Promise.resolve()
   }
-
-  values(): IteratorObject<RowData, void, void> {
-    return this.data.entries().filter(([id]) => !this.deletedRecords.has(id))
-      .map(([_, data]) => data)
-  }
 }
 
 export type HeapFileRowId = { pageId: PageId; slotIndex: number }
@@ -279,10 +266,6 @@ export class HeapFileTableStorage<RowData>
     const view = new DataView(page.buffer)
     const recordPage = new VariableLengthRecordPage(view)
     recordPage.freeSlot(id.slotIndex)
-  }
-
-  values(): IteratorObject<RowData, void, void> {
-    throw new Error("Method not implemented.")
   }
 
   async commit(): Promise<void> {

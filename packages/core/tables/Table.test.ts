@@ -145,7 +145,8 @@ describe("Querying", () => {
       ])
 
       expect(
-        people.iterate().filter((r) => r.name.toLowerCase().includes("a"))
+        await people.iterate()
+          .filter((r) => r.name.toLowerCase().includes("a"))
           .toArray(),
       ).toEqual([
         { name: "Alice", age: 30, id: "1" },
@@ -165,7 +166,7 @@ describe("Querying", () => {
         { name: "Charlie", age: 35, id: "3" },
       ])
 
-      expect(people.scan("age", 30)).toEqual([
+      expect(await people.scan("age", 30)).toEqual([
         { name: "Alice", age: 30, id: "1" },
         { name: "Bob", age: 30, id: "2" },
       ])
@@ -185,7 +186,7 @@ describe("Querying", () => {
         { name: "Bob", email: "bob@example.com" },
         { name: "Charlie", email: "charlie@website.com" },
       ])
-      expect(people.scan("email", "ALICE@EXAMPLE.COM")).toEqual([
+      expect(await people.scan("email", "ALICE@EXAMPLE.COM")).toEqual([
         { name: "Alice", email: "alice@example.com", id: "1" },
         { name: "Alice 2", email: "Alice@example.com", id: "2" },
       ])
