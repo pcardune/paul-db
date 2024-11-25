@@ -355,7 +355,8 @@ export class BTree<
 
   async insert(key: K, value: V) {
     debugLog(
-      `\n\nBTree.insert(${JSON.stringify(key)}, ${JSON.stringify(value)})`,
+      () =>
+        `\n\nBTree.insert(${JSON.stringify(key)}, ${JSON.stringify(value)})`,
     )
     debugLog("Root node id", this.rootNodeId)
     if (key == 4) {

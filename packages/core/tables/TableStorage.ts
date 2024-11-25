@@ -9,8 +9,8 @@ import {
 } from "../pages/VariableLengthRecordPage.ts"
 import {
   makeTableSchemaSerializer,
-  RecordForTableSchema,
   SomeTableSchema,
+  StoredRecordForTableSchema,
 } from "../schema/schema.ts"
 
 export interface ITableStorage<RowId, RowData> {
@@ -57,7 +57,7 @@ export class JsonFileTableStorage<RowData>
     schema: SchemaT,
     filename: string,
   ): Promise<{
-    data: JsonFileTableStorage<RecordForTableSchema<SchemaT>>
+    data: JsonFileTableStorage<StoredRecordForTableSchema<SchemaT>>
     schema: SchemaT
     indexes: Map<string, Index<unknown, number, INodeId>>
   }> {
@@ -75,7 +75,9 @@ export class JsonFileTableStorage<RowData>
     }
     return {
       schema,
-      data: new JsonFileTableStorage<RecordForTableSchema<SchemaT>>(filename),
+      data: new JsonFileTableStorage<StoredRecordForTableSchema<SchemaT>>(
+        filename,
+      ),
       indexes,
     }
   }
@@ -139,7 +141,7 @@ export class InMemoryTableStorage<RowId, RowData>
   static async forSchema<SchemaT extends SomeTableSchema>(
     schema: SchemaT,
   ): Promise<{
-    data: InMemoryTableStorage<number, RecordForTableSchema<SchemaT>>
+    data: InMemoryTableStorage<number, StoredRecordForTableSchema<SchemaT>>
     schema: SchemaT
     indexes: Map<string, Index<unknown, number, INodeId>>
   }> {
@@ -291,7 +293,7 @@ export class HeapFileTableStorage<RowData>
     bufferPool: IBufferPool,
     schema: SchemaT,
   ): Promise<{
-    data: HeapFileTableStorage<RecordForTableSchema<SchemaT>>
+    data: HeapFileTableStorage<StoredRecordForTableSchema<SchemaT>>
     schema: SchemaT
     indexes: Map<string, Index<unknown, HeapFileRowId, INodeId>>
   }> {
@@ -299,8 +301,10 @@ export class HeapFileTableStorage<RowData>
     if (serializer == null) {
       throw new Error("Schema is not serializable")
     }
-    const heapPageFile = await HeapPageFile.create(
+    const heapPageId = await bufferPool.allocatePage()
+    const heapPageFile = new HeapPageFile(
       bufferPool,
+      heapPageId,
       VariableLengthRecordPage.allocator,
     )
 
@@ -326,7 +330,7 @@ export class HeapFileTableStorage<RowData>
     }
 
     return {
-      data: new HeapFileTableStorage<RecordForTableSchema<SchemaT>>(
+      data: new HeapFileTableStorage<StoredRecordForTableSchema<SchemaT>>(
         bufferPool,
         heapPageFile,
         serializer,

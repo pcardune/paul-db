@@ -1,5 +1,6 @@
 import { IStruct, Struct } from "../binary/Struct.ts"
 import { Comparator, EqualityChecker } from "../types.ts"
+import * as uuid from "jsr:@std/uuid"
 
 export const ColumnTypes = {
   any<T>() {
@@ -10,6 +11,11 @@ export const ColumnTypes = {
       isValid: (value) => typeof value === "string",
       equals: (a, b) => a.toLowerCase() === b.toLowerCase(),
       compare: (a, b) => a.toLowerCase().localeCompare(b.toLowerCase()),
+    })
+  },
+  uuid() {
+    return new ColumnType<`${string}-${string}-${string}-${string}-${string}`>({
+      isValid: (value) => uuid.validate(value),
     })
   },
   positiveNumber() {
@@ -67,6 +73,7 @@ export class ColumnType<T> {
   isEqual: EqualityChecker<T>
   compare: Comparator<T>
   serializer?: IStruct<T>
+
   constructor({
     isValid,
     equals = (a: T, b: T) => a === b,

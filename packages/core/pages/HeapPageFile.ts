@@ -127,7 +127,16 @@ export type PageSpaceAllocator<AllocInfo extends { freeSpace: number }> = {
  */
 export class HeapPageFile<AllocInfo extends { freeSpace: number }> {
   private _headerPageRef: HeaderPageRef
-  private constructor(
+
+  /**
+   * Reference to the heap page file whose header page starts at the given
+   * page ID.
+   *
+   * @param bufferPool
+   * @param pageId
+   * @param allocator
+   */
+  constructor(
     private bufferPool: IBufferPool,
     pageId: PageId,
     private allocator: PageSpaceAllocator<AllocInfo>,
@@ -185,6 +194,12 @@ export class HeapPageFile<AllocInfo extends { freeSpace: number }> {
     }
   }
 
+  /**
+   * Creates a new heap page file, allocating a new page for the header
+   * in the given bufferpool.
+   * @param bufferPool Buffer pool in which to read/write data
+   * @param allocator How to allocate space in a page.
+   */
   static async create<AllocInfo extends { freeSpace: number }>(
     bufferPool: IBufferPool,
     allocator: PageSpaceAllocator<AllocInfo>,

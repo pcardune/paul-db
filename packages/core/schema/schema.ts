@@ -5,23 +5,36 @@ import {
   VariableWidthStruct,
 } from "../binary/Struct.ts"
 import { PushTuple } from "../typetools.ts"
-import { ColumnType } from "./ColumnType.ts"
+import { ColumnType, ColumnTypes } from "./ColumnType.ts"
+import { ulid } from "jsr:@std/ulid"
+
+export const _internals = {
+  ulid,
+}
 
 export class ColumnSchema<
   Name extends string,
   ValueT,
   UniqueT extends boolean,
   IndexedT extends boolean,
+  DefaultValueFactoryT extends (() => ValueT) | undefined,
 > {
   constructor(
     readonly name: Name,
     readonly type: ColumnType<ValueT>,
     readonly unique: UniqueT,
     readonly indexed: IndexedT,
+    readonly defaultValueFactory?: DefaultValueFactoryT,
   ) {}
 
   withName<NewName extends string>(name: NewName) {
-    return new ColumnSchema<NewName, ValueT, UniqueT, IndexedT>(
+    return new ColumnSchema<
+      NewName,
+      ValueT,
+      UniqueT,
+      IndexedT,
+      DefaultValueFactoryT
+    >(
       name,
       this.type,
       this.unique,
@@ -29,19 +42,37 @@ export class ColumnSchema<
     )
   }
 
-  makeUnique(): ColumnSchema<Name, ValueT, true, true> {
+  makeUnique(): ColumnSchema<Name, ValueT, true, true, DefaultValueFactoryT> {
     return new ColumnSchema(this.name, this.type, true, true)
   }
 
-  makeIndexed(): ColumnSchema<Name, ValueT, UniqueT, true> {
+  makeIndexed(): ColumnSchema<
+    Name,
+    ValueT,
+    UniqueT,
+    true,
+    DefaultValueFactoryT
+  > {
     return new ColumnSchema(this.name, this.type, this.unique, true)
+  }
+
+  withDefaultValue(
+    defaultValueFactory: () => ValueT,
+  ): ColumnSchema<Name, ValueT, UniqueT, IndexedT, () => ValueT> {
+    return new ColumnSchema(
+      this.name,
+      this.type,
+      this.unique,
+      this.indexed,
+      defaultValueFactory,
+    )
   }
 }
 
 export function column<Name extends string, ValueT>(
   name: Name,
   type: ColumnType<ValueT>,
-) {
+): ColumnSchema<Name, ValueT, false, false, undefined> {
   return new ColumnSchema(name, type, false, false)
 }
 
@@ -95,16 +126,36 @@ export function computedColumn<
 }
 
 export type ValueForColumnSchema<C> = C extends
-  ColumnSchema<any, infer V, any, any> ? V
+  ColumnSchema<any, infer V, any, any, any> ? V
   : never
 
 export type InputForComputedColumnSchema<C> = C extends
   ComputedColumnSchema<any, any, any, infer I, any> ? I : never
 export type OutputForComputedColumnSchema<C> = C extends
   ComputedColumnSchema<any, any, any, any, infer O> ? O : never
-export type ColumnSchemaWithValue<V> = ColumnSchema<string, V, false, false>
-export type SomeColumnSchema = ColumnSchema<string, any, boolean, boolean>
-export type IndexedColumnSchema = ColumnSchema<string, any, any, true>
+export type SomeColumnSchema = ColumnSchema<
+  string,
+  any,
+  boolean,
+  boolean,
+  undefined | (() => any)
+>
+export type IndexedColumnSchema = ColumnSchema<
+  string,
+  any,
+  any,
+  true,
+  undefined | (() => any)
+>
+
+type ColumnSchemaWithDefaultValue = ColumnSchema<
+  string,
+  any,
+  boolean,
+  boolean,
+  () => any
+>
+
 export type SomeComputedColumnSchema = ComputedColumnSchema<
   string,
   boolean,
@@ -115,24 +166,49 @@ export type SomeComputedColumnSchema = ComputedColumnSchema<
 
 export type RecordForColumnSchema<
   CS extends SomeColumnSchema | SomeComputedColumnSchema,
+  DefaultOptional extends boolean = false,
 > = CS extends ComputedColumnSchema<string, boolean, boolean, any, any> ? {
     [K in CS["name"]]?: never
   }
+  : DefaultOptional extends true ? CS extends ColumnSchemaWithDefaultValue ? {
+        [K in CS["name"]]?: ValueForColumnSchema<CS>
+      }
+    : {
+      [K in CS["name"]]: ValueForColumnSchema<CS>
+    }
   : {
     [K in CS["name"]]: ValueForColumnSchema<CS>
   }
-type RecordForColumnSchemas<
-  CS extends (SomeColumnSchema | SomeComputedColumnSchema)[],
+type StoredRecordForColumnSchemas<
+  CS extends (SomeColumnSchema)[],
 > = {
   [K in CS[number]["name"]]: ValueForColumnSchema<
     Extract<CS[number], { name: K }>
   >
 }
 
-export type RecordForTableSchema<TS extends SomeTableSchema> =
-  RecordForColumnSchemas<
-    TS["columns"]
-  >
+type MyColumns = [
+  ColumnSchema<"id", number, true, true, () => number>,
+  ColumnSchema<"name", string, false, false, undefined>,
+  ColumnSchema<"age", number, false, false, undefined>,
+  ColumnSchema<"email", string, true, false, undefined>,
+]
+
+type foo = InsertRecordForColumnSchemas<MyColumns>
+type InsertRecordForColumnSchemas<CS extends SomeColumnSchema[]> =
+  & {
+    [K in Extract<CS[number], { defaultValueFactory?: undefined }>["name"]]:
+      ValueForColumnSchema<Extract<CS[number], { name: K }>>
+  }
+  & {
+    [K in Extract<CS[number], ColumnSchemaWithDefaultValue>["name"]]?:
+      ValueForColumnSchema<Extract<CS[number], { name: K }>>
+  }
+
+export type InsertRecordForTableSchema<TS extends SomeTableSchema> =
+  InsertRecordForColumnSchemas<TS["columns"]>
+export type StoredRecordForTableSchema<TS extends SomeTableSchema> =
+  StoredRecordForColumnSchemas<TS["columns"]>
 
 export type SomeTableSchema = TableSchema<
   string,
@@ -155,16 +231,71 @@ export class TableSchema<
     return this.columns
   }
 
-  static create<Name extends string>(name: Name) {
-    return new TableSchema(name, [], [])
+  static create<Name extends string>(
+    name: Name,
+  ): TableSchema<
+    Name,
+    [ColumnSchema<"id", string, true, true, () => string>],
+    []
+  >
+  static create<
+    Name extends string,
+    PKColumn extends ColumnSchema<
+      string,
+      any,
+      true,
+      true,
+      undefined | (() => any)
+    >,
+  >(
+    name: Name,
+    primaryKeyColumn: PKColumn,
+  ): TableSchema<Name, [PKColumn], []>
+  static create(
+    name: string,
+    primaryKeyColumn?: ColumnSchema<
+      string,
+      any,
+      true,
+      true,
+      undefined | (() => any)
+    >,
+  ): TableSchema<
+    string,
+    [ColumnSchema<string, any, true, true, undefined | (() => any)>],
+    []
+  > {
+    if (primaryKeyColumn == null) {
+      primaryKeyColumn = column("id", ColumnTypes.string())
+        .makeUnique()
+        .withDefaultValue(() => _internals.ulid())
+    }
+    return new TableSchema(name, [primaryKeyColumn], [])
   }
 
-  isValidRecord(record: RecordForColumnSchemas<ColumnSchemasT>): boolean {
+  isValidInsertRecord(
+    record: InsertRecordForColumnSchemas<ColumnSchemasT>,
+  ): { valid: true } | { valid: false; reason: string } {
     for (const column of this.columns) {
       const value = record[column.name as keyof typeof record]
-      if (column instanceof ComputedColumnSchema) {
+      if (value == null && column.defaultValueFactory) {
         continue
       }
+      if (!column.type.isValid(value)) {
+        return {
+          valid: false,
+          reason: `Invalid value for column ${column.name}`,
+        }
+      }
+    }
+    return { valid: true }
+  }
+
+  isValidStoredRecord(
+    record: StoredRecordForColumnSchemas<ColumnSchemasT>,
+  ): boolean {
+    for (const column of this.columns) {
+      const value = record[column.name as keyof typeof record]
       if (!column.type.isValid(value)) {
         return false
       }
@@ -182,7 +313,7 @@ export class TableSchema<
       CName,
       CUnique,
       CIndexed,
-      RecordForColumnSchemas<ColumnSchemasT>,
+      StoredRecordForColumnSchemas<ColumnSchemasT>,
       COutput
     >,
   ): TableSchema<
@@ -194,7 +325,7 @@ export class TableSchema<
         CName,
         CUnique,
         CIndexed,
-        RecordForColumnSchemas<ColumnSchemasT>,
+        StoredRecordForColumnSchemas<ColumnSchemasT>,
         COutput
       >
     >
@@ -210,11 +341,21 @@ export class TableSchema<
     CValue,
     CUnique extends boolean,
     CIndexed extends boolean,
+    CDefaultValueFactory extends undefined | (() => CValue),
   >(
-    column: ColumnSchema<CName, CValue, CUnique, CIndexed>,
+    column: ColumnSchema<
+      CName,
+      CValue,
+      CUnique,
+      CIndexed,
+      CDefaultValueFactory
+    >,
   ): TableSchema<
     TableName,
-    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, CUnique, CIndexed>>,
+    PushTuple<
+      ColumnSchemasT,
+      ColumnSchema<CName, CValue, CUnique, CIndexed, CDefaultValueFactory>
+    >,
     ComputedColumnsT
   >
   withColumn<CName extends string, CValue>(
@@ -222,7 +363,10 @@ export class TableSchema<
     type: ColumnType<CValue>,
   ): TableSchema<
     TableName,
-    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, false, false>>,
+    PushTuple<
+      ColumnSchemasT,
+      ColumnSchema<CName, CValue, false, false, undefined>
+    >,
     ComputedColumnsT
   >
   withColumn<CName extends string, CValue>(
@@ -233,7 +377,10 @@ export class TableSchema<
     },
   ): TableSchema<
     TableName,
-    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, true, true>>,
+    PushTuple<
+      ColumnSchemasT,
+      ColumnSchema<CName, CValue, true, true, undefined>
+    >,
     ComputedColumnsT
   >
   withColumn<
@@ -242,12 +389,17 @@ export class TableSchema<
     CUnique extends boolean,
     CIndexed extends boolean,
   >(
-    nameOrColumn: CName | ColumnSchema<CName, CValue, CUnique, CIndexed>,
+    nameOrColumn:
+      | CName
+      | ColumnSchema<CName, CValue, CUnique, CIndexed, undefined>,
     type?: ColumnType<CValue>,
     options?: { unique: true },
   ): TableSchema<
     TableName,
-    PushTuple<ColumnSchemasT, ColumnSchema<CName, CValue, CUnique, CIndexed>>,
+    PushTuple<
+      ColumnSchemasT,
+      ColumnSchema<CName, CValue, CUnique, CIndexed, undefined | (() => CValue)>
+    >,
     ComputedColumnsT
   > {
     if (typeof nameOrColumn === "string") {
@@ -256,7 +408,13 @@ export class TableSchema<
           return new TableSchema(this.name, [
             ...this.columns,
             column(nameOrColumn, type)
-              .makeUnique() as ColumnSchema<CName, CValue, CUnique, CIndexed>,
+              .makeUnique() as ColumnSchema<
+                CName,
+                CValue,
+                CUnique,
+                CIndexed,
+                undefined
+              >,
           ], this.computedColumns)
         }
         return new TableSchema(this.name, [
@@ -265,7 +423,8 @@ export class TableSchema<
             CName,
             CValue,
             CUnique,
-            CIndexed
+            CIndexed,
+            undefined
           >,
         ], this.computedColumns)
       } else {
@@ -281,7 +440,7 @@ export class TableSchema<
 
 export function makeTableSchemaSerializer<SchemaT extends SomeTableSchema>(
   schema: SchemaT,
-): IStruct<RecordForTableSchema<SchemaT>> | undefined {
+): IStruct<StoredRecordForTableSchema<SchemaT>> | undefined {
   if (schema.columns.some((c) => c.type.serializer == null)) {
     // can't make a serializer if any of the columns don't have a serializer
     return
@@ -322,7 +481,7 @@ export function makeTableSchemaSerializer<SchemaT extends SomeTableSchema>(
         record[column.name] = serializer.readAt(view, offset)
         offset += serializer.sizeof(record[column.name])
       }
-      return record as RecordForTableSchema<typeof schema>
+      return record as StoredRecordForTableSchema<typeof schema>
     },
   })
 }

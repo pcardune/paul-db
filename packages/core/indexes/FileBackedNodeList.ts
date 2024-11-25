@@ -100,11 +100,13 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
     },
   ): Promise<LeafBTreeNode<K, V, FileNodeId>> {
     debugLog(
-      `createLeafNode(${
-        data.keyvals.map((kv) => `${kv.key}: ${JSON.stringify(kv.vals)}`).join(
-          ", ",
-        )
-      })`,
+      () =>
+        `createLeafNode(${
+          data.keyvals.map((kv) => `${kv.key}: ${JSON.stringify(kv.vals)}`)
+            .join(
+              ", ",
+            )
+        })`,
     )
     const size = this.leafNodeSerializer.sizeof(data)
     const buffer = new ArrayBuffer(size)
@@ -126,9 +128,7 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
     // if (this.dirtyNodes.has(this.cacheKey(node.nodeId))) {
     //   throw new Error(`Node ${node.nodeId} already dirty??`)
     // }
-    debugLog(
-      `  -> created node with size ${size} ${node}`,
-    )
+    debugLog(() => `  -> created node with size ${size} ${node}`)
     this.markDirty(node)
     return node
   }

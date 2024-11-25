@@ -1,10 +1,11 @@
 // deno-lint-ignore-file no-explicit-any
 import { Index } from "../indexes/Index.ts"
 import {
+  InsertRecordForTableSchema,
   OutputForComputedColumnSchema,
-  RecordForTableSchema,
   SomeColumnSchema,
   SomeComputedColumnSchema,
+  StoredRecordForTableSchema,
   TableSchema,
   ValueForColumnSchema,
 } from "../schema/schema.ts"
@@ -18,14 +19,14 @@ import { INodeId } from "../indexes/BTreeNode.ts"
  */
 export type TableInfer<SchemaT, StorageT> = SchemaT extends
   TableSchema<infer TName, infer ColumnSchemasT, infer ComputedColumnSchemasT>
-  ? StorageT extends ITableStorage<infer RowIdT, RecordForTableSchema<SchemaT>>
-    ? Table<
+  ? StorageT extends
+    ITableStorage<infer RowIdT, StoredRecordForTableSchema<SchemaT>> ? Table<
       RowIdT,
       TName,
       ColumnSchemasT,
       ComputedColumnSchemasT,
       SchemaT,
-      ITableStorage<RowIdT, RecordForTableSchema<SchemaT>>
+      ITableStorage<RowIdT, StoredRecordForTableSchema<SchemaT>>
     >
   : never
   : never
@@ -36,7 +37,7 @@ export class Table<
   ColumnSchemasT extends SomeColumnSchema[],
   ComputedColumnSchemasT extends SomeComputedColumnSchema[],
   SchemaT extends TableSchema<TName, ColumnSchemasT, ComputedColumnSchemasT>,
-  StorageT extends ITableStorage<RowIdT, RecordForTableSchema<SchemaT>>,
+  StorageT extends ITableStorage<RowIdT, StoredRecordForTableSchema<SchemaT>>,
 > {
   private schema: SchemaT
   private data: StorageT
@@ -54,7 +55,7 @@ export class Table<
   }
 
   async insertMany(
-    records: RecordForTableSchema<SchemaT>[],
+    records: InsertRecordForTableSchema<SchemaT>[],
   ): Promise<RowIdT[]> {
     const rowIds: RowIdT[] = []
     for (const record of records) {
@@ -63,10 +64,22 @@ export class Table<
     return rowIds
   }
 
-  async insert(record: RecordForTableSchema<SchemaT>): Promise<RowIdT> {
-    if (!this.schema.isValidRecord(record)) {
-      throw new Error("Invalid record")
+  async insert(record: InsertRecordForTableSchema<SchemaT>): Promise<RowIdT> {
+    const validation = this.schema.isValidInsertRecord(record)
+    if (!validation.valid) {
+      throw new Error("Invalid record: " + validation.reason)
     }
+
+    for (const column of this.schema.columns) {
+      if ((record as any)[column.name] == null && column.defaultValueFactory) {
+        const value = column.defaultValueFactory()
+        if (!column.type.isValid(value)) {
+          throw new Error(`Default value for ${column.name} is invalid`)
+        }
+        ;(record as any)[column.name] = value
+      }
+    }
+
     for (const column of this.schema.columns) {
       if (column.unique) {
         const index = this._allIndexes.get(column.name)
@@ -105,7 +118,7 @@ export class Table<
     return id
   }
 
-  get(id: RowIdT): Promise<RecordForTableSchema<SchemaT> | undefined> {
+  get(id: RowIdT): Promise<StoredRecordForTableSchema<SchemaT> | undefined> {
     return this.data.get(id)
   }
 
@@ -122,14 +135,14 @@ export class Table<
   >(
     indexName: IName,
     value: ValueT,
-  ): Promise<Readonly<RecordForTableSchema<SchemaT>>[]> {
+  ): Promise<Readonly<StoredRecordForTableSchema<SchemaT>>[]> {
     const index = this._allIndexes.get(indexName)
     if (!index) {
       throw new Error(`Index ${indexName} does not exist`)
     }
     return Promise.all(
       (await index.get(value)).map((id) => {
-        return this.data.get(id) as Promise<RecordForTableSchema<SchemaT>>
+        return this.data.get(id) as Promise<StoredRecordForTableSchema<SchemaT>>
       }),
     )
   }
@@ -153,22 +166,26 @@ export class Table<
     }
     return Promise.all(
       (await index.get(value)).map((id) =>
-        this.data.get(id) as Promise<RecordForTableSchema<SchemaT>>
+        this.data.get(id) as Promise<StoredRecordForTableSchema<SchemaT>>
       ),
     )
   }
 
-  public iterate(): IteratorObject<RecordForTableSchema<SchemaT>, void, void> {
+  public iterate(): IteratorObject<
+    StoredRecordForTableSchema<SchemaT>,
+    void,
+    void
+  > {
     return this.data.values()
   }
 
   public scanIter<
     IName extends ColumnSchemasT[number]["name"],
-    IValue extends RecordForTableSchema<SchemaT>[IName],
+    IValue extends StoredRecordForTableSchema<SchemaT>[IName],
   >(
     columnName: IName,
     value: IValue,
-  ): IteratorObject<RecordForTableSchema<SchemaT>, void, void> {
+  ): IteratorObject<StoredRecordForTableSchema<SchemaT>, void, void> {
     const columnType =
       this.schema.columns.find((c) => c.name === columnName)!.type
     return this.iterate().filter((record) =>
@@ -178,11 +195,11 @@ export class Table<
 
   public scan<
     IName extends ColumnSchemasT[number]["name"],
-    IValue extends RecordForTableSchema<SchemaT>[IName],
+    IValue extends StoredRecordForTableSchema<SchemaT>[IName],
   >(
     columnName: IName,
     value: IValue,
-  ): RecordForTableSchema<SchemaT>[] {
+  ): StoredRecordForTableSchema<SchemaT>[] {
     return Array.from(this.scanIter(columnName, value))
   }
 }

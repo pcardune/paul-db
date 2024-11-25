@@ -3,12 +3,13 @@ import { expect } from "jsr:@std/expect"
 import {
   column,
   computedColumn,
+  InsertRecordForTableSchema,
   makeTableSchemaSerializer,
   RecordForColumnSchema,
   TableSchema,
   ValueForColumnSchema,
 } from "./schema.ts"
-import { RecordForTableSchema } from "./schema.ts"
+import { StoredRecordForTableSchema } from "./schema.ts"
 import { ColumnTypes } from "./ColumnType.ts"
 import { dumpUint8Buffer } from "../binary/util.ts"
 
@@ -104,6 +105,29 @@ describe("Computed column schemas", () => {
 })
 
 describe("Schemas", () => {
+  it("creates a primary key column by default", () => {
+    const peopleSchema = TableSchema.create("people")
+    expect(peopleSchema.columns).toHaveLength(1)
+    expect(peopleSchema.columns[0].name).toBe("id")
+    expect(peopleSchema.columns[0].unique).toBe(true)
+    expect(peopleSchema.columns[0].indexed).toBe(true)
+    expect(peopleSchema.columns[0].defaultValueFactory).toBeDefined()
+  })
+
+  it("lets you specify a primary key column", () => {
+    TableSchema.create(
+      "people",
+      // @ts-expect-error: column must be unique
+      column("ssn", ColumnTypes.string()),
+    )
+
+    const schema = TableSchema.create(
+      "people",
+      column("ssn", ColumnTypes.string()).makeUnique(),
+    )
+    expect(schema.columns).toHaveLength(1)
+  })
+
   it("can be built iteratively", () => {
     const peopleSchema = TableSchema.create("people")
       .withColumn(
@@ -116,19 +140,27 @@ describe("Schemas", () => {
     // also provide a type
     expect(() => peopleSchema.withColumn("bar")).toThrow()
 
-    expect(peopleSchema.columns).toHaveLength(2)
-    expect(peopleSchema.isValidRecord({ name: "Alice", age: 25 })).toBe(true)
-    expect(peopleSchema.isValidRecord({ name: "Alice", age: -25 })).toBe(false)
+    expect(peopleSchema.columns).toHaveLength(3)
+    expect(peopleSchema.isValidInsertRecord({ name: "Alice", age: 25 }).valid)
+      .toBe(
+        true,
+      )
+    expect(peopleSchema.isValidInsertRecord({ name: "Alice", age: -25 }).valid)
+      .toBe(
+        false,
+      )
 
     // @ts-expect-error: Can't insert a record with missing columns
-    expect(peopleSchema.isValidRecord({ name: "Alice" })).toBe(false)
+    expect(peopleSchema.isValidInsertRecord({ name: "Alice" }).valid).toBe(
+      false,
+    )
   })
 
   it("Lets you specify a column directly", () => {
     const nameColumn = column("name", ColumnTypes.any<string>())
     const peopleSchema = TableSchema.create("people").withColumn(nameColumn)
-    expect(peopleSchema.columns).toHaveLength(1)
-    expect(peopleSchema.isValidRecord({ name: "Alice" })).toBe(true)
+    expect(peopleSchema.columns).toHaveLength(2)
+    expect(peopleSchema.isValidInsertRecord({ name: "Alice" }).valid).toBe(true)
   })
 
   it("Uses the underlying column type for validation", () => {
@@ -136,8 +168,14 @@ describe("Schemas", () => {
       .withColumn("name", ColumnTypes.any<string>())
       .withColumn("age", ColumnTypes.positiveNumber())
 
-    expect(peopleSchema.isValidRecord({ name: "Alice", age: 25 })).toBe(true)
-    expect(peopleSchema.isValidRecord({ name: "Alice", age: -25 })).toBe(false)
+    expect(peopleSchema.isValidInsertRecord({ name: "Alice", age: 25 }).valid)
+      .toBe(
+        true,
+      )
+    expect(peopleSchema.isValidInsertRecord({ name: "Alice", age: -25 }).valid)
+      .toBe(
+        false,
+      )
   })
 
   it("Exposes the types of records that are stored in the table", () => {
@@ -149,8 +187,17 @@ describe("Schemas", () => {
       .withColumn("age", ColumnTypes.positiveNumber())
     assertTrue<
       TypeEquals<
-        { name: string; age: number },
-        RecordForTableSchema<typeof peopleSchema>
+        { id: string; name: string; age: number },
+        StoredRecordForTableSchema<typeof peopleSchema>
+      >
+    >()
+
+    type foo = InsertRecordForTableSchema<typeof peopleSchema>
+
+    assertTrue<
+      TypeEquals<
+        { id?: string; name: string; age: number },
+        InsertRecordForTableSchema<typeof peopleSchema>
       >
     >()
   })
@@ -172,12 +219,15 @@ describe("Schemas", () => {
       assertTrue<
         TypeEquals<
           { firstName: string; lastName: string; name: never },
-          RecordForTableSchema<typeof peopleSchema>
+          InsertRecordForTableSchema<typeof peopleSchema>
         >
       >()
 
       expect(
-        peopleSchema.isValidRecord({ firstName: "Alice", lastName: "Smith" }),
+        peopleSchema.isValidInsertRecord({
+          firstName: "Alice",
+          lastName: "Smith",
+        }),
       )
     })
 
@@ -207,7 +257,9 @@ describe("Schemas", () => {
           "uppercaseName",
           ColumnTypes.string(),
           (input) => {
-            assertTrue<TypeEquals<{ firstName: string }, typeof input>>()
+            assertTrue<
+              TypeEquals<{ id: string; firstName: string }, typeof input>
+            >()
             return input.firstName.toUpperCase()
           },
         ),
@@ -227,6 +279,7 @@ describe("Serializing and deserializing records", () => {
     expect(serializer).toBeDefined()
 
     const recordToWrite = {
+      id: "asdf",
       name: "Alice",
       age: 25,
       likesIceCream: true,
@@ -236,7 +289,9 @@ describe("Serializing and deserializing records", () => {
     serializer.writeAt(recordToWrite, view, 0)
     // deno-fmt-ignore
     expect(dumpUint8Buffer(data)).toEqual([
-        0,   0,   0,   14,     // length of the record (excluding the length itself)
+        0,   0,   0,  22,      // length of the record (excluding the length itself)
+        0,   0,   0,   4,      // length of "asdf"
+       97, 115, 100, 102,      // id="asdf"
         0,   0,   0,  25,      // age=25
         1,                     // likesIceCream=true
         0,   0,   0,   5,      // length of "Alice"
@@ -245,6 +300,7 @@ describe("Serializing and deserializing records", () => {
 
     const record = serializer.readAt(view, 0)
     expect(record).toEqual({
+      id: "asdf",
       name: "Alice",
       age: 25,
       likesIceCream: true,

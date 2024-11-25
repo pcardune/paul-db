@@ -3,9 +3,10 @@ import { expect } from "jsr:@std/expect"
 import { assertSnapshot } from "jsr:@std/testing/snapshot"
 import { Table, TableInfer } from "./Table.ts"
 import {
+  _internals,
   column,
   computedColumn,
-  RecordForTableSchema,
+  StoredRecordForTableSchema,
   TableSchema,
 } from "../schema/schema.ts"
 import {
@@ -16,21 +17,39 @@ import {
 } from "./TableStorage.ts"
 import { ColumnType, ColumnTypes } from "../schema/ColumnType.ts"
 import { FileBackedBufferPool } from "../pages/BufferPool.ts"
+import { stub } from "jsr:@std/testing/mock"
 
 const peopleSchema = TableSchema.create("people")
   .withColumn("name", ColumnTypes.any<string>())
   .withColumn("age", ColumnTypes.positiveNumber())
 
+const stubUlid = () => {
+  let i = 1
+  return stub(_internals, "ulid", () => {
+    return `fake-ulid-${i++}`
+  })
+}
+
 describe("Create, Read, and Delete", () => {
   it("lets you insert and retrieve records", async () => {
+    using _ulidStub = stubUlid()
     const people = new Table(await InMemoryTableStorage.forSchema(peopleSchema))
 
     const aliceId = await people.insert({ name: "Alice", age: 12 })
     const bobId = await people.insert({ name: "Bob", age: 12 })
-    expect(await people.get(aliceId)).toEqual({ name: "Alice", age: 12 })
-    expect(await people.get(bobId)).toEqual({ name: "Bob", age: 12 })
+    expect(await people.get(aliceId)).toEqual({
+      name: "Alice",
+      age: 12,
+      id: "fake-ulid-1",
+    })
+    expect(await people.get(bobId)).toEqual({
+      name: "Bob",
+      age: 12,
+      id: "fake-ulid-2",
+    })
   })
   it("You can delete records", async () => {
+    using _ulidStub = stubUlid()
     const people = new Table(
       await InMemoryTableStorage.forSchema(peopleSchema),
     )
@@ -38,18 +57,35 @@ describe("Create, Read, and Delete", () => {
     const bobId = await people.insert({ name: "Bob", age: 12 })
     people.remove(aliceId)
     expect(await people.get(aliceId)).toBeUndefined()
-    expect(await people.get(bobId)).toEqual({ name: "Bob", age: 12 })
+    expect(await people.get(bobId)).toEqual({
+      name: "Bob",
+      age: 12,
+      id: "fake-ulid-2",
+    })
   })
 })
 
 describe("Insert Validation", () => {
   it("should not allow you to insert records with invalid schema", async () => {
     const people = new Table(
-      await InMemoryTableStorage.forSchema(peopleSchema),
+      await InMemoryTableStorage.forSchema(peopleSchema.withColumn(
+        column("uuid", ColumnTypes.uuid()).withDefaultValue(() =>
+          crypto.randomUUID()
+        ),
+      )),
     )
     await people.insert({ name: "Alice", age: 12 })
     expect(people.insert({ name: "Alice", age: -12 })).rejects.toThrow(
-      "Invalid record",
+      "Invalid record: Invalid value for column age",
+    )
+    expect(
+      people.insert({
+        name: "Alice",
+        age: 12,
+        uuid: "not-valid-uuid-dispite-typecheck",
+      }),
+    ).rejects.toThrow(
+      "Invalid record: Invalid value for column uuid",
     )
   })
 
@@ -103,17 +139,17 @@ describe("Querying", () => {
         await InMemoryTableStorage.forSchema(peopleSchema),
       )
       await people.insertMany([
-        { name: "Alice", age: 30 },
-        { name: "Bob", age: 30 },
-        { name: "Charlie", age: 35 },
+        { name: "Alice", age: 30, id: "1" },
+        { name: "Bob", age: 30, id: "2" },
+        { name: "Charlie", age: 35, id: "3" },
       ])
 
       expect(
         people.iterate().filter((r) => r.name.toLowerCase().includes("a"))
           .toArray(),
       ).toEqual([
-        { name: "Alice", age: 30 },
-        { name: "Charlie", age: 35 },
+        { name: "Alice", age: 30, id: "1" },
+        { name: "Charlie", age: 35, id: "3" },
       ])
     })
   })
@@ -124,14 +160,14 @@ describe("Querying", () => {
         await InMemoryTableStorage.forSchema(peopleSchema),
       )
       await people.insertMany([
-        { name: "Alice", age: 30 },
-        { name: "Bob", age: 30 },
-        { name: "Charlie", age: 35 },
+        { name: "Alice", age: 30, id: "1" },
+        { name: "Bob", age: 30, id: "2" },
+        { name: "Charlie", age: 35, id: "3" },
       ])
 
       expect(people.scan("age", 30)).toEqual([
-        { name: "Alice", age: 30 },
-        { name: "Bob", age: 30 },
+        { name: "Alice", age: 30, id: "1" },
+        { name: "Bob", age: 30, id: "2" },
       ])
     })
 
@@ -144,14 +180,14 @@ describe("Querying", () => {
         await InMemoryTableStorage.forSchema(peopleSchema),
       )
       await people.insertMany([
-        { name: "Alice", email: "alice@example.com" },
-        { name: "Alice 2", email: "Alice@example.com" },
+        { name: "Alice", email: "alice@example.com", id: "1" },
+        { name: "Alice 2", email: "Alice@example.com", id: "2" },
         { name: "Bob", email: "bob@example.com" },
         { name: "Charlie", email: "charlie@website.com" },
       ])
       expect(people.scan("email", "ALICE@EXAMPLE.COM")).toEqual([
-        { name: "Alice", email: "alice@example.com" },
-        { name: "Alice 2", email: "Alice@example.com" },
+        { name: "Alice", email: "alice@example.com", id: "1" },
+        { name: "Alice 2", email: "Alice@example.com", id: "2" },
       ])
     })
   })
@@ -172,7 +208,7 @@ describe("Querying", () => {
       typeof indexedPeopleSchema,
       InMemoryTableStorage<
         number,
-        RecordForTableSchema<typeof indexedPeopleSchema>
+        StoredRecordForTableSchema<typeof indexedPeopleSchema>
       >
     >
     beforeAll(async () => {
@@ -183,26 +219,26 @@ describe("Querying", () => {
 
     beforeAll(async () => {
       await people.insertMany([
-        { name: "Alice", age: 25, phone: "123-456-7890" },
-        { name: "Bob", age: 35, phone: "123-456-7891" },
-        { name: "Charlie", age: 25, phone: "123-456-7892" },
+        { id: "1", name: "Alice", age: 25, phone: "123-456-7890" },
+        { id: "2", name: "Bob", age: 35, phone: "123-456-7891" },
+        { id: "3", name: "Charlie", age: 25, phone: "123-456-7892" },
       ])
     })
 
     it("lets you query using an index", async () => {
       expect(await people.lookup("age", 25)).toEqual([
-        { name: "Alice", age: 25, phone: "123-456-7890" },
-        { name: "Charlie", age: 25, phone: "123-456-7892" },
+        { id: "1", name: "Alice", age: 25, phone: "123-456-7890" },
+        { id: "3", name: "Charlie", age: 25, phone: "123-456-7892" },
       ])
       expect(await people.lookup("age", 35)).toEqual([
-        { name: "Bob", age: 35, phone: "123-456-7891" },
+        { id: "2", name: "Bob", age: 35, phone: "123-456-7891" },
       ])
     })
 
     it("lets you query using an index on a computed column", async () => {
       expect(await people.lookupComputed("lowerCaseName", "alice"))
         .toEqual([
-          { name: "Alice", age: 25, phone: "123-456-7890" },
+          { id: "1", name: "Alice", age: 25, phone: "123-456-7890" },
         ])
     })
 
@@ -225,8 +261,8 @@ Deno.test({
       "/tmp/people.json",
     )
     const people = new Table(storage)
-    await people.insert({ name: "Alice", age: 12 })
-    await people.insert({ name: "Bob", age: 12 })
+    await people.insert({ id: "1", name: "Alice", age: 12 })
+    await people.insert({ id: "2", name: "Bob", age: 12 })
     const f = Deno.readTextFileSync("/tmp/people.json")
     await assertSnapshot(t, f)
   },
@@ -266,7 +302,7 @@ describe("Heap file backed table storage", () => {
     fn: (
       table: TableInfer<
         typeof schema,
-        HeapFileTableStorage<RecordForTableSchema<typeof schema>>
+        HeapFileTableStorage<StoredRecordForTableSchema<typeof schema>>
       >,
     ) => Promise<void>,
   ): Promise<void> {
@@ -281,7 +317,7 @@ describe("Heap file backed table storage", () => {
     fn: (
       table: TableInfer<
         typeof schema,
-        HeapFileTableStorage<RecordForTableSchema<typeof schema>>
+        HeapFileTableStorage<StoredRecordForTableSchema<typeof schema>>
       >,
     ) => Promise<void>,
   ): Promise<void> {
@@ -299,12 +335,14 @@ describe("Heap file backed table storage", () => {
   it("lets you insert and read a record", async () => {
     await withTableInFile(filePath, async (people) => {
       const aliceRowId = await people.insert({
+        id: "1",
         firstName: "Alice",
         lastName: "Jones",
         age: 25,
         likesIceCream: true,
       })
       expect(await people.get(aliceRowId)).toEqual({
+        id: "1",
         firstName: "Alice",
         lastName: "Jones",
         age: 25,
@@ -317,6 +355,7 @@ describe("Heap file backed table storage", () => {
     let aliceRowId: HeapFileRowId
     await withTableInFile(filePath, async (people) => {
       aliceRowId = await people.insert({
+        id: "1",
         firstName: "Alice",
         lastName: "Jones",
         age: 25,
@@ -325,6 +364,7 @@ describe("Heap file backed table storage", () => {
     })
     await withTableInFile(filePath, async (people) => {
       expect(await people.get(aliceRowId)).toEqual({
+        id: "1",
         firstName: "Alice",
         lastName: "Jones",
         age: 25,
