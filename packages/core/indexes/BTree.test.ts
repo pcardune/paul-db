@@ -7,7 +7,7 @@ import {
   InternalBTreeNode,
   LeafBTreeNode,
 } from "./BTreeNode.ts"
-import { uint32Struct, unicodeStringStruct } from "../binary/Struct.ts"
+import { Struct } from "../binary/Struct.ts"
 
 // TODO: consider using expect.extend to make custom matchers for this
 // see https://jsr.io/@std/expect/doc/~/expect.extend
@@ -204,8 +204,8 @@ const makeInFileBTree = async (order = 2) => {
   return {
     btree: await BTree.inFile<number, string>(
       file,
-      uint32Struct,
-      unicodeStringStruct,
+      Struct.uint32,
+      Struct.unicodeStringStruct,
       { order, compare: (a, b) => a - b },
     ),
     [Symbol.dispose]: () => {

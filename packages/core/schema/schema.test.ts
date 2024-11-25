@@ -214,27 +214,31 @@ describe("Schemas", () => {
 describe("Serializing and deserializing records", () => {
   it("can serialize and deserialize records", () => {
     const peopleSchema = TableSchema.create("people")
-      .withColumn("name", ColumnTypes.string())
       .withColumn("age", ColumnTypes.uint32())
       .withColumn("likesIceCream", ColumnTypes.boolean())
+      .withColumn("name", ColumnTypes.string())
 
     const serializer = makeTableSchemaSerializer(peopleSchema)!
     expect(serializer).toBeDefined()
 
-    const data = serializer.serialize({
+    const recordToWrite = {
       name: "Alice",
       age: 25,
       likesIceCream: true,
-    })
+    }
+    const data = new ArrayBuffer(serializer.sizeof(recordToWrite))
+    const view = new DataView(data)
+    serializer.writeAt(recordToWrite, view, 0)
     // deno-fmt-ignore
     expect(dumpUint8Buffer(data)).toEqual([
-        0,   0,   0,  9,       // name starts at offset 9
-        0,   0,   0,  25,      // age=25 
+        0,   0,   0,   14,     // length of the record (excluding the length itself)
+        0,   0,   0,  25,      // age=25
         1,                     // likesIceCream=true
+        0,   0,   0,   5,      // length of "Alice"
        65, 108, 105,  99, 101, // name="Alice"
     ])
 
-    const record = serializer.deserialize(new DataView(data))
+    const record = serializer.readAt(view, 0)
     expect(record).toEqual({
       name: "Alice",
       age: 25,

@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertNotStrictEquals } from "@std/assert"
-import { uint32Struct, unicodeStringStruct } from "../binary/Struct.ts"
+import { Struct } from "../binary/Struct.ts"
 import { FileBackedBufferPool } from "../pages/BufferPool.ts"
 import { HeapPageFile } from "../pages/HeapPageFile.ts"
 import { VariableLengthRecordPage } from "../pages/VariableLengthRecordPage.ts"
@@ -18,12 +18,11 @@ async function makeNodeList() {
     bufferPool,
     VariableLengthRecordPage.allocator,
   )
-  const keySerializer = uint32Struct
   const nodelist = new FileBackedNodeList<number, string>(
     bufferPool,
     heapPageFile,
-    keySerializer,
-    unicodeStringStruct,
+    Struct.uint32,
+    Struct.unicodeStringStruct,
   )
   return { nodelist, [Symbol.dispose]: () => file.close() }
 }

@@ -4,7 +4,6 @@ export interface IStruct<ValueT> {
   writeAt(value: ValueT, view: DataView, offset: number): void
   array(): IStruct<ValueT[]>
 }
-
 export class VariableWidthStruct<ValueT> implements IStruct<ValueT> {
   /**
    * The size of the struct in bytes.
@@ -162,28 +161,88 @@ export class FixedWidthStruct<ValueT> implements IStruct<ValueT> {
   }
 }
 
-export const unicodeStringStruct = new VariableWidthStruct<string>({
-  read: (view) => {
-    const length = view.getUint32(0)
-    const decoder = new TextDecoder()
-    return decoder.decode(
-      new DataView(view.buffer, view.byteOffset + 4, length),
-    )
+export const Struct = {
+  unicodeStringStruct: new VariableWidthStruct<string>({
+    read: (view) => {
+      const decoder = new TextDecoder()
+      return decoder.decode(view)
+    },
+    write: (value, view) => {
+      const encoder = new TextEncoder()
+      const bytes = encoder.encode(value)
+      new Uint8Array(view.buffer, view.byteOffset, view.byteLength).set(
+        bytes,
+        0,
+      )
+    },
+    sizeof: (value) => new TextEncoder().encode(value).length,
+  }),
+  boolean: new FixedWidthStruct<boolean>({
+    read: (view) => view.getUint8(0) === 1,
+    write: (value, view) => view.setUint8(0, value ? 1 : 0),
+    size: 1,
+  }),
+  float64: new FixedWidthStruct<number>({
+    read: (view) => view.getFloat64(0),
+    write: (value, view) => view.setFloat64(0, value),
+    size: 8,
+  }),
+  uint32: new FixedWidthStruct<number>({
+    read: (view) => view.getUint32(0),
+    write: (value, view) => view.setUint32(0, value),
+    size: 4,
+  }),
+  int32: new FixedWidthStruct<number>({
+    read: (view) => view.getInt32(0),
+    write: (value, view) => view.setInt32(0, value),
+    size: 4,
+  }),
+  uint8: new FixedWidthStruct<number>({
+    read: (view) => view.getUint8(0),
+    write: (value, view) => view.setUint8(0, value),
+    size: 1,
+  }),
+  uint16: new FixedWidthStruct<number>({
+    read: (view) => view.getUint16(0),
+    write: (value, view) => view.setUint16(0, value),
+    size: 2,
+  }),
+  int16: new FixedWidthStruct<number>({
+    read: (view) => view.getInt16(0),
+    write: (value, view) => view.setInt16(0, value),
+    size: 2,
+  }),
+  bigUint64: new FixedWidthStruct<bigint>({
+    read: (view) => view.getBigUint64(0),
+    write: (value, view) => view.setBigUint64(0, value),
+    size: 8,
+  }),
+  bigInt64: new FixedWidthStruct<bigint>({
+    read: (view) => view.getBigInt64(0),
+    write: (value, view) => view.setBigInt64(0, value),
+    size: 8,
+  }),
+  // deno-lint-ignore no-explicit-any
+  tuple: <T extends any[]>(...structs: IStruct<T>[]) => {
+    return new VariableWidthStruct<T>({
+      read: (view) => {
+        const values = []
+        let offset = 0
+        for (const struct of structs) {
+          values.push(struct.readAt(view, offset))
+          offset += struct.sizeof(values[values.length - 1])
+        }
+        return values as T
+      },
+      write: (value, view) => {
+        let offset = 0
+        for (let i = 0; i < structs.length; i++) {
+          structs[i].writeAt(value[i], view, offset)
+          offset += structs[i].sizeof(value[i])
+        }
+      },
+      sizeof: (value) =>
+        structs.reduce((acc, struct, i) => struct.sizeof(value[i]) + acc, 0),
+    })
   },
-  write: (value, view) => {
-    const encoder = new TextEncoder()
-    const bytes = encoder.encode(value)
-    view.setUint32(0, bytes.length)
-    new Uint8Array(view.buffer, view.byteOffset, view.byteLength).set(
-      bytes,
-      4,
-    )
-  },
-  sizeof: (value) => 4 + new TextEncoder().encode(value).length,
-})
-
-export const uint32Struct = new FixedWidthStruct<number>({
-  read: (view) => view.getUint32(0),
-  write: (value, view) => view.setUint32(0, value),
-  size: 4,
-})
+}

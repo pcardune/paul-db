@@ -1,14 +1,5 @@
+import { IStruct, Struct } from "../binary/Struct.ts"
 import { Comparator, EqualityChecker } from "../types.ts"
-import {
-  booleanSerializer,
-  floatSerializer,
-  int32Serializer,
-  int64Serializer,
-  Serializer,
-  stringSerializer,
-  uint32Serializer,
-  uint64Serializer,
-} from "./Serializers.ts"
 
 export const ColumnTypes = {
   any<T>() {
@@ -29,44 +20,44 @@ export const ColumnTypes = {
   boolean() {
     return new ColumnType<boolean>({
       isValid: (value) => typeof value === "boolean",
-      serializer: booleanSerializer,
+      serializer: Struct.boolean,
     })
   },
   string() {
     return new ColumnType<string>({
       isValid: (value) => typeof value === "string",
-      serializer: stringSerializer,
+      serializer: Struct.unicodeStringStruct,
     })
   },
   float() {
     return new ColumnType<number>({
       isValid: (value) => typeof value === "number",
-      serializer: floatSerializer,
+      serializer: Struct.float64,
     })
   },
   int32() {
     return new ColumnType<number>({
       isValid: (value) => typeof value === "number" && Number.isInteger(value),
-      serializer: int32Serializer,
+      serializer: Struct.int32,
     })
   },
   uint32() {
     return new ColumnType<number>({
       isValid: (value) =>
         typeof value === "number" && Number.isInteger(value) && value >= 0,
-      serializer: uint32Serializer,
+      serializer: Struct.uint32,
     })
   },
   int64() {
     return new ColumnType<bigint>({
       isValid: (value) => typeof value === "bigint",
-      serializer: int64Serializer,
+      serializer: Struct.bigInt64,
     })
   },
   uint64() {
     return new ColumnType<bigint>({
       isValid: (value) => typeof value === "bigint" && value >= 0,
-      serializer: uint64Serializer,
+      serializer: Struct.bigUint64,
     })
   },
 }
@@ -75,7 +66,7 @@ export class ColumnType<T> {
   isValid: (value: T) => boolean
   isEqual: EqualityChecker<T>
   compare: Comparator<T>
-  serializer?: Serializer<T>
+  serializer?: IStruct<T>
   constructor({
     isValid,
     equals = (a: T, b: T) => a === b,
@@ -85,7 +76,7 @@ export class ColumnType<T> {
     isValid: (value: T) => boolean
     equals?: EqualityChecker<T>
     compare?: Comparator<T>
-    serializer?: Serializer<T>
+    serializer?: IStruct<T>
   }) {
     this.isValid = isValid
     this.isEqual = equals

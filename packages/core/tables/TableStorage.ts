@@ -1,3 +1,4 @@
+import { IStruct } from "../binary/Struct.ts"
 import { IBufferPool, PageId } from "../pages/BufferPool.ts"
 import { HeapPageFile } from "../pages/HeapPageFile.ts"
 import {
@@ -9,7 +10,6 @@ import {
   RecordForTableSchema,
   SomeTableSchema,
 } from "../schema/schema.ts"
-import { Serializer } from "../schema/Serializers.ts"
 
 export interface ITableStorage<RowId, RowData> {
   get(id: RowId): Promise<RowData | undefined>
@@ -169,7 +169,7 @@ export class HeapFileTableStorage<RowData>
   private constructor(
     private bufferPool: IBufferPool,
     private heapPageFile: HeapPageFile<VariableLengthRecordPageAllocInfo>,
-    private serializer: Serializer<RowData>,
+    private serializer: IStruct<RowData>,
   ) {
   }
 
@@ -187,12 +187,12 @@ export class HeapFileTableStorage<RowData>
   ): Promise<RowData | undefined> {
     const view = await this.getRecordView(id)
     if (view == null) return // this was deleted
-    return this.serializer.deserialize(view)
+    return this.serializer.readAt(view, 0)
   }
 
   async set(
     id: HeapFileRowId,
-    data: RowData,
+    _data: RowData,
   ): Promise<void> {
     const page = await this.bufferPool.getPage(id.pageId)
     const view = new DataView(page.buffer)
@@ -201,30 +201,21 @@ export class HeapFileTableStorage<RowData>
     if (slot.length === 0) {
       throw new Error("Cannot set a deleted record")
     }
-    const serialized = this.serializer.serialize(data)
-    recordPage.freeSlot(id.slotIndex)
-    recordPage.freeSpace
-    try {
-      recordPage.allocateSlot(serialized.byteLength)
-    } catch {
-      // not enough space, need to move the record
-      throw new Error("Not implemented")
-    }
+    throw new Error("NOT IMPLEMENTED")
   }
 
   async insert(data: RowData): Promise<HeapFileRowId> {
-    const serialized = this.serializer.serialize(data)
+    const numBytes = this.serializer.sizeof(data)
+    // const serialized = this.serializer.serialize(data)
     const { pageId, allocInfo: { slot, slotIndex } } = await this.heapPageFile
-      .allocateSpace(
-        serialized.byteLength,
-      )
-    if (slot.length < serialized.byteLength) {
+      .allocateSpace(numBytes)
+    if (slot.length < numBytes) {
       // This should never happen since we just allocated the space
       // but we'll check just in case to make it easier to find bugs.
       throw new Error("Record too large")
     }
     const page = await this.bufferPool.getPage(pageId)
-    page.set(new Uint8Array(serialized), slot.offset)
+    this.serializer.writeAt(data, new DataView(page.buffer), slot.offset)
     return { pageId, slotIndex }
   }
 
