@@ -325,6 +325,36 @@ for (const { name, makeBTree } of fixtures) {
         }
       })
     })
+
+    const originalRootNodeId = (await btree.getRootNode()).nodeId
+    await btree.insert(3, `Person 3`)
+    await btree.insert(4, `Person 4`)
+    await t.step(
+      "After inserting enough entries to split things more",
+      async (t) => {
+        await t.step("A new node will be added", async () => {
+          await assertWellFormedBtree(btree)
+        })
+
+        await t.step("There will be a new root node", async () => {
+          expect((await btree.getRootNode()).nodeId).not.toBe(
+            originalRootNodeId,
+          )
+        })
+
+        await t.step("All entries will have the correct values", async () => {
+          for (let i = 0; i <= 4; i++) {
+            expect(await btree.get(i)).toEqual([`Person ${i}`])
+          }
+        })
+
+        await t.step("After inserting another 2 entries", async () => {
+          await btree.insert(5, `Person 5`)
+          await btree.insert(6, `Person 6`)
+          await assertWellFormedBtree(btree)
+        })
+      },
+    )
   })
 }
 
@@ -346,18 +376,6 @@ describe("Inserting nodes", () => {
     describe("After inserting one more entry", () => {
       beforeEach(async () => {
         await btree.insert(2, `Person 2`)
-      })
-      it("A new node will be added", async () => {
-        expect(btree.nodes.size).toBe(3)
-        expect(await btree.childrenForNode(await btree.getRootNode()))
-          .toHaveLength(2)
-        await assertWellFormedBtree(btree)
-      })
-
-      it("All entries will have the correct values", async () => {
-        for (let i = 0; i <= 2; i++) {
-          expect(await btree.get(i)).toEqual([`Person ${i}`])
-        }
       })
 
       describe("After inserting enough entries to split things more", () => {

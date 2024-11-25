@@ -1,4 +1,5 @@
 import { FixedWidthStruct } from "../binary/Struct.ts"
+import { debugLog } from "../logging.ts"
 import { PageSpaceAllocator } from "./HeapPageFile.ts"
 
 /**
@@ -95,6 +96,20 @@ export class VariableLengthRecordPage {
       throw new Error("Slot index out of bounds")
     }
     this.setSlotEntry(slotIndex, { offset: 0, length: 0 })
+    if (slotIndex === this.slotCount - 1) {
+      // this is the last slot, lets try to reduce the slot count
+      let i = this.slotCount - 1
+      for (; i >= 0; i--) {
+        if (this.getSlotEntry(i).length > 0) break
+      }
+      this.slotCount = i + 1
+      if (i === -1) {
+        // all slots are free, reset the free space offset
+        this.freeSpaceOffset = 0
+      }
+    }
+
+    debugLog(`freeSlot(${slotIndex})`)
   }
 
   /**
@@ -104,6 +119,13 @@ export class VariableLengthRecordPage {
    * if it reuses an existing slot.
    */
   allocateSlot(numBytes: number): { slot: Slot; slotIndex: number } {
+    debugLog(
+      `allocateSlot(${numBytes}):`,
+      Array.from(
+        Array(this.slotCount),
+        (_, i) => JSON.stringify(this.getSlotEntry(i)),
+      ),
+    )
     if (this.freeSpace < numBytes) {
       throw new Error("Not enough free space")
     }
@@ -113,7 +135,7 @@ export class VariableLengthRecordPage {
     for (let i = 0; i < this.slotCount; i++) {
       const existingSlot = this.getSlotEntry(i)
       if (existingSlot.length > 0) {
-        offset += existingSlot.length
+        offset = existingSlot.offset + existingSlot.length
         continue
       }
       // well, this slot is free. Let's find out how much space there is
@@ -129,17 +151,20 @@ export class VariableLengthRecordPage {
         if (freeSpace >= numBytes) {
           const slot = { offset, length: numBytes }
           this.setSlotEntry(i, slot)
+          debugLog(
+            `  -> reusing slot ${i} at offset ${offset} and length ${numBytes}`,
+          )
           return { slot, slotIndex: i }
         } else {
           // not enough free space here, keep looking, starting
           // from the next slot
-          i = j + 1
         }
       } else {
         // all the remaining slots are free. Let's use this one.
         const slot = { offset, length: numBytes }
         this.setSlotEntry(i, slot)
         this.freeSpaceOffset = offset + numBytes
+        debugLog(`  -> reusing last slot ${i}`)
         return { slot, slotIndex: i }
       }
     }
@@ -152,6 +177,7 @@ export class VariableLengthRecordPage {
     )
     this.slotCount++
     this.freeSpaceOffset += numBytes
+    debugLog(`  -> allocated new slot ${this.slotCount - 1}`)
     return { slot, slotIndex: this.slotCount - 1 }
   }
 
@@ -162,9 +188,41 @@ export class VariableLengthRecordPage {
    * use an additional 8 bytes for the slot in the footer.
    */
   get freeSpace(): number {
-    return this.view.byteLength - this.footerSize -
-      this.freeSpaceOffset -
-      slotStruct.size
+    // Find the largest contiguous block of free space in the page.
+    // let maxFreeSpace = 0
+    // let offset = 0
+    // for (let i = 0; i < this.slotCount; i++) {
+    //   const slot = this.getSlotEntry(i)
+    //   if (slot.length > 0) {
+    //     offset = slot.offset + slot.length
+    //     continue
+    //   }
+
+    //   let j = i + 1
+    //   for (; j < this.slotCount; j++) {
+    //     if (this.getSlotEntry(j).length > 0) break
+    //   }
+    //   if (j < this.slotCount) {
+    //     const nextSlot = this.getSlotEntry(j)
+    //     maxFreeSpace = Math.max(nextSlot.offset - offset, maxFreeSpace)
+    //   } else {
+    //     maxFreeSpace = Math.max(
+    //       maxFreeSpace,
+    //       this.view.byteLength - this.footerSize - offset,
+    //     )
+    //   }
+    // }
+    // return maxFreeSpace
+
+    const freeSpace = this.view.byteLength - this.footerSize -
+      this.freeSpaceOffset
+    for (let i = 0; i < this.slotCount; i++) {
+      if (this.getSlotEntry(i).length === 0) {
+        return Math.max(freeSpace, 0)
+      }
+    }
+
+    return Math.max(0, freeSpace - 8)
   }
 
   get footerSize(): number {

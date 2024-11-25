@@ -1,4 +1,5 @@
 import { IStruct } from "../binary/Struct.ts"
+import { debugLog } from "../logging.ts"
 import { IBufferPool } from "../pages/BufferPool.ts"
 import { HeapPageFile } from "../pages/HeapPageFile.ts"
 import {
@@ -41,8 +42,10 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
   }
 
   async get(nodeId: FileNodeId): Promise<BTreeNode<K, V, FileNodeId>> {
+    debugLog(`INodelist.get(${nodeId})`)
     const existingDirty = this.dirtyNodes.get(this.cacheKey(nodeId))
     if (existingDirty != null) {
+      debugLog(`  -> found in dirty nodes: ${existingDirty}`)
       return Promise.resolve(existingDirty)
     }
 
@@ -58,6 +61,7 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
         nodeId,
         data,
       )
+      debugLog(`  -> found leaf node: ${node}`)
       return node
     } catch (e) {
       if (!(e instanceof WrongNodeTypeError)) {
@@ -74,6 +78,7 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
       nodeId,
       data,
     )
+    debugLog(`  -> found internal node: ${node}`)
     return node
   }
 
@@ -94,6 +99,13 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
       prevLeafNodeId: FileNodeId | null
     },
   ): Promise<LeafBTreeNode<K, V, FileNodeId>> {
+    debugLog(
+      `createLeafNode(${
+        data.keyvals.map((kv) => `${kv.key}: ${JSON.stringify(kv.vals)}`).join(
+          ", ",
+        )
+      })`,
+    )
     const size = this.leafNodeSerializer.sizeof(data)
     const buffer = new ArrayBuffer(size)
     const { pageId, allocInfo: { slot, slotIndex } } = await this.heapPageFile
@@ -111,6 +123,12 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
       nodeId,
       data,
     )
+    // if (this.dirtyNodes.has(this.cacheKey(node.nodeId))) {
+    //   throw new Error(`Node ${node.nodeId} already dirty??`)
+    // }
+    debugLog(
+      `  -> created node with size ${size} ${node}`,
+    )
     this.markDirty(node)
     return node
   }
@@ -118,7 +136,8 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
   async createInternalNode(
     data: { keys: K[]; childrenNodeIds: FileNodeId[] },
   ): Promise<InternalBTreeNode<K, FileNodeId>> {
-    const buffer = new ArrayBuffer(this.internalNodeSerializer.sizeof(data))
+    const size = this.internalNodeSerializer.sizeof(data)
+    const buffer = new ArrayBuffer(size)
     const { pageId, allocInfo: { slot, slotIndex } } = await this.heapPageFile
       .allocateSpace(buffer.byteLength)
     const page = await this.bufferPool.getPage(pageId)
@@ -136,10 +155,14 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
       data,
     )
     this.markDirty(node)
+    debugLog(
+      `createInernalNode() created node with size ${size} ${node}`,
+    )
     return node
   }
 
   async commit(): Promise<void> {
+    debugLog("INodeLIst.commit()")
     for (const node of this.dirtyNodes.values()) {
       const view = await this.getRecordView(node.nodeId)
       if (view == null) throw new Error("Node not found")
@@ -167,6 +190,7 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
   }
 
   async deleteNode(nodeId: FileNodeId): Promise<void> {
+    console.trace(`deleteNode(${nodeId})`)
     const page = await this.bufferPool.getPage(nodeId.pageId)
     const recordPage = new VariableLengthRecordPage(new DataView(page.buffer))
     recordPage.freeSlot(nodeId.slotIndex)

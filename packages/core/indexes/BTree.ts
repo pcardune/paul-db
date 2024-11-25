@@ -12,6 +12,7 @@ import { VariableLengthRecordPage } from "../pages/VariableLengthRecordPage.ts"
 import { FileNodeId } from "./Serializers.ts"
 import { IStruct } from "../binary/Struct.ts"
 import { FileBackedNodeList } from "./FileBackedNodeList.ts"
+import { debugLog } from "../logging.ts"
 
 type DumpedNode<K, V, NodeId> =
   | { type: "leaf"; nodeId: NodeId; keyvals: [K, readonly V[]][] }
@@ -298,7 +299,16 @@ export class BTree<
     newNode: LeafBTreeNode<K, V, NodeId>,
     parentNodeId: NodeId,
   ) {
-    this.nodes.deleteNode(oldNode.nodeId)
+    debugLog(
+      `replaceLeafNode(old=${oldNode.nodeId}, new=${newNode.nodeId}, parent=${parentNodeId})`,
+    )
+    const parent = await this.nodes.get(parentNodeId)
+    if (!(parent instanceof InternalBTreeNode)) {
+      throw new Error(
+        `parent of leaf node should be an internal node found ${parent} for nodeId ${parentNodeId}`,
+      )
+    }
+    await this.nodes.deleteNode(oldNode.nodeId)
     if (oldNode.prevLeafNodeId != null) {
       const prevNode = await this.nodes.get(
         oldNode.prevLeafNodeId,
@@ -313,12 +323,8 @@ export class BTree<
       nextNode.prevLeafNodeId = newNode.nodeId
       newNode.nextLeafNodeId = oldNode.nextLeafNodeId
     }
-    const parent = await this.nodes.get(parentNodeId) as InternalBTreeNode<
-      K,
-      NodeId
-    >
     parent.swapChildNodeId(oldNode.nodeId, newNode.nodeId)
-    this.nodes.deleteNode(oldNode.nodeId)
+    await this.nodes.deleteNode(oldNode.nodeId)
   }
 
   /**
@@ -329,6 +335,9 @@ export class BTree<
     newNode: InternalBTreeNode<K, NodeId>,
     parentNodeId: NodeId | null,
   ) {
+    debugLog(
+      `replaceInternalNode(old=${oldNode.nodeId}, new=${newNode.nodeId})`,
+    )
     if (parentNodeId == null) {
       // TODO: The root node id actually has to be stored somewhere...
       this.rootNodeId = newNode.nodeId
@@ -339,11 +348,19 @@ export class BTree<
       >
       parent.swapChildNodeId(oldNode.nodeId, newNode.nodeId)
     }
-    this.nodes.deleteNode(oldNode.nodeId)
+    await this.nodes.deleteNode(oldNode.nodeId)
   }
 
   async insert(key: K, value: V) {
+    debugLog(
+      `\n\nBTree.insert(${JSON.stringify(key)}, ${JSON.stringify(value)})`,
+    )
+    debugLog("Root node id", this.rootNodeId)
+    if (key == 4) {
+      debugLog("PROBLEM EHRE")
+    }
     const found = await this._get(this.rootNodeId, key)
+    debugLog("found", found)
     if (found.keyval != null) {
       const newNode = await this.nodes.createLeafNode({
         keyvals: [
@@ -357,7 +374,7 @@ export class BTree<
         nextLeafNodeId: found.node.nextLeafNodeId,
         prevLeafNodeId: found.node.prevLeafNodeId,
       })
-      this.replaceLeafNode(found.node, newNode, found.parents.head)
+      await this.replaceLeafNode(found.node, newNode, found.parents.head)
       await this.nodes.commit()
       return
     }
@@ -370,7 +387,7 @@ export class BTree<
       nextLeafNodeId: found.node.nextLeafNodeId,
       prevLeafNodeId: found.node.prevLeafNodeId,
     })
-    this.replaceLeafNode(found.node, newNode, found.parents.head)
+    await this.replaceLeafNode(found.node, newNode, found.parents.head)
 
     if (newNode.keyvals.length <= this.order * 2) {
       await this.nodes.commit()
@@ -387,15 +404,18 @@ export class BTree<
     key: K,
     depth: number,
   ) {
+    debugLog(
+      `insertIntoParent(parent=${parent.nodeId}, node=${node.nodeId}, ${key})`,
+    )
     const newNode = await this.nodes.createInternalNode(
       parent.withInsertedNode(key, node.nodeId, this.compare),
     )
-    this.replaceInternalNode(parent, newNode, grandParents?.head ?? null)
+    await this.replaceInternalNode(parent, newNode, grandParents?.head ?? null)
 
     if (newNode.keys.length <= this.order * 2) {
       return
     }
-    await this.splitNode(newNode.nodeId, grandParents, depth + 1)
+    await this.splitInternalNode(newNode, grandParents, depth + 1)
   }
 
   private async splitLeafNode(
@@ -403,6 +423,7 @@ export class BTree<
     parents: LinkedList<NodeId>,
     depth: number,
   ) {
+    debugLog(`splitLeafNode(${node.nodeId}, parent=${parents.head})`)
     const L2 = await this.nodes.createLeafNode({
       keyvals: node.copyKeyvals(this.order),
       nextLeafNodeId: node.nextLeafNodeId,
@@ -414,10 +435,13 @@ export class BTree<
       prevLeafNodeId: node.prevLeafNodeId,
     })
     L2.prevLeafNodeId = L1.nodeId
-    const parent = await this.nodes.get(parents.head) as InternalBTreeNode<
-      K,
-      NodeId
-    >
+    const parent = await this.nodes.get(parents.head)
+    if (!(parent instanceof InternalBTreeNode)) {
+      debugLog(`Derp: parent=${parent} is a leaf node??`)
+      throw new Error(
+        `parent of leaf node should be an internal node found ${parent} for nodeId ${parents.head}`,
+      )
+    }
     parent.swapChildNodeId(node.nodeId, L1.nodeId)
     if (node.prevLeafNodeId != null) {
       const prevNode = await this.nodes.get(
@@ -446,6 +470,7 @@ export class BTree<
     parents: LinkedList<NodeId> | null,
     depth: number,
   ) {
+    debugLog(`splitInternalNode(${node.nodeId}, parent=${parents?.head})`)
     let parentNode: InternalBTreeNode<K, NodeId>
     let grandParents: LinkedList<NodeId> | null
     if (parents == null) {
@@ -484,7 +509,7 @@ export class BTree<
     const newParentNode = await this.nodes.createInternalNode(
       parentNode.withInsertedNode(keyToMove, L2.nodeId, this.compare),
     )
-    this.replaceInternalNode(
+    await this.replaceInternalNode(
       parentNode,
       newParentNode,
       grandParents?.head ?? null,

@@ -132,10 +132,8 @@ describe("FileBackedBufferPool", () => {
 
       it.skip("when a free page gets reused before the next commit, it does not affect the dirty state", () => {
         expect(bufferPool.isDirty).toBe(false)
-        console.log("freeing page")
         bufferPool.freePage(pages[0])
         expect(bufferPool.isDirty).toBe(true)
-        console.log("allocating page")
         bufferPool.allocatePage()
         expect(bufferPool.isDirty).toBe(false)
       })
