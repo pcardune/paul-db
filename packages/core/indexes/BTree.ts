@@ -6,7 +6,7 @@ import {
   InternalBTreeNode,
   LeafBTreeNode,
 } from "./BTreeNode.ts"
-import { FileBackedBufferPool } from "../pages/BufferPool.ts"
+import { FileBackedBufferPool, IBufferPool } from "../pages/BufferPool.ts"
 import { HeapPageFile } from "../pages/HeapPageFile.ts"
 import { VariableLengthRecordPage } from "../pages/VariableLengthRecordPage.ts"
 import { FileNodeId } from "./Serializers.ts"
@@ -88,7 +88,7 @@ export class BTree<
   }
 
   static async inFile<K, V>(
-    file: Deno.FsFile,
+    file: Deno.FsFile | IBufferPool,
     keyStruct: IStruct<K>,
     valStruct: IStruct<V>,
     {
@@ -97,7 +97,9 @@ export class BTree<
       isEqual = (a, b) => a === b,
     }: InMemoryBTreeConfig<K, V> = {},
   ) {
-    const bufferPool = await FileBackedBufferPool.create(file, 4096)
+    const bufferPool: IBufferPool = file instanceof Deno.FsFile
+      ? await FileBackedBufferPool.create(file, 4096)
+      : file
     const heapPageFile = await HeapPageFile.create(
       bufferPool,
       VariableLengthRecordPage.allocator,

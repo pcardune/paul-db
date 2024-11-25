@@ -54,6 +54,7 @@ class ComputedColumnSchema<
 > {
   constructor(
     readonly name: Name,
+    readonly type: ColumnType<OutputT>,
     readonly unique: UniqueT,
     readonly indexed: IndexedT,
     readonly compute: (input: InputT) => OutputT,
@@ -61,11 +62,23 @@ class ComputedColumnSchema<
   }
 
   makeUnique(): ComputedColumnSchema<Name, true, true, InputT, OutputT> {
-    return new ComputedColumnSchema(this.name, true, true, this.compute)
+    return new ComputedColumnSchema(
+      this.name,
+      this.type,
+      true,
+      true,
+      this.compute,
+    )
   }
 
   makeIndexed(): ComputedColumnSchema<Name, UniqueT, true, InputT, OutputT> {
-    return new ComputedColumnSchema(this.name, this.unique, true, this.compute)
+    return new ComputedColumnSchema(
+      this.name,
+      this.type,
+      this.unique,
+      true,
+      this.compute,
+    )
   }
 }
 
@@ -75,9 +88,10 @@ export function computedColumn<
   OutputT,
 >(
   name: Name,
+  type: ColumnType<OutputT>,
   compute: (input: InputT) => OutputT,
 ) {
-  return new ComputedColumnSchema(name, false, false, compute)
+  return new ComputedColumnSchema(name, type, false, false, compute)
 }
 
 export type ValueForColumnSchema<C> = C extends

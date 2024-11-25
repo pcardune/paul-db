@@ -75,6 +75,7 @@ describe("Computed column schemas", () => {
   it("can be used to compute values from other values", () => {
     const nameColumn = computedColumn(
       "name",
+      ColumnTypes.string(),
       (input: { firstName: string; lastName: string }) =>
         `${input.firstName} ${input.lastName}`,
     )
@@ -91,6 +92,7 @@ describe("Computed column schemas", () => {
   it("has a never value type", () => {
     const nameColumn = computedColumn(
       "name",
+      ColumnTypes.string(),
       (input: { firstName: string; lastName: string }) =>
         `${input.firstName} ${input.lastName}`,
     )
@@ -161,6 +163,7 @@ describe("Schemas", () => {
         .withComputedColumn(
           computedColumn(
             "name",
+            ColumnTypes.string(),
             (input: { firstName: string; lastName: string }) =>
               `${input.firstName} ${input.lastName}`,
           ),
@@ -184,6 +187,7 @@ describe("Schemas", () => {
 
       const nameColumn = computedColumn(
         "name",
+        ColumnTypes.string(),
         (input: { firstName: string; lastName: string }) =>
           `${input.firstName} ${input.lastName}`,
       )
@@ -201,6 +205,7 @@ describe("Schemas", () => {
       peopleSchema.withComputedColumn(
         computedColumn(
           "uppercaseName",
+          ColumnTypes.string(),
           (input) => {
             assertTrue<TypeEquals<{ firstName: string }, typeof input>>()
             return input.firstName.toUpperCase()

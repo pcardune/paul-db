@@ -42,61 +42,15 @@ export class Table<
   private data: StorageT
   private _allIndexes: Map<string, Index<unknown, RowIdT, INodeId>>
 
-  private constructor(init: {
+  constructor(init: {
     schema: SchemaT
     data: StorageT
+    indexes: Map<string, Index<unknown, RowIdT, INodeId>>
   }) {
     this.schema = init.schema
     this.data = init.data
 
-    this._allIndexes = new Map()
-  }
-
-  private async setupIndexes() {
-    for (const column of this.schema.columns) {
-      if (column.indexed) {
-        this._allIndexes.set(
-          column.name,
-          await Index.inMemory({
-            isEqual: column.type.isEqual,
-            compare: column.type.compare,
-          }),
-        )
-      }
-    }
-    for (const column of this.schema.computedColumns) {
-      if (column.indexed) {
-        this._allIndexes.set(
-          column.name,
-          await Index.inMemory({}),
-        )
-      }
-    }
-  }
-
-  static async create<
-    RowIdT,
-    TName extends string,
-    ColumnSchemasT extends SomeColumnSchema[],
-    ComputedColumnSchemasT extends SomeComputedColumnSchema[],
-    SchemaT extends TableSchema<TName, ColumnSchemasT, ComputedColumnSchemasT>,
-  >(
-    schema: SchemaT,
-    data: ITableStorage<RowIdT, RecordForTableSchema<SchemaT>>,
-  ) {
-    const table = new Table<
-      RowIdT,
-      TName,
-      ColumnSchemasT,
-      ComputedColumnSchemasT,
-      SchemaT,
-      ITableStorage<RowIdT, RecordForTableSchema<SchemaT>>
-    >({
-      schema,
-      data,
-    })
-    await table.setupIndexes()
-    return table
+    this._allIndexes = init.indexes
   }
 
   async insertMany(

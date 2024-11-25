@@ -2,6 +2,9 @@ import { BTree, InMemoryBTreeConfig } from "./BTree.ts"
 import { Range } from "../types.ts"
 import { INodeId } from "./BTreeNode.ts"
 import { InMemoryNodeId } from "./NodeList.ts"
+import { IBufferPool } from "../pages/BufferPool.ts"
+import { IStruct } from "../binary/Struct.ts"
+import { FileNodeId } from "./Serializers.ts"
 
 export class Index<K, V, NodeId extends INodeId> {
   private data: BTree<K, V, NodeId>
@@ -17,6 +20,25 @@ export class Index<K, V, NodeId extends INodeId> {
         compare: config.compare ?? ((a, b) => a < b ? -1 : a > b ? 1 : 0),
         isEqual: config.isEqual ?? ((a, b) => a === b),
       }),
+    )
+  }
+
+  static async inFile<K, V>(
+    file: Deno.FsFile | IBufferPool,
+    keyStruct: IStruct<K>,
+    valStruct: IStruct<V>,
+    config: InMemoryBTreeConfig<K, V>,
+  ): Promise<Index<K, V, FileNodeId>> {
+    return new Index(
+      await BTree.inFile<K, V>(
+        file,
+        keyStruct,
+        valStruct,
+        {
+          compare: config.compare ?? ((a, b) => a < b ? -1 : a > b ? 1 : 0),
+          isEqual: config.isEqual ?? ((a, b) => a === b),
+        },
+      ),
     )
   }
 

@@ -1,4 +1,6 @@
-import { IStruct } from "../binary/Struct.ts"
+import { FixedWidthStruct, IStruct } from "../binary/Struct.ts"
+import { INodeId } from "../indexes/BTreeNode.ts"
+import { Index } from "../indexes/Index.ts"
 import { IBufferPool, PageId } from "../pages/BufferPool.ts"
 import { HeapPageFile } from "../pages/HeapPageFile.ts"
 import {
@@ -49,13 +51,33 @@ export class JsonFileTableStorage<RowData>
     this.deletedRecords = new Set()
   }
 
-  static forSchema<
+  static async forSchema<
     SchemaT extends SomeTableSchema,
   >(
-    _schema: SchemaT,
+    schema: SchemaT,
     filename: string,
-  ): JsonFileTableStorage<RecordForTableSchema<SchemaT>> {
-    return new JsonFileTableStorage<RecordForTableSchema<SchemaT>>(filename)
+  ): Promise<{
+    data: JsonFileTableStorage<RecordForTableSchema<SchemaT>>
+    schema: SchemaT
+    indexes: Map<string, Index<unknown, number, INodeId>>
+  }> {
+    const indexes = new Map<string, Index<unknown, number, INodeId>>()
+    for (const column of [...schema.columns, ...schema.computedColumns]) {
+      if (column.indexed) {
+        indexes.set(
+          column.name,
+          await Index.inMemory({
+            isEqual: column.type.isEqual,
+            compare: column.type.compare,
+          }),
+        )
+      }
+    }
+    return {
+      schema,
+      data: new JsonFileTableStorage<RecordForTableSchema<SchemaT>>(filename),
+      indexes,
+    }
   }
 
   get(id: number): Promise<RowData | undefined> {
@@ -114,11 +136,32 @@ export class InMemoryTableStorage<RowId, RowData>
     this.deletedRecords = new Set()
   }
 
-  static forSchema<SchemaT extends SomeTableSchema>(
-    _schema: SchemaT,
-  ): InMemoryTableStorage<number, RecordForTableSchema<SchemaT>> {
+  static async forSchema<SchemaT extends SomeTableSchema>(
+    schema: SchemaT,
+  ): Promise<{
+    data: InMemoryTableStorage<number, RecordForTableSchema<SchemaT>>
+    schema: SchemaT
+    indexes: Map<string, Index<unknown, number, INodeId>>
+  }> {
+    const indexes = new Map<string, Index<unknown, number, INodeId>>()
+    for (const column of [...schema.columns, ...schema.computedColumns]) {
+      if (column.indexed) {
+        indexes.set(
+          column.name,
+          await Index.inMemory({
+            isEqual: column.type.isEqual,
+            compare: column.type.compare,
+          }),
+        )
+      }
+    }
+
     let rowId = 0
-    return new InMemoryTableStorage(() => rowId++)
+    return {
+      data: new InMemoryTableStorage(() => rowId++),
+      schema,
+      indexes,
+    }
   }
 
   get(id: RowId): Promise<RowData | undefined> {
@@ -164,6 +207,18 @@ export class InMemoryTableStorage<RowId, RowData>
 }
 
 export type HeapFileRowId = { pageId: PageId; slotIndex: number }
+
+const heapFileRowIdStruct: IStruct<HeapFileRowId> = new FixedWidthStruct({
+  size: 8 + 4,
+  write: (id, view) => {
+    view.setBigUint64(0, id.pageId)
+    view.setUint32(8, id.slotIndex)
+  },
+  read: (view) => ({
+    pageId: view.getBigUint64(0),
+    slotIndex: view.getUint32(8),
+  }),
+})
 export class HeapFileTableStorage<RowData>
   implements ITableStorage<HeapFileRowId, RowData> {
   private constructor(
@@ -182,9 +237,7 @@ export class HeapFileTableStorage<RowData>
     return new DataView(page.buffer, slot.offset, slot.length)
   }
 
-  async get(
-    id: HeapFileRowId,
-  ): Promise<RowData | undefined> {
+  async get(id: HeapFileRowId): Promise<RowData | undefined> {
     const view = await this.getRecordView(id)
     if (view == null) return // this was deleted
     return this.serializer.readAt(view, 0)
@@ -237,7 +290,11 @@ export class HeapFileTableStorage<RowData>
   static async create<SchemaT extends SomeTableSchema>(
     bufferPool: IBufferPool,
     schema: SchemaT,
-  ): Promise<HeapFileTableStorage<RecordForTableSchema<SchemaT>>> {
+  ): Promise<{
+    data: HeapFileTableStorage<RecordForTableSchema<SchemaT>>
+    schema: SchemaT
+    indexes: Map<string, Index<unknown, HeapFileRowId, INodeId>>
+  }> {
     const serializer = makeTableSchemaSerializer(schema)
     if (serializer == null) {
       throw new Error("Schema is not serializable")
@@ -246,10 +303,36 @@ export class HeapFileTableStorage<RowData>
       bufferPool,
       VariableLengthRecordPage.allocator,
     )
-    return new HeapFileTableStorage<RecordForTableSchema<SchemaT>>(
-      bufferPool,
-      heapPageFile,
-      serializer,
-    )
+
+    const indexes = new Map<string, Index<unknown, HeapFileRowId, INodeId>>()
+    for (const column of [...schema.columns, ...schema.computedColumns]) {
+      if (column.indexed) {
+        if (!column.type.serializer) {
+          throw new Error("Type must have a serializer")
+        }
+        indexes.set(
+          column.name,
+          await Index.inFile(
+            bufferPool,
+            column.type.serializer!,
+            heapFileRowIdStruct,
+            {
+              isEqual: column.type.isEqual,
+              compare: column.type.compare,
+            },
+          ),
+        )
+      }
+    }
+
+    return {
+      data: new HeapFileTableStorage<RecordForTableSchema<SchemaT>>(
+        bufferPool,
+        heapPageFile,
+        serializer,
+      ),
+      schema,
+      indexes,
+    }
   }
 }

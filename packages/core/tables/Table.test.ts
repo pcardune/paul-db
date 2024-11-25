@@ -23,10 +23,7 @@ const peopleSchema = TableSchema.create("people")
 
 describe("Create, Read, and Delete", () => {
   it("lets you insert and retrieve records", async () => {
-    const people = await Table.create(
-      peopleSchema,
-      InMemoryTableStorage.forSchema(peopleSchema),
-    )
+    const people = new Table(await InMemoryTableStorage.forSchema(peopleSchema))
 
     const aliceId = await people.insert({ name: "Alice", age: 12 })
     const bobId = await people.insert({ name: "Bob", age: 12 })
@@ -34,9 +31,8 @@ describe("Create, Read, and Delete", () => {
     expect(await people.get(bobId)).toEqual({ name: "Bob", age: 12 })
   })
   it("You can delete records", async () => {
-    const people = await Table.create(
-      peopleSchema,
-      InMemoryTableStorage.forSchema(peopleSchema),
+    const people = new Table(
+      await InMemoryTableStorage.forSchema(peopleSchema),
     )
     const aliceId = await people.insert({ name: "Alice", age: 12 })
     const bobId = await people.insert({ name: "Bob", age: 12 })
@@ -48,9 +44,8 @@ describe("Create, Read, and Delete", () => {
 
 describe("Insert Validation", () => {
   it("should not allow you to insert records with invalid schema", async () => {
-    const people = await Table.create(
-      peopleSchema,
-      InMemoryTableStorage.forSchema(peopleSchema),
+    const people = new Table(
+      await InMemoryTableStorage.forSchema(peopleSchema),
     )
     await people.insert({ name: "Alice", age: 12 })
     expect(people.insert({ name: "Alice", age: -12 })).rejects.toThrow(
@@ -64,10 +59,7 @@ describe("Insert Validation", () => {
         "favoriteOdd",
         new ColumnType({ isValid: (value: number) => value % 2 === 1 }),
       )
-    const oddPeople = await Table.create(
-      schema,
-      InMemoryTableStorage.forSchema(schema),
-    )
+    const oddPeople = new Table(await InMemoryTableStorage.forSchema(schema))
 
     oddPeople.insert({ name: "Alice", age: 13, favoriteOdd: 13 })
     expect(oddPeople.insert({ name: "Alice", age: 12, favoriteOdd: 12 }))
@@ -85,10 +77,7 @@ describe("Uniqueness Constraints", () => {
   it("enforces uniqueness constraints", async () => {
     const schema = peopleSchema
       .withColumn("ssn", ColumnTypes.any<string>(), { unique: true })
-    const people = await Table.create(
-      schema,
-      InMemoryTableStorage.forSchema(schema),
-    )
+    const people = new Table(await InMemoryTableStorage.forSchema(schema))
 
     await people.insert({ name: "Alice", age: 12, ssn: "123-45-6789" })
     expect(people.insert({ name: "Alice", age: 12, ssn: "123-45-6789" }))
@@ -99,10 +88,7 @@ describe("Uniqueness Constraints", () => {
   it("utilizes column type to determine uniqueness", async () => {
     const schema = peopleSchema
       .withColumn("phone", phoneNumberType, { unique: true })
-    const people = await Table.create(
-      schema,
-      InMemoryTableStorage.forSchema(schema),
-    )
+    const people = new Table(await InMemoryTableStorage.forSchema(schema))
     await people.insert({ name: "Alice", age: 12, phone: "123-867-5309" })
     expect(
       people.insert({ name: "Alice", age: 12, phone: "123-8675-309" }),
@@ -113,9 +99,8 @@ describe("Uniqueness Constraints", () => {
 describe("Querying", () => {
   describe("Table.iterate()", () => {
     it("lets you iterate over the entire contents of the table", async () => {
-      const people = await Table.create(
-        peopleSchema,
-        InMemoryTableStorage.forSchema(peopleSchema),
+      const people = new Table(
+        await InMemoryTableStorage.forSchema(peopleSchema),
       )
       await people.insertMany([
         { name: "Alice", age: 30 },
@@ -135,9 +120,8 @@ describe("Querying", () => {
 
   describe("Table.scan()", () => {
     it("can query records by scanning the entire table", async () => {
-      const people = await Table.create(
-        peopleSchema,
-        InMemoryTableStorage.forSchema(peopleSchema),
+      const people = new Table(
+        await InMemoryTableStorage.forSchema(peopleSchema),
       )
       await people.insertMany([
         { name: "Alice", age: 30 },
@@ -156,9 +140,8 @@ describe("Querying", () => {
         "name",
         ColumnTypes.any<string>(),
       ).withColumn("email", ColumnTypes.caseInsensitiveString())
-      const people = await Table.create(
-        peopleSchema,
-        InMemoryTableStorage.forSchema(peopleSchema),
+      const people = new Table(
+        await InMemoryTableStorage.forSchema(peopleSchema),
       )
       await people.insertMany([
         { name: "Alice", email: "alice@example.com" },
@@ -181,6 +164,7 @@ describe("Querying", () => {
       .withComputedColumn(
         computedColumn(
           "lowerCaseName",
+          ColumnTypes.string(),
           (input: { name: string }) => input.name.toLowerCase(),
         ).makeIndexed(),
       )
@@ -192,9 +176,8 @@ describe("Querying", () => {
       >
     >
     beforeAll(async () => {
-      people = await Table.create(
-        indexedPeopleSchema,
-        InMemoryTableStorage.forSchema(indexedPeopleSchema),
+      people = new Table(
+        await InMemoryTableStorage.forSchema(indexedPeopleSchema),
       )
     })
 
@@ -237,10 +220,11 @@ Deno.test({
   permissions: { read: true, write: true },
   fn: async (t) => {
     Deno.removeSync("/tmp/people.json")
-    const people = await Table.create(
+    const storage = await JsonFileTableStorage.forSchema(
       peopleSchema,
-      JsonFileTableStorage.forSchema(peopleSchema, "/tmp/people.json"),
+      "/tmp/people.json",
     )
+    const people = new Table(storage)
     await people.insert({ name: "Alice", age: 12 })
     await people.insert({ name: "Bob", age: 12 })
     const f = Deno.readTextFileSync("/tmp/people.json")
@@ -286,8 +270,7 @@ describe("Heap file backed table storage", () => {
       >,
     ) => Promise<void>,
   ): Promise<void> {
-    const table = await Table.create(
-      schema,
+    const table = new Table(
       await HeapFileTableStorage.create(bufferPool, schema),
     )
     await fn(table)
