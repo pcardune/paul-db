@@ -92,24 +92,73 @@ export class VariableLengthRecordPage {
    * Marks a slot as free for future allocations
    */
   freeSlot(slotIndex: number): void {
+    debugLog(() => `freeSlot(${slotIndex}) ${debugJson(this.dumpSlots(), 2)}`)
     if (slotIndex >= this.slotCount) {
+      debugLog(
+        `  -> freeSlot(${slotIndex}) slot index out of bounds, already deleted?`,
+      )
       return // already deleted
     }
     this.setSlotEntry(slotIndex, { offset: 0, length: 0 })
+
+    this.freeSpaceOffset = this.iterSlots().reduce((acc, [slot]) => {
+      if (slot.length === 0) return acc
+      return Math.max(acc, slot.offset + slot.length)
+    }, 0)
+
     if (slotIndex === this.slotCount - 1) {
+      debugLog(`  -> freeSlot(${slotIndex}) last slot, reducing slot count`)
       // this is the last slot, lets try to reduce the slot count
       let i = this.slotCount - 1
       for (; i >= 0; i--) {
         if (this.getSlotEntry(i).length > 0) break
       }
       this.slotCount = i + 1
-      if (i === -1) {
-        // all slots are free, reset the free space offset
-        this.freeSpaceOffset = 0
-      }
     }
+    debugLog(
+      () =>
+        `  -> freeSlot(${slotIndex}) done ${debugJson(this.dumpSlots(), 2)}`,
+    )
+  }
 
-    debugLog(`freeSlot(${slotIndex})`)
+  *iterSlots(): Generator<[Slot, number]> {
+    for (let i = 0; i < this.slotCount; i++) {
+      yield [this.getSlotEntry(i), i]
+    }
+  }
+
+  getFreeSlots() {
+    return this.iterSlots().filter(([slot]) => slot.length === 0).map(([, i]) =>
+      i
+    )
+  }
+
+  *getFreeBlocks() {
+    const slots = this.iterSlots()
+      .filter(([slot]) => slot.length > 0).map(([slot]) => ({
+        start: slot.offset,
+        end: slot.offset + slot.length,
+      })).toArray().sort((a, b) => a.start - b.start)
+
+    if (slots.length === 0) return // we're empty
+    let slot = slots[0]
+    if (slot.start > 0) {
+      yield { offset: 0, length: slot.start }
+    }
+    for (let i = 1; i < slots.length; i++) {
+      const nextSlot = slots[i]
+      if (slot.end < nextSlot.start) {
+        yield { offset: slot.end, length: nextSlot.start - slot.end }
+      }
+      slot = nextSlot
+    }
+  }
+
+  dumpSlots(): string[] {
+    return Array.from(
+      this.iterSlots(),
+      ([slot, i]) => `${i}: offset=${slot.offset} length=${slot.length}`,
+    )
   }
 
   /**
@@ -120,65 +169,32 @@ export class VariableLengthRecordPage {
    */
   allocateSlot(numBytes: number): { slot: Slot; slotIndex: number } {
     debugLog(
-      `allocateSlot(${numBytes}):`,
-      Array.from(
-        Array(this.slotCount),
-        (_, i) => debugJson(this.getSlotEntry(i)),
-      ),
+      () => `allocateSlot(${numBytes}): ${debugJson(this.dumpSlots(), 2)}`,
     )
     if (this.freeSpace < numBytes) {
       throw new Error("Not enough free space")
     }
 
-    // try to reuse an existing slot first
-    let offset = 0
-    for (let i = 0; i < this.slotCount; i++) {
-      const existingSlot = this.getSlotEntry(i)
-      if (existingSlot.length > 0) {
-        offset = existingSlot.offset + existingSlot.length
-        continue
-      }
-      // well, this slot is free. Let's find out how much space there is
-      // until the next used slot
-      let freeSpace = 0
-      let j = i + 1
-      for (; j < this.slotCount; j++) {
-        if (this.getSlotEntry(j).length > 0) break
-      }
-      if (j < this.slotCount) {
-        // we found a used slot before we reached the end of all the slots
-        freeSpace = this.getSlotEntry(j).offset - offset
-        if (freeSpace >= numBytes) {
-          const slot = { offset, length: numBytes }
-          this.setSlotEntry(i, slot)
-          debugLog(
-            `  -> reusing slot ${i} at offset ${offset} and length ${numBytes}`,
-          )
-          return { slot, slotIndex: i }
-        } else {
-          // not enough free space here, keep looking, starting
-          // from the next slot
-        }
-      } else {
-        // all the remaining slots are free. Let's use this one.
-        const slot = { offset, length: numBytes }
-        this.setSlotEntry(i, slot)
-        this.freeSpaceOffset = offset + numBytes
-        debugLog(`  -> reusing last slot ${i}`)
-        return { slot, slotIndex: i }
-      }
+    const firstFreeSlotIndex = this.getFreeSlots().next().value
+
+    const firstFreeBlock =
+      this.getFreeBlocks().filter((block) => block.length >= numBytes).next()
+        .value
+    let slot: Slot
+    if (firstFreeBlock == null) {
+      slot = { offset: this.freeSpaceOffset, length: numBytes }
+      this.freeSpaceOffset += numBytes
+    } else {
+      slot = { offset: firstFreeBlock.offset, length: numBytes }
     }
 
-    const slot = { offset: this.freeSpaceOffset, length: numBytes }
-    slotStruct.writeAt(
-      slot,
-      this.nextSlotSpace,
-      0,
-    )
-    this.slotCount++
-    this.freeSpaceOffset += numBytes
-    debugLog(`  -> allocated new slot ${this.slotCount - 1}`)
-    return { slot, slotIndex: this.slotCount - 1 }
+    if (firstFreeSlotIndex == null) {
+      this.setSlotEntry(this.slotCount, slot)
+      this.slotCount++
+      return { slot, slotIndex: this.slotCount - 1 }
+    }
+    this.setSlotEntry(firstFreeSlotIndex, slot)
+    return { slot, slotIndex: firstFreeSlotIndex }
   }
 
   /**
@@ -188,41 +204,15 @@ export class VariableLengthRecordPage {
    * use an additional 8 bytes for the slot in the footer.
    */
   get freeSpace(): number {
-    // Find the largest contiguous block of free space in the page.
-    // let maxFreeSpace = 0
-    // let offset = 0
-    // for (let i = 0; i < this.slotCount; i++) {
-    //   const slot = this.getSlotEntry(i)
-    //   if (slot.length > 0) {
-    //     offset = slot.offset + slot.length
-    //     continue
-    //   }
-
-    //   let j = i + 1
-    //   for (; j < this.slotCount; j++) {
-    //     if (this.getSlotEntry(j).length > 0) break
-    //   }
-    //   if (j < this.slotCount) {
-    //     const nextSlot = this.getSlotEntry(j)
-    //     maxFreeSpace = Math.max(nextSlot.offset - offset, maxFreeSpace)
-    //   } else {
-    //     maxFreeSpace = Math.max(
-    //       maxFreeSpace,
-    //       this.view.byteLength - this.footerSize - offset,
-    //     )
-    //   }
-    // }
-    // return maxFreeSpace
-
-    const freeSpace = this.view.byteLength - this.footerSize -
+    const maxFreeBlock = this.getFreeBlocks().reduce(
+      (acc, block) => Math.max(acc, block.length),
+      0,
+    )
+    const firstFreeSlotIndex = this.getFreeSlots().next().value
+    const slotOverhead = firstFreeSlotIndex == null ? 8 : 0
+    const finalFreeSpace = this.view.byteLength - this.footerSize -
       this.freeSpaceOffset
-    for (let i = 0; i < this.slotCount; i++) {
-      if (this.getSlotEntry(i).length === 0) {
-        return Math.max(freeSpace, 0)
-      }
-    }
-
-    return Math.max(0, freeSpace - 8)
+    return Math.max(Math.max(maxFreeBlock, finalFreeSpace) - slotOverhead, 0)
   }
 
   get footerSize(): number {

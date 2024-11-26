@@ -22,11 +22,9 @@ describe("VariableLengthRecordPage", () => {
       Array(page.slotCount),
       (_, i) => page.getSlotEntry(i),
     )
-    const nonEmptySlots = slots.filter((slot) => slot.length > 0)
-
-    // they should already be in order
-    const offsets = nonEmptySlots.map((slot) => slot.offset)
-    expect(offsets).toEqual(offsets.slice().sort((a, b) => a - b))
+    const nonEmptySlots = slots.filter((slot) => slot.length > 0).sort((a, b) =>
+      a.offset - b.offset
+    )
 
     // check that none of the slots are overlapping
     for (let i = 0; i < nonEmptySlots.length - 1; i++) {
@@ -98,27 +96,51 @@ describe("VariableLengthRecordPage", () => {
     ] as const
   }
 
-  it("Can free a slot", () => {
-    const slots = makeSlots()
+  it("Can free the first slot", () => {
+    makeSlots()
+    page.freeSlot(0)
+    expect(Array.from(page.getFreeBlocks())).toHaveLength(1)
+    expect(Array.from(page.getFreeBlocks())[0]).toEqual({
+      offset: 0,
+      length: 10,
+    })
+    expect(Array.from(page.getFreeSlots())).toEqual([0])
+    expect(page.freeSpaceOffset).toBe(19) // 10 + 5 + 4 // the size of the allocated slots
     expect(page.slotCount).toBe(3)
-    expect(page.freeSpaceOffset).toBe(19)
-    expect(page.freeSpace).toBe(21)
+    expect(page.footerSize).toBe(32) // 4 + 4 + 3 * 8 - 4 bytes for slot count, 4 bytes for free space offset, 8 bytes for each slot * 3 slots
+    expect(page.freeSpace).toBe(80 - 32 - 19) // 29 bytes of free space
+  })
 
-    const freedSlotIndex = slots[1].slotIndex
-    page.freeSlot(freedSlotIndex)
+  it("Can free the middle slot", () => {
+    makeSlots()
+    page.freeSlot(1)
+    expect(Array.from(page.getFreeBlocks())).toHaveLength(1)
+    expect(Array.from(page.getFreeBlocks())[0]).toEqual({
+      offset: 10,
+      length: 5,
+    })
+    expect(Array.from(page.getFreeSlots())).toEqual([1])
+    expect(page.freeSpaceOffset).toBe(19) // 10 + 5 + 4 // the size of the allocated slots
     expect(page.slotCount).toBe(3)
-    expect(page.freeSpaceOffset).toBe(19)
-    expect(page.freeSpace).toBe(29) // increased by 8 bytes of the freed slot
-    // a freed slot is marked as having length and offset of 0
-    expect(page.getSlotEntry(freedSlotIndex).length).toBe(0)
-    expect(page.getSlotEntry(freedSlotIndex).offset).toBe(0)
+    expect(page.footerSize).toBe(32) // 4 + 4 + 3 * 8 - 4 bytes for slot count, 4 bytes for free space offset, 8 bytes for each slot * 3 slots
+    expect(page.freeSpace).toBe(80 - 32 - 19) // 29 bytes of free space
+  })
 
-    assertWellFormedPage(buffer)
+  it("Can free the last slot", () => {
+    makeSlots()
+    page.freeSlot(2)
+    expect(Array.from(page.getFreeBlocks())).toEqual([])
+    expect(Array.from(page.getFreeSlots())).toEqual([])
+    expect(page.freeSpaceOffset).toBe(15) // 10 + 5 + 4 // the size of the allocated slots
+    expect(page.slotCount).toBe(2)
+    expect(page.footerSize).toBe(4 + 4 + 2 * 8) // 24 // 4 bytes for slot count, 4 bytes for free space offset, 8 bytes for each slot * 3 slots
+    expect(page.freeSpace).toBe(80 - 24 - 15 - 8) // 41 bytes of free space
   })
 
   it("Will reuse a freed slot if the new allocation fits in it", () => {
     const [firstSlot] = makeSlots()
     page.freeSlot(firstSlot.slotIndex)
+    expect(Array.from(page.getFreeBlocks())).toHaveLength(1)
 
     expect(page.getSlotEntry(firstSlot.slotIndex).length).toBe(0)
     const { slotIndex: reusedSlotIndex, slot: reusedSlot } = page.allocateSlot(
@@ -132,15 +154,16 @@ describe("VariableLengthRecordPage", () => {
   })
 
   it("Will allocate a new slot if the freed one is too small", () => {
-    const [firstSlot] = makeSlots()
-    page.freeSlot(firstSlot.slotIndex)
+    page.allocateSlot(10)
+    page.allocateSlot(5)
+    page.allocateSlot(4)
 
-    const numSlotsAfterFirstFree = page.slotCount
-    const newSlot = page.allocateSlot(firstSlot.slot.length + 1)
-    expect(newSlot.slotIndex).not.toBe(firstSlot.slotIndex)
-    expect(newSlot.slotIndex).toBe(numSlotsAfterFirstFree)
-    expect(newSlot.slot.offset).not.toBe(firstSlot.slot.length)
-    expect(newSlot.slot.length).toBe(firstSlot.slot.length + 1)
+    page.freeSlot(0)
+
+    const newSlot = page.allocateSlot(11)
+    expect(newSlot.slotIndex).toBe(0)
+    expect(newSlot.slot.offset).not.toBe(0)
+    expect(newSlot.slot.length).toBe(11)
 
     assertWellFormedPage(buffer)
   })

@@ -9,11 +9,11 @@ export const debugLog = Deno.env.get("DEBUG") === "true"
   }
   : () => {}
 
-export function debugJson(obj: unknown): string {
+export function debugJson(obj: unknown, indent = 0): string {
   return JSON.stringify(obj, (_key: string, value: unknown) => {
     if (typeof value === "bigint") {
       return value.toString() + "n"
     }
     return value
-  }, 2)
+  }, indent)
 }
