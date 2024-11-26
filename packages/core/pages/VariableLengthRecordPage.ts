@@ -1,5 +1,5 @@
 import { FixedWidthStruct } from "../binary/Struct.ts"
-import { debugLog } from "../logging.ts"
+import { debugJson, debugLog } from "../logging.ts"
 import { PageSpaceAllocator } from "./HeapPageFile.ts"
 
 /**
@@ -123,7 +123,7 @@ export class VariableLengthRecordPage {
       `allocateSlot(${numBytes}):`,
       Array.from(
         Array(this.slotCount),
-        (_, i) => JSON.stringify(this.getSlotEntry(i)),
+        (_, i) => debugJson(this.getSlotEntry(i)),
       ),
     )
     if (this.freeSpace < numBytes) {

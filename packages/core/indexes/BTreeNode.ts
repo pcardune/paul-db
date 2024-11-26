@@ -1,4 +1,5 @@
 import { binarySearch } from "../binarySearch.ts"
+import { debugJson } from "../logging.ts"
 import { Comparator, EqualityChecker } from "../types.ts"
 
 export interface INodeId {
@@ -78,8 +79,8 @@ export class InternalBTreeNode<K, NodeId extends INodeId>
   }
 
   override toString() {
-    return `InternalBTreeNode(${JSON.stringify(this.nodeId.serialize())}, ${
-      JSON.stringify({
+    return `InternalBTreeNode(${debugJson(this.nodeId.serialize())}, ${
+      debugJson({
         keys: this._keys,
         childrenNodeIds: this._childrenNodeIds.map((c) => c.serialize()),
       })
@@ -139,8 +140,8 @@ export class LeafBTreeNode<K, V, NodeId extends INodeId> extends INode<NodeId> {
     ]
   }
   override toString() {
-    return `LeafBTreeNode(${JSON.stringify(this.nodeId.serialize())}, ${
-      JSON.stringify({
+    return `LeafBTreeNode(${debugJson(this.nodeId.serialize())}, ${
+      debugJson({
         keys: this._keyvals,
         nextLeafNodeId: this._nextLeafNodeId?.serialize(),
         prevLeafNodeId: this._prevLeafNodeId?.serialize(),

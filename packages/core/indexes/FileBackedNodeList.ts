@@ -1,5 +1,5 @@
 import { IStruct } from "../binary/Struct.ts"
-import { debugLog } from "../logging.ts"
+import { debugJson, debugLog } from "../logging.ts"
 import { IBufferPool } from "../pages/BufferPool.ts"
 import { HeapPageFile } from "../pages/HeapPageFile.ts"
 import {
@@ -45,7 +45,7 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
     debugLog(`INodelist.get(${nodeId})`)
     const existingDirty = this.dirtyNodes.get(this.cacheKey(nodeId))
     if (existingDirty != null) {
-      debugLog(`  -> found in dirty nodes: ${existingDirty}`)
+      debugLog(() => `  -> found in dirty nodes: ${existingDirty}`)
       return Promise.resolve(existingDirty)
     }
 
@@ -102,7 +102,7 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
     debugLog(
       () =>
         `createLeafNode(${
-          data.keyvals.map((kv) => `${kv.key}: ${JSON.stringify(kv.vals)}`)
+          data.keyvals.map((kv) => `${kv.key}: ${debugJson(kv.vals)}`)
             .join(
               ", ",
             )
