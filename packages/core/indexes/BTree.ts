@@ -12,7 +12,7 @@ import { VariableLengthRecordPage } from "../pages/VariableLengthRecordPage.ts"
 import { FileNodeId, fileNodeIdStruct } from "./Serializers.ts"
 import { IStruct, Struct } from "../binary/Struct.ts"
 import { FileBackedNodeList } from "./FileBackedNodeList.ts"
-import { debugLog } from "../logging.ts"
+import { debugJson, debugLog } from "../logging.ts"
 
 type DumpedNode<K, V, NodeId> =
   | { type: "leaf"; nodeId: NodeId; keyvals: [K, readonly V[]][] }
@@ -77,9 +77,11 @@ export class BTree<
 > {
   public nodes: NodeListT
   private rootNodeId: NodeId
+  private __lastSavedRootNodeId: NodeId | null = null
   public readonly order: number
   public readonly compare: (a: K, b: K) => number
   public readonly isEqual: (a: V, b: V) => boolean
+  private onRootNodeChanged: () => void | Promise<void>
 
   getRootNode(): Promise<InternalBTreeNode<K, NodeId>> {
     return this.nodes.get(this.rootNodeId) as Promise<
@@ -142,15 +144,24 @@ export class BTree<
       indexInfoStruct.writeAt([heapPageFilePageId, rootNodeId], view, 0)
       bufferPool.markDirty(pageId)
     }
-    return new BTree<K, V, FileNodeId, FileBackedNodeList<K, V>>(
+    const btree = new BTree<K, V, FileNodeId, FileBackedNodeList<K, V>>(
       {
         order,
         compare,
         isEqual,
         nodes: nodes,
         rootNodeId,
+        onRootNodeChanged: () => {
+          indexInfoStruct.writeAt(
+            [heapPageFilePageId, btree.rootNodeId],
+            view,
+            0,
+          )
+          bufferPool.markDirty(pageId)
+        },
       },
     )
+    return btree
   }
 
   static async inMemory<K, V>(
@@ -177,7 +188,18 @@ export class BTree<
       isEqual,
       nodes,
       rootNodeId: rootNode.nodeId,
+      onRootNodeChanged: () => {
+        // noop because this is all in memory
+      },
     })
+  }
+
+  async commit() {
+    if (this.__lastSavedRootNodeId !== this.rootNodeId) {
+      await this.onRootNodeChanged()
+      this.__lastSavedRootNodeId = this.rootNodeId
+    }
+    await this.nodes.commit()
   }
 
   getNodeWithId(nodeId: NodeId): Promise<BTreeNode<K, V, NodeId>> {
@@ -200,21 +222,24 @@ export class BTree<
     return this._countNodes(this.rootNodeId)
   }
 
-  constructor(
+  private constructor(
     {
       order = 2,
       compare,
       isEqual,
       nodes,
       rootNodeId,
+      onRootNodeChanged,
     }: {
       order?: number
       compare: (a: K, b: K) => number
       isEqual: (a: V, b: V) => boolean
       nodes: NodeListT
       rootNodeId: NodeId
+      onRootNodeChanged: () => void
     },
   ) {
+    this.onRootNodeChanged = onRootNodeChanged
     this.compare = compare
     this.isEqual = isEqual
     this.nodes = nodes
@@ -377,8 +402,7 @@ export class BTree<
 
   async insert(key: K, value: V) {
     debugLog(
-      () =>
-        `\n\nBTree.insert(${JSON.stringify(key)}, ${JSON.stringify(value)})`,
+      () => `\n\nBTree.insert(${debugJson(key)}, ${debugJson(value)})`,
     )
     debugLog("Root node id", this.rootNodeId)
     if (key == 4) {
@@ -400,7 +424,7 @@ export class BTree<
         prevLeafNodeId: found.node.prevLeafNodeId,
       })
       await this.replaceLeafNode(found.node, newNode, found.parents.head)
-      await this.nodes.commit()
+      await this.commit()
       return
     }
 
@@ -415,11 +439,11 @@ export class BTree<
     await this.replaceLeafNode(found.node, newNode, found.parents.head)
 
     if (newNode.keyvals.length <= this.order * 2) {
-      await this.nodes.commit()
+      await this.commit()
       return
     }
     await this.splitNode(newNode.nodeId, found.parents)
-    await this.nodes.commit()
+    await this.commit()
   }
 
   private async insertIntoParent(
@@ -568,7 +592,7 @@ export class BTree<
     }
     const { node, keyIndex } = found
     node.removeKey(keyIndex)
-    await this.nodes.commit()
+    await this.commit()
   }
 
   async remove(key: K, value: V) {
@@ -577,7 +601,7 @@ export class BTree<
       return
     }
     found.node.removeValue(found.keyIndex, value, this.isEqual)
-    await this.nodes.commit()
+    await this.commit()
   }
 
   async has(key: K): Promise<boolean> {

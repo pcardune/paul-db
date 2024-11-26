@@ -306,6 +306,15 @@ Deno.test("HeapFileTableStorage", async (t) => {
       age: 25,
       likesIceCream: true,
     })
+    for (let i = 2; i <= 100; i++) {
+      await people.insert({
+        id: i.toString(),
+        firstName: `Person ${i}`,
+        lastName: `Lastname ${i}`,
+        age: i,
+        likesIceCream: i % 2 === 0,
+      })
+    }
   })
 
   using resources2 = await useTableResources(filePath)
