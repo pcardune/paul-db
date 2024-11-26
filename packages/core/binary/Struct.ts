@@ -1,10 +1,18 @@
-export interface IStruct<ValueT> {
-  sizeof(value: ValueT): number
-  readAt(view: DataView, offset: number): ValueT
-  writeAt(value: ValueT, view: DataView, offset: number): void
-  array(): IStruct<ValueT[]>
+export abstract class IStruct<ValueT> {
+  abstract sizeof(value: ValueT): number
+  abstract readAt(view: DataView, offset: number): ValueT
+  abstract writeAt(value: ValueT, view: DataView, offset: number): void
+  abstract array(): IStruct<ValueT[]>
+
+  toUint8Array(value: ValueT): Uint8Array {
+    const size = this.sizeof(value)
+    const buffer = new ArrayBuffer(size + 4)
+    const view = new DataView(buffer)
+    this.writeAt(value, view, 0)
+    return new Uint8Array(buffer)
+  }
 }
-export class VariableWidthStruct<ValueT> implements IStruct<ValueT> {
+export class VariableWidthStruct<ValueT> extends IStruct<ValueT> {
   /**
    * The size of the struct in bytes.
    */
@@ -31,6 +39,7 @@ export class VariableWidthStruct<ValueT> implements IStruct<ValueT> {
     write: (value: ValueT, view: DataView) => void
     read: (view: DataView) => ValueT
   }) {
+    super()
     this._sizeof = sizeof
     this.write = write
     this.read = read
@@ -38,6 +47,14 @@ export class VariableWidthStruct<ValueT> implements IStruct<ValueT> {
 
   sizeof(value: ValueT): number {
     return this._sizeof(value) + 4
+  }
+
+  /**
+   * Return the size of the data at the location without
+   * reading all of it.
+   */
+  sizeAt(view: DataView, offset: number): number {
+    return view.getUint32(offset)
   }
 
   readAt(view: DataView, offset: number): ValueT {
@@ -92,7 +109,7 @@ export class VariableWidthStruct<ValueT> implements IStruct<ValueT> {
  * A struct is a fixed-width binary data structure that can be read from
  * and written to using a DataView.
  */
-export class FixedWidthStruct<ValueT> implements IStruct<ValueT> {
+export class FixedWidthStruct<ValueT> extends IStruct<ValueT> {
   /**
    * The size of the struct in bytes.
    */
@@ -113,6 +130,7 @@ export class FixedWidthStruct<ValueT> implements IStruct<ValueT> {
     write: (value: ValueT, view: DataView) => void
     read: (view: DataView) => ValueT
   }) {
+    super()
     this.size = size
     this.write = write
     this.read = read
@@ -159,6 +177,70 @@ export class FixedWidthStruct<ValueT> implements IStruct<ValueT> {
       },
     })
   }
+}
+
+function tuple<V1>(s1: IStruct<V1>): VariableWidthStruct<[V1]>
+function tuple<V1, V2>(
+  s1: IStruct<V1>,
+  s2: IStruct<V2>,
+): VariableWidthStruct<[V1, V2]>
+function tuple<V1, V2, V3>(
+  s1: IStruct<V1>,
+  s2: IStruct<V2>,
+  s3: IStruct<V3>,
+): VariableWidthStruct<[V1, V2, V3]>
+function tuple<V1, V2, V3, V4>(
+  s1: IStruct<V1>,
+  s2: IStruct<V2>,
+  s3: IStruct<V3>,
+  s4: IStruct<V4>,
+): VariableWidthStruct<[V1, V2, V3, V4]>
+function tuple<V1, V2, V3, V4, V5>(
+  s1: IStruct<V1>,
+  s2: IStruct<V2>,
+  s3: IStruct<V3>,
+  s4: IStruct<V4>,
+  s5: IStruct<V5>,
+): VariableWidthStruct<[V1, V2, V3, V4, V5]>
+function tuple<V1, V2, V3, V4, V5, V6>(
+  s1: IStruct<V1>,
+  s2: IStruct<V2>,
+  s3: IStruct<V3>,
+  s4: IStruct<V4>,
+  s5: IStruct<V5>,
+  s6: IStruct<V6>,
+): VariableWidthStruct<[V1, V2, V3, V4, V5, V6]>
+function tuple<V1, V2, V3, V4, V5, V6, V7>(
+  s1: IStruct<V1>,
+  s2: IStruct<V2>,
+  s3: IStruct<V3>,
+  s4: IStruct<V4>,
+  s5: IStruct<V5>,
+  s6: IStruct<V6>,
+  s7: IStruct<V7>,
+): VariableWidthStruct<[V1, V2, V3, V4, V5, V6, V7]>
+// deno-lint-ignore no-explicit-any
+function tuple<T extends [IStruct<any>, ...IStruct<any>[]]>(...structs: T) {
+  return new VariableWidthStruct<T>({
+    read: (view) => {
+      const values = []
+      let offset = 0
+      for (const struct of structs) {
+        values.push(struct.readAt(view, offset))
+        offset += struct.sizeof(values[values.length - 1])
+      }
+      return values as T
+    },
+    write: (value, view) => {
+      let offset = 0
+      for (let i = 0; i < structs.length; i++) {
+        structs[i].writeAt(value[i], view, offset)
+        offset += structs[i].sizeof(value[i])
+      }
+    },
+    sizeof: (value) =>
+      structs.reduce((acc, struct, i) => struct.sizeof(value[i]) + acc, 0),
+  })
 }
 
 export const Struct = {
@@ -222,27 +304,5 @@ export const Struct = {
     write: (value, view) => view.setBigInt64(0, value),
     size: 8,
   }),
-  // deno-lint-ignore no-explicit-any
-  tuple: <T extends any[]>(...structs: IStruct<T>[]) => {
-    return new VariableWidthStruct<T>({
-      read: (view) => {
-        const values = []
-        let offset = 0
-        for (const struct of structs) {
-          values.push(struct.readAt(view, offset))
-          offset += struct.sizeof(values[values.length - 1])
-        }
-        return values as T
-      },
-      write: (value, view) => {
-        let offset = 0
-        for (let i = 0; i < structs.length; i++) {
-          structs[i].writeAt(value[i], view, offset)
-          offset += structs[i].sizeof(value[i])
-        }
-      },
-      sizeof: (value) =>
-        structs.reduce((acc, struct, i) => struct.sizeof(value[i]) + acc, 0),
-    })
-  },
+  tuple,
 }

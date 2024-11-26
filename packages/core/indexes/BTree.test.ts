@@ -8,6 +8,7 @@ import {
   LeafBTreeNode,
 } from "./BTreeNode.ts"
 import { Struct } from "../binary/Struct.ts"
+import { FileBackedBufferPool } from "../pages/BufferPool.ts"
 
 // TODO: consider using expect.extend to make custom matchers for this
 // see https://jsr.io/@std/expect/doc/~/expect.extend
@@ -201,9 +202,12 @@ const makeInFileBTree = async (order = 2) => {
     create: true,
     truncate: true,
   })
+  const bufferPool = await FileBackedBufferPool.create(file, 4096)
+  const btreePageId = await bufferPool.allocatePage()
   return {
     btree: await BTree.inFile<number, string>(
-      file,
+      bufferPool,
+      btreePageId,
       Struct.uint32,
       Struct.unicodeStringStruct,
       { order, compare: (a, b) => a - b },

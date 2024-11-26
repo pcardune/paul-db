@@ -6,11 +6,11 @@ import {
   InternalBTreeNode,
   LeafBTreeNode,
 } from "./BTreeNode.ts"
-import { FileBackedBufferPool, IBufferPool } from "../pages/BufferPool.ts"
+import { IBufferPool, PageId } from "../pages/BufferPool.ts"
 import { HeapPageFile } from "../pages/HeapPageFile.ts"
 import { VariableLengthRecordPage } from "../pages/VariableLengthRecordPage.ts"
-import { FileNodeId } from "./Serializers.ts"
-import { IStruct } from "../binary/Struct.ts"
+import { FileNodeId, fileNodeIdStruct } from "./Serializers.ts"
+import { IStruct, Struct } from "../binary/Struct.ts"
 import { FileBackedNodeList } from "./FileBackedNodeList.ts"
 import { debugLog } from "../logging.ts"
 
@@ -88,7 +88,8 @@ export class BTree<
   }
 
   static async inFile<K, V>(
-    file: Deno.FsFile | IBufferPool,
+    bufferPool: IBufferPool,
+    pageId: PageId,
     keyStruct: IStruct<K>,
     valStruct: IStruct<V>,
     {
@@ -97,11 +98,27 @@ export class BTree<
       isEqual = (a, b) => a === b,
     }: InMemoryBTreeConfig<K, V> = {},
   ) {
-    const bufferPool: IBufferPool = file instanceof Deno.FsFile
-      ? await FileBackedBufferPool.create(file, 4096)
-      : file
-    const heapPageFile = await HeapPageFile.create(
+    const view = await bufferPool.getPageView(pageId)
+    const indexInfoStruct = Struct.tuple(
+      Struct.bigUint64, // heapPageFile page id
+      fileNodeIdStruct, // root node id
+    )
+    let heapPageFilePageId: PageId = 0n
+    let rootNodeId: FileNodeId | null = null
+    if (indexInfoStruct.sizeAt(view, 0) > 0) {
+      ;[heapPageFilePageId, rootNodeId] = indexInfoStruct.readAt(view, 0)
+    }
+
+    if (heapPageFilePageId === 0n) {
+      // this is the first time this btree is being loaded.
+      // create the header page
+      heapPageFilePageId = await bufferPool.allocatePage()
+      indexInfoStruct.writeAt([heapPageFilePageId, rootNodeId], view, 0)
+      bufferPool.markDirty(pageId)
+    }
+    const heapPageFile = new HeapPageFile(
       bufferPool,
+      heapPageFilePageId,
       VariableLengthRecordPage.allocator,
     )
     const nodes = new FileBackedNodeList<K, V>(
@@ -110,23 +127,28 @@ export class BTree<
       keyStruct,
       valStruct,
     )
-    const childNode = await nodes.createLeafNode({
-      keyvals: [],
-      nextLeafNodeId: null,
-      prevLeafNodeId: null,
-    })
-    const rootNode = await nodes.createInternalNode({
-      keys: [],
-      childrenNodeIds: [childNode.nodeId],
-    })
-    await nodes.commit()
+    if (rootNodeId == null) {
+      const childNode = await nodes.createLeafNode({
+        keyvals: [],
+        nextLeafNodeId: null,
+        prevLeafNodeId: null,
+      })
+      const rootNode = await nodes.createInternalNode({
+        keys: [],
+        childrenNodeIds: [childNode.nodeId],
+      })
+      await nodes.commit()
+      rootNodeId = rootNode.nodeId
+      indexInfoStruct.writeAt([heapPageFilePageId, rootNodeId], view, 0)
+      bufferPool.markDirty(pageId)
+    }
     return new BTree<K, V, FileNodeId, FileBackedNodeList<K, V>>(
       {
         order,
         compare,
         isEqual,
         nodes: nodes,
-        rootNodeId: rootNode.nodeId,
+        rootNodeId,
       },
     )
   }

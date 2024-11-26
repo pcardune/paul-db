@@ -14,8 +14,10 @@ async function makeNodeList() {
     truncate: true,
   })
   const bufferPool = await FileBackedBufferPool.create(file, 4096)
-  const heapPageFile = await HeapPageFile.create(
+  const heapPageId = await bufferPool.allocatePage()
+  const heapPageFile = new HeapPageFile(
     bufferPool,
+    heapPageId,
     VariableLengthRecordPage.allocator,
   )
   const nodelist = new FileBackedNodeList<number, string>(

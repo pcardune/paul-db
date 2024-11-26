@@ -28,7 +28,7 @@ export class FileNodeId implements INodeId {
   }
 }
 
-const fileNodeIdStruct = new FixedWidthStruct<FileNodeId | null>({
+export const fileNodeIdStruct = new FixedWidthStruct<FileNodeId | null>({
   size: 12,
   write: (value, view) => {
     if (value === null) {

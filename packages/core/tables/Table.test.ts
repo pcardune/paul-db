@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, it } from "jsr:@std/testing/bdd"
+import { beforeAll, describe, it } from "jsr:@std/testing/bdd"
 import { expect } from "jsr:@std/expect"
 import { assertSnapshot } from "jsr:@std/testing/snapshot"
 import { Table, TableInfer } from "./Table.ts"
@@ -11,13 +11,12 @@ import {
 } from "../schema/schema.ts"
 import {
   HeapFileRowId,
-  HeapFileTableStorage,
   InMemoryTableStorage,
   JsonFileTableStorage,
 } from "./TableStorage.ts"
 import { ColumnType, ColumnTypes } from "../schema/ColumnType.ts"
-import { FileBackedBufferPool } from "../pages/BufferPool.ts"
 import { stub } from "jsr:@std/testing/mock"
+import { DbFile } from "../db/DbFile.ts"
 
 const peopleSchema = TableSchema.create("people")
   .withColumn("name", ColumnTypes.any<string>())
@@ -269,9 +268,17 @@ Deno.test({
   },
 })
 
-describe("Heap file backed table storage", () => {
-  let bufferPool: FileBackedBufferPool
+Deno.test("HeapFileTableStorage", async (t) => {
   const filePath = "/tmp/people.data"
+  try {
+    Deno.removeSync(filePath)
+  } catch (e) {
+    if (e instanceof Deno.errors.NotFound) {
+      // ignore
+    } else {
+      throw e
+    }
+  }
 
   const schema = TableSchema.create("people")
     .withColumn("firstName", ColumnTypes.string())
@@ -279,98 +286,60 @@ describe("Heap file backed table storage", () => {
     .withColumn("age", ColumnTypes.uint32())
     .withColumn("likesIceCream", ColumnTypes.boolean())
 
-  async function withBufferPool(
+  async function useTableResources(
     filePath: string,
-    fn: (bufferPool: FileBackedBufferPool) => Promise<void>,
-  ): Promise<void> {
-    bufferPool = await FileBackedBufferPool.create(
-      await Deno.open(filePath, {
-        read: true,
-        write: true,
-        create: true,
-      }),
-      4096,
-    )
-    try {
-      await fn(bufferPool)
-    } finally {
-      bufferPool.close()
-    }
+  ) {
+    const dbFile = await DbFile.open(filePath, { create: true })
+    const table = new Table(await dbFile.getTableStorage(schema))
+    return { table, [Symbol.dispose]: () => dbFile.close() }
   }
 
-  async function withTable(
-    bufferPool: FileBackedBufferPool,
-    fn: (
-      table: TableInfer<
-        typeof schema,
-        HeapFileTableStorage<StoredRecordForTableSchema<typeof schema>>
-      >,
-    ) => Promise<void>,
-  ): Promise<void> {
-    const table = new Table(
-      await HeapFileTableStorage.create(bufferPool, schema),
-    )
-    await fn(table)
-  }
+  using resources = await useTableResources(filePath)
+  const { table: people } = resources
+  let aliceRowId: HeapFileRowId
 
-  async function withTableInFile(
-    filePath: string,
-    fn: (
-      table: TableInfer<
-        typeof schema,
-        HeapFileTableStorage<StoredRecordForTableSchema<typeof schema>>
-      >,
-    ) => Promise<void>,
-  ): Promise<void> {
-    await withBufferPool(filePath, (bufferPool) => withTable(bufferPool, fn))
-  }
-
-  beforeEach(() => {
-    Deno.openSync(filePath, {
-      create: true,
-      write: true,
-      truncate: true,
-    }).close()
-  })
-
-  it("lets you insert and read a record", async () => {
-    await withTableInFile(filePath, async (people) => {
-      const aliceRowId = await people.insert({
-        id: "1",
-        firstName: "Alice",
-        lastName: "Jones",
-        age: 25,
-        likesIceCream: true,
-      })
-      expect(await people.get(aliceRowId)).toEqual({
-        id: "1",
-        firstName: "Alice",
-        lastName: "Jones",
-        age: 25,
-        likesIceCream: true,
-      })
+  await t.step(".insert()", async () => {
+    aliceRowId = await people.insert({
+      id: "1",
+      firstName: "Alice",
+      lastName: "Jones",
+      age: 25,
+      likesIceCream: true,
     })
   })
 
-  it("lets you read the records back from disk", async () => {
-    let aliceRowId: HeapFileRowId
-    await withTableInFile(filePath, async (people) => {
-      aliceRowId = await people.insert({
-        id: "1",
-        firstName: "Alice",
-        lastName: "Jones",
-        age: 25,
-        likesIceCream: true,
-      })
+  using resources2 = await useTableResources(filePath)
+  const fixtures = [
+    { resources, name: "table that was written to" },
+    { resources: resources2, name: "a just opened file" },
+  ]
+  for (const { resources: { table: people }, name } of fixtures) {
+    await t.step(`reads [${name}]`, async (t) => {
+      await t.step(
+        "Table.get()",
+        async () => {
+          expect(await people.get(aliceRowId)).toEqual({
+            id: "1",
+            firstName: "Alice",
+            lastName: "Jones",
+            age: 25,
+            likesIceCream: true,
+          })
+        },
+      )
+
+      await t.step(
+        "Table.lookupUnique()",
+        async () => {
+          expect(await people.lookupUnique("id", "1")).toEqual({
+            id: "1",
+            firstName: "Alice",
+            lastName: "Jones",
+            age: 25,
+            likesIceCream: true,
+          })
+        },
+      )
     })
-    await withTableInFile(filePath, async (people) => {
-      expect(await people.get(aliceRowId)).toEqual({
-        id: "1",
-        firstName: "Alice",
-        lastName: "Jones",
-        age: 25,
-        likesIceCream: true,
-      })
-    })
-  })
+  }
 })

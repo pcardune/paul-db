@@ -1,5 +1,5 @@
 import { describe, it } from "jsr:@std/testing/bdd"
-import { FixedWidthStruct, VariableWidthStruct } from "./Struct.ts"
+import { FixedWidthStruct, Struct, VariableWidthStruct } from "./Struct.ts"
 import { expect } from "jsr:@std/expect"
 
 const pointStruct = new FixedWidthStruct<{ x: number; y: number }>({
@@ -141,5 +141,20 @@ describe("VariableWidthStruct", () => {
         [{ x: 5, y: 6 }, { x: 7, y: 8 }, { x: 9, y: 10 }],
       ])
     })
+  })
+})
+
+describe("TupleStruct", () => {
+  const headerStruct = Struct.tuple(
+    Struct.uint32, // pageId
+    Struct.bigUint64, // headerPageId
+  )
+
+  it("lets you read and write tuples", () => {
+    const data: [number, bigint] = [1, BigInt(2)]
+    expect(headerStruct.sizeof(data)).toBe(16)
+    const view = new DataView(new ArrayBuffer(headerStruct.sizeof(data)))
+    headerStruct.writeAt([1, BigInt(2)], view, 0)
+    expect(headerStruct.readAt(view, 0)).toEqual([1, BigInt(2)])
   })
 })

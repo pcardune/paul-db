@@ -61,7 +61,7 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
         nodeId,
         data,
       )
-      debugLog(`  -> found leaf node: ${node}`)
+      debugLog(() => `  -> found leaf node: ${node}`)
       return node
     } catch (e) {
       if (!(e instanceof WrongNodeTypeError)) {

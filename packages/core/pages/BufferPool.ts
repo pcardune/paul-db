@@ -1,3 +1,5 @@
+import { readBytesAt } from "../io.ts"
+
 export type PageId = bigint
 
 export interface IBufferPool {
@@ -75,33 +77,26 @@ export class FileBackedBufferPool extends BaseBufferPool
     private file: Deno.FsFile,
     readonly pageSize: number,
     private freePageId: PageId,
+    private fileOffset: bigint,
   ) {
     super()
-    this.__lastWrittenFreePageId = freePageId
+    // this.__lastWrittenFreePageId = freePageId
   }
 
   static async create(
     file: Deno.FsFile,
     pageSize: number,
+    offset: bigint | number = 0n,
   ): Promise<FileBackedBufferPool> {
     const stat = await file.stat()
-    let freePageId: PageId = 0n
-    if (stat.size > 0) {
+    let freePageId: PageId = BigInt(offset)
+    if (stat.size > freePageId + 8n) {
       // when the file is not empty, we need to look at the first
       // 8 bytes to see where the free list starts
-      const freeListData = new Uint8Array(8)
-      const bytesRead = await readBytes(file, freeListData)
-      if (bytesRead === null) {
-        throw new Error("Failed to read free list")
-      }
-      if (bytesRead !== freeListData.length) {
-        throw new Error(
-          `Unexpected number of bytes read (${bytesRead}) wanted ${pageSize}`,
-        )
-      }
+      const freeListData = await readBytesAt(file, offset, 8)
       freePageId = new DataView(freeListData.buffer).getBigUint64(0)
     }
-    return new FileBackedBufferPool(file, pageSize, freePageId)
+    return new FileBackedBufferPool(file, pageSize, freePageId, BigInt(offset))
   }
 
   [Symbol.dispose](): void {
@@ -113,7 +108,7 @@ export class FileBackedBufferPool extends BaseBufferPool
   }
 
   async allocatePage(): Promise<PageId> {
-    if (this.freePageId !== 0n) {
+    if (this.freePageId !== this.fileOffset) {
       const pageId = this.freePageId
       const page = await this.getPage(pageId)
       this.freePageId = new DataView(page.buffer).getBigUint64(0)
@@ -122,8 +117,8 @@ export class FileBackedBufferPool extends BaseBufferPool
       return pageId
     }
 
-    const pageId = 8n + BigInt(this.pages.size * this.pageSize)
-    // this.freePageId = pageId + BigInt(this.pageSize)
+    const pageId = this.fileOffset + 8n +
+      BigInt(this.pages.size * this.pageSize)
     this.pages.set(pageId, new Uint8Array(this.pageSize))
     return pageId
   }
@@ -143,17 +138,7 @@ export class FileBackedBufferPool extends BaseBufferPool
     if (page) {
       return Promise.resolve(page)
     }
-
-    await this.file.seek(pageId, Deno.SeekMode.Start)
-
-    const data = new Uint8Array(this.pageSize)
-    const bytesRead = await readBytes(this.file, data)
-    if (bytesRead === null) {
-      throw new Error(`Failed to read page ${pageId}`)
-    }
-    if (bytesRead !== this.pageSize) {
-      throw new Error(`Unexpected number of bytes read: ${bytesRead}`)
-    }
+    const data = await readBytesAt(this.file, pageId, this.pageSize)
     this.pages.set(pageId, data)
     return data
   }
@@ -171,7 +156,7 @@ export class FileBackedBufferPool extends BaseBufferPool
     if (this.freePageId !== this.__lastWrittenFreePageId) {
       const freeListData = new Uint8Array(8)
       new DataView(freeListData.buffer).setBigUint64(0, this.freePageId)
-      await this.file.seek(0, Deno.SeekMode.Start)
+      await this.file.seek(this.fileOffset, Deno.SeekMode.Start)
       const bytesWritten = await this.file.write(freeListData)
       if (bytesWritten !== 8) {
         throw new Error(`Unexpected number of bytes written: ${bytesWritten}`)
@@ -191,16 +176,4 @@ export class FileBackedBufferPool extends BaseBufferPool
     }
     this.dirtyPages.clear()
   }
-}
-
-async function readBytes(file: Deno.FsFile, into: Uint8Array) {
-  let bytesRead = 0
-  while (bytesRead < into.length) {
-    const n = await file.read(into.subarray(bytesRead))
-    if (n === null) {
-      throw new Error("Failed to read")
-    }
-    bytesRead += n
-  }
-  return bytesRead
 }

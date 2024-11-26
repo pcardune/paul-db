@@ -1,4 +1,5 @@
 import { FixedWidthStruct, IStruct } from "../binary/Struct.ts"
+import { DbFile } from "../db/DbFile.ts"
 import { INodeId } from "../indexes/BTreeNode.ts"
 import { Index } from "../indexes/Index.ts"
 import { IBufferPool, PageId } from "../pages/BufferPool.ts"
@@ -272,19 +273,16 @@ export class HeapFileTableStorage<RowData>
     await this.bufferPool.commit()
   }
 
-  static async create<SchemaT extends SomeTableSchema>(
+  static async __openWithIndexPageIds<SchemaT extends SomeTableSchema>(
     bufferPool: IBufferPool,
     schema: SchemaT,
-  ): Promise<{
-    data: HeapFileTableStorage<StoredRecordForTableSchema<SchemaT>>
-    schema: SchemaT
-    indexes: Map<string, Index<unknown, HeapFileRowId, INodeId>>
-  }> {
+    heapPageId: PageId,
+    indexPageIds: Record<string, PageId>,
+  ) {
     const serializer = makeTableSchemaSerializer(schema)
     if (serializer == null) {
       throw new Error("Schema is not serializable")
     }
-    const heapPageId = await bufferPool.allocatePage()
     const heapPageFile = new HeapPageFile(
       bufferPool,
       heapPageId,
@@ -297,10 +295,15 @@ export class HeapFileTableStorage<RowData>
         if (!column.type.serializer) {
           throw new Error("Type must have a serializer")
         }
+        const pageId = indexPageIds[column.name]
+        if (pageId == null) {
+          throw new Error(`No page ID for index ${column.name}`)
+        }
         indexes.set(
           column.name,
           await Index.inFile(
             bufferPool,
+            pageId,
             column.type.serializer!,
             heapFileRowIdStruct,
             {
@@ -321,5 +324,41 @@ export class HeapFileTableStorage<RowData>
       schema,
       indexes,
     }
+  }
+
+  static async open<SchemaT extends SomeTableSchema>(
+    dbFile: DbFile,
+    bufferPool: IBufferPool,
+    schema: SchemaT,
+    heapPageId: PageId,
+  ): Promise<{
+    data: HeapFileTableStorage<StoredRecordForTableSchema<SchemaT>>
+    schema: SchemaT
+    indexes: Map<string, Index<unknown, HeapFileRowId, INodeId>>
+  }> {
+    if (makeTableSchemaSerializer(schema) == null) {
+      throw new Error("Schema is not serializable")
+    }
+
+    const indexPageIds: Record<string, PageId> = {}
+
+    for (const column of [...schema.columns, ...schema.computedColumns]) {
+      if (column.indexed) {
+        if (!column.type.serializer) {
+          throw new Error("Type must have a serializer")
+        }
+        const pageId: PageId = await dbFile.getIndexStorage(
+          schema.name,
+          column.name,
+        )
+        indexPageIds[column.name] = pageId
+      }
+    }
+    return await HeapFileTableStorage.__openWithIndexPageIds(
+      bufferPool,
+      schema,
+      heapPageId,
+      indexPageIds,
+    )
   }
 }

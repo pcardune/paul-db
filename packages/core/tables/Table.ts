@@ -128,6 +128,26 @@ export class Table<
     await this.data.commit()
   }
 
+  async lookupUnique<
+    IName extends FilterTuple<SchemaT["columns"], { unique: true }>["name"],
+    ValueT extends ValueForColumnSchema<
+      FilterTuple<SchemaT["columns"], { name: IName }>
+    >,
+  >(
+    indexName: IName,
+    value: ValueT,
+  ): Promise<Readonly<StoredRecordForTableSchema<SchemaT>> | undefined> {
+    const index = this._allIndexes.get(indexName)
+    if (!index) {
+      throw new Error(`Index ${indexName} does not exist`)
+    }
+    const rowIds = await index.get(value)
+    if (rowIds.length === 0) {
+      return
+    }
+    return this.data.get(rowIds[0])
+  }
+
   async lookup<
     IName extends FilterTuple<SchemaT["columns"], { indexed: true }>["name"],
     ValueT extends ValueForColumnSchema<

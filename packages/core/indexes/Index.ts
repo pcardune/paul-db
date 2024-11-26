@@ -2,7 +2,7 @@ import { BTree, InMemoryBTreeConfig } from "./BTree.ts"
 import { Range } from "../types.ts"
 import { INodeId } from "./BTreeNode.ts"
 import { InMemoryNodeId } from "./NodeList.ts"
-import { IBufferPool } from "../pages/BufferPool.ts"
+import { IBufferPool, PageId } from "../pages/BufferPool.ts"
 import { IStruct } from "../binary/Struct.ts"
 import { FileNodeId } from "./Serializers.ts"
 
@@ -24,14 +24,16 @@ export class Index<K, V, NodeId extends INodeId> {
   }
 
   static async inFile<K, V>(
-    file: Deno.FsFile | IBufferPool,
+    bufferPool: IBufferPool,
+    indexPageId: PageId,
     keyStruct: IStruct<K>,
     valStruct: IStruct<V>,
     config: InMemoryBTreeConfig<K, V>,
   ): Promise<Index<K, V, FileNodeId>> {
     return new Index(
       await BTree.inFile<K, V>(
-        file,
+        bufferPool,
+        indexPageId,
         keyStruct,
         valStruct,
         {

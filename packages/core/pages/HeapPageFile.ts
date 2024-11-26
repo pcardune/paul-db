@@ -193,18 +193,4 @@ export class HeapPageFile<AllocInfo extends { freeSpace: number }> {
       allocInfo,
     }
   }
-
-  /**
-   * Creates a new heap page file, allocating a new page for the header
-   * in the given bufferpool.
-   * @param bufferPool Buffer pool in which to read/write data
-   * @param allocator How to allocate space in a page.
-   */
-  static async create<AllocInfo extends { freeSpace: number }>(
-    bufferPool: IBufferPool,
-    allocator: PageSpaceAllocator<AllocInfo>,
-  ): Promise<HeapPageFile<AllocInfo>> {
-    const pageId = await bufferPool.allocatePage()
-    return new HeapPageFile(bufferPool, pageId, allocator)
-  }
 }

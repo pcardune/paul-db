@@ -22,8 +22,10 @@ describe("HeapPageFile", () => {
       }),
       pageSize,
     )
-    heapPageFile = await HeapPageFile.create(
+    const heapPageId = await bufferPool.allocatePage()
+    heapPageFile = new HeapPageFile(
       bufferPool,
+      heapPageId,
       {
         allocateSpaceInPage: (pageView, numBytes) => {
           const existingFreeSpace = pageView.getUint32(0)
