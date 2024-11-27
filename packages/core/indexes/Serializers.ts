@@ -198,7 +198,12 @@ export function internalBTreeNodeStruct<K>(keySerializer: IStruct<K>) {
       const childrenNodeIds = nodeIdArraySerializer.readAt(
         view,
         offset,
-      ) as FileNodeId[]
+      ).map((nodeId) => {
+        if (nodeId == null) {
+          throw new Error("Unexpected null nodeId")
+        }
+        return nodeId
+      })
       return {
         keys,
         childrenNodeIds,

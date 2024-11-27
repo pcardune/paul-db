@@ -13,6 +13,7 @@ import {
   SomeTableSchema,
   StoredRecordForTableSchema,
 } from "../schema/schema.ts"
+import { TableInfer } from "./Table.ts"
 
 export interface ITableStorage<RowId, RowData> {
   get(id: RowId): Promise<RowData | undefined>
@@ -363,3 +364,8 @@ export class HeapFileTableStorage<RowData>
     )
   }
 }
+
+export type HeapFileTableInfer<SchemaT extends SomeTableSchema> = TableInfer<
+  SchemaT,
+  HeapFileTableStorage<StoredRecordForTableSchema<SchemaT>>
+>

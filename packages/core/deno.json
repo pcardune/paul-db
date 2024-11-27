@@ -4,6 +4,7 @@
   "exports": "./mod.ts",
   "imports": {
     "@std/fs": "jsr:@std/fs@^1.0.5",
+    "@std/path": "jsr:@std/path@^1.0.8",
     "@std/random": "jsr:@std/random@^0.1.0"
   }
 }

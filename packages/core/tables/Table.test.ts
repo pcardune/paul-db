@@ -92,7 +92,10 @@ describe("Insert Validation", () => {
     const schema = peopleSchema
       .withColumn(
         "favoriteOdd",
-        new ColumnType({ isValid: (value: number) => value % 2 === 1 }),
+        new ColumnType({
+          name: "oddNumber",
+          isValid: (value: number) => value % 2 === 1,
+        }),
       )
     const oddPeople = new Table(await InMemoryTableStorage.forSchema(schema))
 
@@ -103,6 +106,7 @@ describe("Insert Validation", () => {
 })
 
 const phoneNumberType = new ColumnType<string>({
+  name: "phoneNumber",
   isValid: (value) => /^[\d-]+$/.test(value),
   equals: (a, b) => a.replace(/-/g, "") === b.replace(/-/g, ""),
   compare: (a, b) => a.replace(/-/g, "").localeCompare(b.replace(/-/g, "")),

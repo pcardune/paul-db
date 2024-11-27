@@ -9,13 +9,19 @@ import {
   TableSchema,
 } from "../schema/schema.ts"
 import { Table, TableInfer } from "../tables/Table.ts"
-import { HeapFileTableStorage } from "../tables/TableStorage.ts"
+import {
+  HeapFileTableInfer,
+  HeapFileTableStorage,
+} from "../tables/TableStorage.ts"
+
+const SYSTEM_DB = "system"
 
 const headerStruct = Struct.tuple(
   Struct.uint32, // pageId
   Struct.bigUint64, // headerPageId
   Struct.bigUint64, // __dbPageIds_pageType index pageId
-  Struct.bigUint64, // __dbTables index pageId
+  Struct.bigUint64, // __dbTables_id index pageId
+  Struct.bigUint64, // __dbTables_db_name index pageId
   Struct.bigUint64, // __dbIndexes index pageId
 )
 
@@ -27,9 +33,16 @@ const dbPageIdsTableSchema = TableSchema.create(
 
 const dbTablesTableSchema = TableSchema.create(
   "__dbTables",
-  column("tableName", ColumnTypes.string()).makeUnique(),
 )
+  .withColumn(column("db", ColumnTypes.string()))
+  .withColumn(column("name", ColumnTypes.string()))
   .withColumn(column("heapPageId", ColumnTypes.uint64()))
+  .withUniqueConstraint(
+    "_db_name",
+    ColumnTypes.string(),
+    ["db", "name"],
+    (input: { db: string; name: string }) => `${input.db}.${input.name}`,
+  )
 
 const dbIndexesTableSchema = TableSchema.create(
   "__dbIndexes",
@@ -37,40 +50,53 @@ const dbIndexesTableSchema = TableSchema.create(
 )
   .withColumn(column("heapPageId", ColumnTypes.uint64()))
 
+const dbSchemasTableSchema = TableSchema.create(
+  "__dbSchemas",
+)
+  .withColumn(column("tableId", ColumnTypes.string()))
+  .withColumn(column("version", ColumnTypes.uint32()))
+  .withUniqueConstraint(
+    "tableId_version",
+    ColumnTypes.string(),
+    ["tableId", "version"],
+    (input) => `${input.tableId}@${input.version}`,
+  )
+
+const dbTableColumnsTableSchema = TableSchema.create("__dbTableColumns")
+  .withColumn(column("schemaId", ColumnTypes.string()).makeIndexed())
+  .withColumn(column("name", ColumnTypes.string()))
+  .withColumn(column("type", ColumnTypes.string()))
+  .withColumn(column("unique", ColumnTypes.boolean()))
+  .withColumn(column("indexed", ColumnTypes.boolean()))
+  .withColumn(column("computed", ColumnTypes.boolean()))
+  .withUniqueConstraint("schemaId_name", ColumnTypes.string(), [
+    "schemaId",
+    "name",
+  ], (input) => `${input.schemaId}.${input.name}`)
+
 export class DbFile {
   private constructor(
     private file: Deno.FsFile,
     readonly bufferPool: FileBackedBufferPool,
-    private dbPageIdsTable: TableInfer<
+    readonly dbPageIdsTable: TableInfer<
       typeof dbPageIdsTableSchema,
       HeapFileTableStorage<
         StoredRecordForTableSchema<typeof dbPageIdsTableSchema>
       >
     >,
-    private indexesTable: TableInfer<
+    readonly indexesTable: TableInfer<
       typeof dbIndexesTableSchema,
       HeapFileTableStorage<
         StoredRecordForTableSchema<typeof dbIndexesTableSchema>
       >
     >,
-    private tablesTable: TableInfer<
+    readonly tablesTable: TableInfer<
       typeof dbTablesTableSchema,
       HeapFileTableStorage<
         StoredRecordForTableSchema<typeof dbTablesTableSchema>
       >
     >,
   ) {}
-
-  private async getOrCreatePageIdForPageType(pageType: string) {
-    const page = await this.dbPageIdsTable.lookupUnique("pageType", pageType)
-    let pageId = page?.pageId
-    if (pageId == null) {
-      pageId = await this.bufferPool.allocatePage()
-      await this.bufferPool.commit()
-      await this.dbPageIdsTable.insert({ pageId, pageType })
-    }
-    return pageId
-  }
 
   async getIndexStorage(
     tableName: string,
@@ -90,23 +116,120 @@ export class DbFile {
     return pageId
   }
 
-  async getTableStorage<SchemaT extends SomeTableSchema>(schema: SchemaT) {
-    const page = await this.tablesTable.lookupUnique("tableName", schema.name)
-    let pageId = page?.heapPageId
-    if (pageId == null) {
-      pageId = await this.bufferPool.allocatePage()
+  /**
+   * Gets table storage, while lazily creating the table if it doesn't exist.
+   * Note: ths does not store the schema metadata.
+   */
+  private async _getTableStorage<SchemaT extends SomeTableSchema>(
+    schema: SchemaT,
+    db: string,
+  ) {
+    let tableRecord = await this.tablesTable.lookupUnique("_db_name", {
+      db,
+      name: schema.name,
+    })
+    let created = false
+    if (tableRecord == null) {
+      console.log("CREATING TABLE", schema.name, "IN DB", db)
+      const pageId = await this.bufferPool.allocatePage()
       await this.bufferPool.commit()
-      await this.tablesTable.insert({
-        tableName: schema.name,
+      tableRecord = await this.tablesTable.insertAndReturn({
+        name: schema.name,
         heapPageId: pageId,
+        db,
+      })
+      created = true
+    }
+    return {
+      tableRecord,
+      created,
+      storage: await HeapFileTableStorage.open(
+        this,
+        this.bufferPool,
+        schema,
+        tableRecord.heapPageId,
+      ),
+    }
+  }
+
+  private async writeSchemaMetadata<SchemaT extends SomeTableSchema>(
+    db: string,
+    schema: SchemaT,
+    schemaTable: HeapFileTableInfer<typeof dbSchemasTableSchema>,
+    columnsTable: HeapFileTableInfer<typeof dbTableColumnsTableSchema>,
+  ) {
+    console.log("WRITING SCHEMA METADATA", schema.name)
+    const table = await this.tablesTable.lookupUnique("_db_name", {
+      db,
+      name: schema.name,
+    })
+    if (table == null) {
+      console.debug(
+        "table records are",
+        await this.tablesTable.iterate().toArray(),
+      )
+      throw new Error(`Table ${schema.name} not found`)
+    }
+    const schemaRecord = await schemaTable.insertAndReturn({
+      tableId: table.id,
+      version: 0,
+    })
+    for (const column of schema.columns) {
+      await columnsTable.insert({
+        schemaId: schemaRecord.id,
+        name: column.name,
+        unique: column.unique,
+        indexed: Boolean(column.indexed),
+        computed: false,
+        type: column.type.name,
       })
     }
-    return await HeapFileTableStorage.open(
-      this,
-      this.bufferPool,
-      schema,
-      pageId,
+  }
+
+  async getSchemasTable() {
+    const schemaTableStorage = await this._getTableStorage(
+      dbSchemasTableSchema,
+      SYSTEM_DB,
     )
+    const schemaTable = new Table(schemaTableStorage.storage)
+    const columnsTableStorage = await this._getTableStorage(
+      dbTableColumnsTableSchema,
+      SYSTEM_DB,
+    )
+    const columnsTable = new Table(columnsTableStorage.storage)
+    if (schemaTableStorage.created) {
+      await this.writeSchemaMetadata(
+        SYSTEM_DB,
+        dbSchemasTableSchema,
+        schemaTable,
+        columnsTable,
+      )
+      await this.writeSchemaMetadata(
+        SYSTEM_DB,
+        dbTableColumnsTableSchema,
+        schemaTable,
+        columnsTable,
+      )
+    }
+    return { schemaTable, columnsTable }
+  }
+
+  async getTableStorage<SchemaT extends SomeTableSchema>(
+    schema: SchemaT,
+    db: string = "default",
+  ) {
+    const { created, storage } = await this._getTableStorage(schema, db)
+    if (created) {
+      // table was just created, lets add the schema metadata as well
+      const schemaTables = await this.getSchemasTable()
+      await this.writeSchemaMetadata(
+        db,
+        schema,
+        schemaTables.schemaTable,
+        schemaTables.columnsTable,
+      )
+    }
+    return storage
   }
 
   static async open(
@@ -126,14 +249,16 @@ export class DbFile {
     let bufferPool: FileBackedBufferPool
     let headerPageId: PageId
     let pageTypeIndexPageId: PageId
-    let dbTablesIndexPageId: PageId
+    let dbTables_id_IndexPageId: PageId
+    let dbTables_db_name_IndexPageId: PageId
     let dbIndexesIndexPageId: PageId
 
     /** Where the buffer pool starts in the file */
-    const bufferPoolOffset = headerStruct.sizeof([1, 0n, 0n, 0n, 0n])
+    const bufferPoolOffset = headerStruct.sizeof([1, 0n, 0n, 0n, 0n, 0n])
 
     const fileInfo = await file.stat()
-    if (fileInfo.size === 0) {
+    const needsCreation = fileInfo.size === 0
+    if (needsCreation) {
       if (!create && !truncate) {
         throw new Error(
           "File is empty and neither create nor truncate flag were set",
@@ -144,7 +269,7 @@ export class DbFile {
       await writeBytesAt(
         file,
         0,
-        headerStruct.toUint8Array([pageSize, 0n, 0n, 0n, 0n]),
+        headerStruct.toUint8Array([pageSize, 0n, 0n, 0n, 0n, 0n]),
       )
 
       bufferPool = await FileBackedBufferPool.create(
@@ -154,7 +279,8 @@ export class DbFile {
       )
       headerPageId = await bufferPool.allocatePage()
       pageTypeIndexPageId = await bufferPool.allocatePage()
-      dbTablesIndexPageId = await bufferPool.allocatePage()
+      dbTables_id_IndexPageId = await bufferPool.allocatePage()
+      dbTables_db_name_IndexPageId = await bufferPool.allocatePage()
       dbIndexesIndexPageId = await bufferPool.allocatePage()
       await bufferPool.commit()
       await writeBytesAt(
@@ -164,7 +290,8 @@ export class DbFile {
           pageSize,
           headerPageId,
           pageTypeIndexPageId,
-          dbTablesIndexPageId,
+          dbTables_id_IndexPageId,
+          dbTables_db_name_IndexPageId,
           dbIndexesIndexPageId,
         ]),
       )
@@ -177,8 +304,9 @@ export class DbFile {
       const pageSize = header[0]
       headerPageId = header[1]
       pageTypeIndexPageId = header[2]
-      dbTablesIndexPageId = header[3]
-      dbIndexesIndexPageId = header[4]
+      dbTables_id_IndexPageId = header[3]
+      dbTables_db_name_IndexPageId = header[4]
+      dbIndexesIndexPageId = header[5]
       bufferPool = await FileBackedBufferPool.create(
         file,
         pageSize,
@@ -217,9 +345,31 @@ export class DbFile {
         bufferPool,
         dbTablesTableSchema,
         await getOrCreatePageIdForPageType("tablesTable"),
-        { tableName: dbTablesIndexPageId },
+        { id: dbTables_id_IndexPageId, _db_name: dbTables_db_name_IndexPageId },
       ),
     )
+    if (needsCreation) {
+      await dbTablesTable.insertMany([
+        {
+          id: "__dbPageIds",
+          db: SYSTEM_DB,
+          name: "__dbPageIds",
+          heapPageId: headerPageId,
+        },
+        {
+          id: "__dbIndexes",
+          db: SYSTEM_DB,
+          name: "__dbIndexes",
+          heapPageId: dbIndexesIndexPageId,
+        },
+        {
+          id: "__dbTables",
+          db: SYSTEM_DB,
+          name: "__dbTables",
+          heapPageId: dbTables_id_IndexPageId,
+        },
+      ])
+    }
 
     return new DbFile(
       file,

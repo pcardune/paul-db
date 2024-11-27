@@ -15,6 +15,10 @@ export class WriteAheadLog {
     return new WriteAheadLog(file)
   }
 
+  [Symbol.dispose]() {
+    this.cleanup()
+  }
+
   cleanup() {
     this.file.close()
   }

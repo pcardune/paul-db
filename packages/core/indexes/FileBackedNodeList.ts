@@ -78,7 +78,7 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
       nodeId,
       data,
     )
-    debugLog(`  -> found internal node: ${node}`)
+    debugLog(() => `  -> found internal node: ${node}`)
     return node
   }
 

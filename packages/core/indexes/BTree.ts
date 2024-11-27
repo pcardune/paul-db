@@ -373,7 +373,6 @@ export class BTree<
       newNode.nextLeafNodeId = oldNode.nextLeafNodeId
     }
     parent.swapChildNodeId(oldNode.nodeId, newNode.nodeId)
-    await this.nodes.deleteNode(oldNode.nodeId)
   }
 
   /**

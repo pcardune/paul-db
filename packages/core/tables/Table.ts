@@ -2,6 +2,7 @@
 import { Index } from "../indexes/Index.ts"
 import {
   ColumnIndexConfig,
+  InputForComputedColumnSchema,
   InsertRecordForTableSchema,
   OutputForComputedColumnSchema,
   SomeColumnSchema,
@@ -56,6 +57,16 @@ export class Table<
     this._allIndexes = init.indexes
   }
 
+  async insertManyAndReturn(
+    records: InsertRecordForTableSchema<SchemaT>[],
+  ): Promise<StoredRecordForTableSchema<SchemaT>[]> {
+    const rows: StoredRecordForTableSchema<SchemaT>[] = []
+    for (const record of records) {
+      rows.push(await this.insertAndReturn(record))
+    }
+    return rows
+  }
+
   async insertMany(
     records: InsertRecordForTableSchema<SchemaT>[],
   ): Promise<RowIdT[]> {
@@ -64,6 +75,13 @@ export class Table<
       rowIds.push(await this.insert(record))
     }
     return rowIds
+  }
+
+  async insertAndReturn(
+    record: InsertRecordForTableSchema<SchemaT>,
+  ): Promise<StoredRecordForTableSchema<SchemaT>> {
+    const id = await this.insert(record)
+    return this.data.get(id) as Promise<StoredRecordForTableSchema<SchemaT>>
   }
 
   async insert(record: InsertRecordForTableSchema<SchemaT>): Promise<RowIdT> {
@@ -83,19 +101,33 @@ export class Table<
     }
 
     for (const column of this.schema.columns) {
-      if (column.unique) {
-        const index = this._allIndexes.get(column.name)
-        if (!index) {
-          throw new Error(
-            `Column ${column.name} is not indexed but is marked as unique`,
-          )
-        }
-        const value = (record as any)[column.name]
-        if (await index.has(value)) {
-          throw new Error(
-            `Record with given ${column.name} value already exists`,
-          )
-        }
+      if (!column.unique) continue
+      const index = this._allIndexes.get(column.name)
+      if (!index) {
+        throw new Error(
+          `Column ${column.name} is not indexed but is marked as unique`,
+        )
+      }
+      const value = (record as any)[column.name]
+      if (await index.has(value)) {
+        throw new Error(
+          `Record with given ${column.name} value already exists`,
+        )
+      }
+    }
+    for (const column of this.schema.computedColumns) {
+      if (!column.unique) continue
+      const index = this._allIndexes.get(column.name)
+      if (!index) {
+        throw new Error(
+          `Column ${column.name} is not indexed but is marked as unique`,
+        )
+      }
+      const value = column.compute(record as any)
+      if (await index.has(value)) {
+        throw new Error(
+          `Record with given ${column.name} value already exists`,
+        )
       }
     }
 
@@ -111,6 +143,12 @@ export class Table<
     for (const column of this.schema.computedColumns) {
       const index = this._allIndexes.get(column.name)
       if (index) {
+        console.log(
+          "INSERTING INTO INDEX",
+          column.name,
+          column.compute(record),
+          id,
+        )
         await index.insert(column.compute(record), id)
       } else if (column.indexed) {
         throw new Error(`Column ${column.name} is not indexed`)
@@ -129,11 +167,48 @@ export class Table<
     await this.data.commit()
   }
 
+  async lookupUniqueOrThrow<
+    IName extends FilterTuple<
+      SchemaT["columns"] | SchemaT["computedColumns"],
+      { unique: true }
+    >["name"],
+    ValueT extends
+      | ValueForColumnSchema<
+        FilterTuple<
+          SchemaT["columns"],
+          { name: IName }
+        >
+      >
+      | InputForComputedColumnSchema<
+        FilterTuple<SchemaT["computedColumns"], { name: IName }>
+      >,
+  >(
+    indexName: IName,
+    value: ValueT,
+  ): Promise<Readonly<StoredRecordForTableSchema<SchemaT>>> {
+    const result = await this.lookupUnique(indexName, value)
+    if (!result) {
+      console.error(`Record not found for`, indexName, value)
+      throw new Error(`Record not found`)
+    }
+    return result
+  }
+
   async lookupUnique<
-    IName extends FilterTuple<SchemaT["columns"], { unique: true }>["name"],
-    ValueT extends ValueForColumnSchema<
-      FilterTuple<SchemaT["columns"], { name: IName }>
-    >,
+    IName extends FilterTuple<
+      SchemaT["columns"] | SchemaT["computedColumns"],
+      { unique: true }
+    >["name"],
+    ValueT extends
+      | ValueForColumnSchema<
+        FilterTuple<
+          SchemaT["columns"],
+          { name: IName }
+        >
+      >
+      | InputForComputedColumnSchema<
+        FilterTuple<SchemaT["computedColumns"], { name: IName }>
+      >,
   >(
     indexName: IName,
     value: ValueT,
@@ -142,7 +217,20 @@ export class Table<
     if (!index) {
       throw new Error(`Index ${indexName} does not exist`)
     }
-    const rowIds = await index.get(value)
+    const computedColumn = this.schema.computedColumns.find((c) =>
+      c.name === indexName
+    )
+    let valueToLookup = value
+    if (computedColumn != null) {
+      valueToLookup = computedColumn.compute(value)
+      console.log(
+        "Looking up computed column value",
+        valueToLookup,
+        "based on",
+        value,
+      )
+    }
+    const rowIds = await index.get(valueToLookup)
     if (rowIds.length === 0) {
       return
     }
@@ -165,8 +253,21 @@ export class Table<
     if (!index) {
       throw new Error(`Index ${indexName} does not exist`)
     }
+    const computedColumn = this.schema.computedColumns.find((c) =>
+      c.name === indexName
+    )
+    let valueToLookup = value
+    if (computedColumn != null) {
+      valueToLookup = computedColumn.compute(value)
+      console.log(
+        "Looking up computed column value",
+        valueToLookup,
+        "based on",
+        value,
+      )
+    }
     return Promise.all(
-      (await index.get(value)).map((id) => {
+      (await index.get(valueToLookup)).map((id) => {
         return this.data.get(id) as Promise<StoredRecordForTableSchema<SchemaT>>
       }),
     )

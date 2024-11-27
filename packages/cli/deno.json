@@ -3,8 +3,10 @@
     "dev": "deno run --watch main.ts"
   },
   "imports": {
+    "@cliffy/prompt": "jsr:@cliffy/prompt@^1.0.0-rc.7",
     "@commander-js/extra-typings": "npm:@commander-js/extra-typings@12.1.0",
-    "@std/assert": "jsr:@std/assert@1"
+    "@std/assert": "jsr:@std/assert@1",
+    "@std/fs": "jsr:@std/fs@^1.0.6"
   },
   "fmt": {
     "semiColons": false

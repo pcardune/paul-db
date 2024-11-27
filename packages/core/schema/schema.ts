@@ -369,6 +369,31 @@ export class TableSchema<
     ])
   }
 
+  withUniqueConstraint<
+    CName extends string,
+    CInputNames extends ColumnSchemasT[number]["name"][],
+    COutput,
+  >(
+    name: CName,
+    type: ColumnType<COutput>,
+    _inputColumns: CInputNames, // just here for type inference
+    compute: (
+      input: Pick<
+        StoredRecordForColumnSchemas<ColumnSchemasT>,
+        CInputNames[number]
+      >,
+    ) => COutput,
+  ) {
+    return new TableSchema(this.name, this.columns, [
+      ...this.computedColumns,
+      computedColumn(
+        name,
+        type,
+        compute,
+      ).makeUnique(),
+    ])
+  }
+
   withColumn<
     CName extends string,
     CValue,
