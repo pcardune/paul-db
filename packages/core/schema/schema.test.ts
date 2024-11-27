@@ -3,6 +3,7 @@ import { expect } from "jsr:@std/expect"
 import {
   column,
   computedColumn,
+  DEFAULT_INDEX_CONFIG,
   InsertRecordForTableSchema,
   makeTableSchemaSerializer,
   RecordForColumnSchema,
@@ -110,7 +111,7 @@ describe("Schemas", () => {
     expect(peopleSchema.columns).toHaveLength(1)
     expect(peopleSchema.columns[0].name).toBe("id")
     expect(peopleSchema.columns[0].unique).toBe(true)
-    expect(peopleSchema.columns[0].indexed).toBe(true)
+    expect(peopleSchema.columns[0].indexed).toEqual(DEFAULT_INDEX_CONFIG)
     expect(peopleSchema.columns[0].defaultValueFactory).toBeDefined()
   })
 

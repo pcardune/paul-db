@@ -405,9 +405,6 @@ export class BTree<
       () => `\n\nBTree.insert(${debugJson(key)}, ${debugJson(value)})`,
     )
     debugLog("Root node id", this.rootNodeId)
-    if (key == 4) {
-      debugLog("PROBLEM EHRE")
-    }
     const found = await this._get(this.rootNodeId, key)
     debugLog("found", found)
     if (found.keyval != null) {

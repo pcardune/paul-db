@@ -309,6 +309,7 @@ export class HeapFileTableStorage<RowData>
             {
               isEqual: column.type.isEqual,
               compare: column.type.compare,
+              order: column.indexed.order,
             },
           ),
         )

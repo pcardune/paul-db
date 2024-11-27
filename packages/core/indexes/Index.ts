@@ -19,6 +19,7 @@ export class Index<K, V, NodeId extends INodeId> {
       await BTree.inMemory<K, V>({
         compare: config.compare ?? ((a, b) => a < b ? -1 : a > b ? 1 : 0),
         isEqual: config.isEqual ?? ((a, b) => a === b),
+        order: config.order,
       }),
     )
   }
@@ -39,6 +40,7 @@ export class Index<K, V, NodeId extends INodeId> {
         {
           compare: config.compare ?? ((a, b) => a < b ? -1 : a > b ? 1 : 0),
           isEqual: config.isEqual ?? ((a, b) => a === b),
+          order: config.order,
         },
       ),
     )

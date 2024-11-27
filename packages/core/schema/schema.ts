@@ -12,11 +12,17 @@ export const _internals = {
   ulid,
 }
 
+export type ColumnIndexConfig = {
+  order: number
+}
+
+export const DEFAULT_INDEX_CONFIG: ColumnIndexConfig = { order: 2 }
+
 export class ColumnSchema<
   Name extends string,
   ValueT,
   UniqueT extends boolean,
-  IndexedT extends boolean,
+  IndexedT extends ColumnIndexConfig | false,
   DefaultValueFactoryT extends (() => ValueT) | undefined,
 > {
   constructor(
@@ -42,18 +48,32 @@ export class ColumnSchema<
     )
   }
 
-  makeUnique(): ColumnSchema<Name, ValueT, true, true, DefaultValueFactoryT> {
-    return new ColumnSchema(this.name, this.type, true, true)
+  makeUnique(
+    indexConfig: ColumnIndexConfig = DEFAULT_INDEX_CONFIG,
+  ): ColumnSchema<Name, ValueT, true, ColumnIndexConfig, DefaultValueFactoryT> {
+    return new ColumnSchema(
+      this.name,
+      this.type,
+      true,
+      indexConfig,
+      this.defaultValueFactory,
+    )
   }
 
   makeIndexed(): ColumnSchema<
     Name,
     ValueT,
     UniqueT,
-    true,
+    ColumnIndexConfig,
     DefaultValueFactoryT
   > {
-    return new ColumnSchema(this.name, this.type, this.unique, true)
+    return new ColumnSchema(
+      this.name,
+      this.type,
+      this.unique,
+      DEFAULT_INDEX_CONFIG,
+      this.defaultValueFactory,
+    )
   }
 
   withDefaultValue(
@@ -79,7 +99,7 @@ export function column<Name extends string, ValueT>(
 class ComputedColumnSchema<
   Name extends string,
   UniqueT extends boolean,
-  IndexedT extends boolean,
+  IndexedT extends ColumnIndexConfig | false,
   InputT,
   OutputT,
 > {
@@ -92,22 +112,26 @@ class ComputedColumnSchema<
   ) {
   }
 
-  makeUnique(): ComputedColumnSchema<Name, true, true, InputT, OutputT> {
+  makeUnique(
+    indexConfig = DEFAULT_INDEX_CONFIG,
+  ): ComputedColumnSchema<Name, true, ColumnIndexConfig, InputT, OutputT> {
     return new ComputedColumnSchema(
       this.name,
       this.type,
       true,
-      true,
+      indexConfig,
       this.compute,
     )
   }
 
-  makeIndexed(): ComputedColumnSchema<Name, UniqueT, true, InputT, OutputT> {
+  makeIndexed(
+    indexConfig = DEFAULT_INDEX_CONFIG,
+  ): ComputedColumnSchema<Name, UniqueT, ColumnIndexConfig, InputT, OutputT> {
     return new ComputedColumnSchema(
       this.name,
       this.type,
       this.unique,
-      true,
+      indexConfig,
       this.compute,
     )
   }
@@ -137,14 +161,14 @@ export type SomeColumnSchema = ColumnSchema<
   string,
   any,
   boolean,
-  boolean,
+  ColumnIndexConfig | false,
   undefined | (() => any)
 >
 export type IndexedColumnSchema = ColumnSchema<
   string,
   any,
   any,
-  true,
+  ColumnIndexConfig,
   undefined | (() => any)
 >
 
@@ -152,14 +176,14 @@ type ColumnSchemaWithDefaultValue = ColumnSchema<
   string,
   any,
   boolean,
-  boolean,
+  ColumnIndexConfig | false,
   () => any
 >
 
 export type SomeComputedColumnSchema = ComputedColumnSchema<
   string,
   boolean,
-  boolean,
+  ColumnIndexConfig | false,
   any,
   any
 >
@@ -167,7 +191,8 @@ export type SomeComputedColumnSchema = ComputedColumnSchema<
 export type RecordForColumnSchema<
   CS extends SomeColumnSchema | SomeComputedColumnSchema,
   DefaultOptional extends boolean = false,
-> = CS extends ComputedColumnSchema<string, boolean, boolean, any, any> ? {
+> = CS extends
+  ComputedColumnSchema<string, boolean, ColumnIndexConfig | false, any, any> ? {
     [K in CS["name"]]?: never
   }
   : DefaultOptional extends true ? CS extends ColumnSchemaWithDefaultValue ? {
@@ -188,7 +213,7 @@ type StoredRecordForColumnSchemas<
 }
 
 type MyColumns = [
-  ColumnSchema<"id", number, true, true, () => number>,
+  ColumnSchema<"id", number, true, ColumnIndexConfig, () => number>,
   ColumnSchema<"name", string, false, false, undefined>,
   ColumnSchema<"age", number, false, false, undefined>,
   ColumnSchema<"email", string, true, false, undefined>,
@@ -235,7 +260,7 @@ export class TableSchema<
     name: Name,
   ): TableSchema<
     Name,
-    [ColumnSchema<"id", string, true, true, () => string>],
+    [ColumnSchema<"id", string, true, ColumnIndexConfig, () => string>],
     []
   >
   static create<
@@ -244,7 +269,7 @@ export class TableSchema<
       string,
       any,
       true,
-      true,
+      ColumnIndexConfig,
       undefined | (() => any)
     >,
   >(
@@ -257,12 +282,20 @@ export class TableSchema<
       string,
       any,
       true,
-      true,
+      ColumnIndexConfig,
       undefined | (() => any)
     >,
   ): TableSchema<
     string,
-    [ColumnSchema<string, any, true, true, undefined | (() => any)>],
+    [
+      ColumnSchema<
+        string,
+        any,
+        true,
+        ColumnIndexConfig,
+        undefined | (() => any)
+      >,
+    ],
     []
   > {
     if (primaryKeyColumn == null) {
@@ -306,7 +339,7 @@ export class TableSchema<
   withComputedColumn<
     CName extends string,
     CUnique extends boolean,
-    CIndexed extends boolean,
+    CIndexed extends ColumnIndexConfig | false,
     COutput,
   >(
     column: ComputedColumnSchema<
@@ -340,7 +373,7 @@ export class TableSchema<
     CName extends string,
     CValue,
     CUnique extends boolean,
-    CIndexed extends boolean,
+    CIndexed extends ColumnIndexConfig | false,
     CDefaultValueFactory extends undefined | (() => CValue),
   >(
     column: ColumnSchema<
@@ -379,7 +412,7 @@ export class TableSchema<
     TableName,
     PushTuple<
       ColumnSchemasT,
-      ColumnSchema<CName, CValue, true, true, undefined>
+      ColumnSchema<CName, CValue, true, ColumnIndexConfig, undefined>
     >,
     ComputedColumnsT
   >
@@ -387,7 +420,7 @@ export class TableSchema<
     CName extends string,
     CValue,
     CUnique extends boolean,
-    CIndexed extends boolean,
+    CIndexed extends ColumnIndexConfig | false,
   >(
     nameOrColumn:
       | CName

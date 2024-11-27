@@ -1,6 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { Index } from "../indexes/Index.ts"
 import {
+  ColumnIndexConfig,
   InsertRecordForTableSchema,
   OutputForComputedColumnSchema,
   SomeColumnSchema,
@@ -149,7 +150,10 @@ export class Table<
   }
 
   async lookup<
-    IName extends FilterTuple<SchemaT["columns"], { indexed: true }>["name"],
+    IName extends FilterTuple<
+      SchemaT["columns"],
+      { indexed: ColumnIndexConfig }
+    >["name"],
     ValueT extends ValueForColumnSchema<
       FilterTuple<SchemaT["columns"], { name: IName }>
     >,
@@ -171,7 +175,7 @@ export class Table<
   async lookupComputed<
     IName extends FilterTuple<
       SchemaT["computedColumns"],
-      { indexed: true }
+      { indexed: ColumnIndexConfig }
     >["name"],
     ValueT extends OutputForComputedColumnSchema<
       FilterTuple<SchemaT["computedColumns"], { name: IName }>
