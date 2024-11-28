@@ -3,6 +3,8 @@ import { FixedWidthStruct, Struct, VariableWidthStruct } from "./Struct.ts"
 import { expect } from "jsr:@std/expect"
 
 const pointStruct = new FixedWidthStruct<{ x: number; y: number }>({
+  toJSON: (value) => value,
+  fromJSON: (json) => json as { x: number; y: number },
   size: 8,
   write: (value, view) => {
     view.setInt32(0, value.x)
@@ -82,6 +84,8 @@ describe("FixedWidthStruct", () => {
 
 describe("VariableWidthStruct", () => {
   const pointListStruct = new VariableWidthStruct<{ x: number; y: number }[]>({
+    toJSON: (value) => value,
+    fromJSON: (json) => json as { x: number; y: number }[],
     sizeof: (value) => pointStruct.size * value.length,
     write(value, view) {
       for (let i = 0; i < value.length; i++) {

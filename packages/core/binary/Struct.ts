@@ -1,4 +1,4 @@
-import { Json } from "../types.ts"
+import { Json, JsonRecord } from "../types.ts"
 
 export abstract class IStruct<ValueT> {
   abstract sizeof(value: ValueT): number
@@ -9,6 +9,9 @@ export abstract class IStruct<ValueT> {
     toValue: (value: Target) => ValueT,
     toTarget: (value: ValueT) => Target,
   ): IStruct<Target>
+
+  abstract toJSON(value: ValueT): Json
+  abstract fromJSON(json: Json): ValueT
 
   toUint8Array(value: ValueT): Uint8Array {
     const size = this.sizeof(value)
@@ -34,7 +37,10 @@ export class VariableWidthStruct<ValueT> extends IStruct<ValueT> {
    */
   private read: (view: DataView) => ValueT
 
-  constructor({ sizeof, write, read }: {
+  readonly toJSON: (value: ValueT) => Json
+  readonly fromJSON: (json: Json) => ValueT
+
+  constructor({ sizeof, write, read, toJSON, fromJSON }: {
     /**
      * Calculate the size of this value in bytes.
      * @param value The javascript value to calculate the size of
@@ -44,11 +50,15 @@ export class VariableWidthStruct<ValueT> extends IStruct<ValueT> {
     sizeof: (value: ValueT) => number
     write: (value: ValueT, view: DataView) => void
     read: (view: DataView) => ValueT
+    toJSON: (value: ValueT) => Json
+    fromJSON: (json: Json) => ValueT
   }) {
     super()
     this._sizeof = sizeof
     this.write = write
     this.read = read
+    this.toJSON = toJSON
+    this.fromJSON = fromJSON
   }
 
   sizeof(value: ValueT): number {
@@ -88,6 +98,13 @@ export class VariableWidthStruct<ValueT> extends IStruct<ValueT> {
 
   array(): VariableWidthStruct<ValueT[]> {
     return new VariableWidthStruct({
+      toJSON: (value) => value.map((v) => this.toJSON(v)),
+      fromJSON: (json) => {
+        if (!Array.isArray(json)) {
+          throw new Error("Expected an array")
+        }
+        return json.map((v) => this.fromJSON(v))
+      },
       sizeof: (value) => {
         return value.reduce((acc, val) => this.sizeof(val) + acc, 0)
       },
@@ -113,8 +130,17 @@ export class VariableWidthStruct<ValueT> extends IStruct<ValueT> {
   wrap<Target>(
     toValue: (value: Target) => ValueT,
     toTarget: (value: ValueT) => Target,
+    {
+      toJSON = ((value) => this.toJSON(toValue(value))),
+      fromJSON = ((json) => toTarget(this.fromJSON(json))),
+    }: {
+      toJSON?: (value: Target) => Json
+      fromJSON?: (json: Json) => Target
+    } = {},
   ): VariableWidthStruct<Target> {
     return new VariableWidthStruct({
+      toJSON,
+      fromJSON,
       sizeof: (value) => this.sizeof(toValue(value)),
       write: (value, view) => this.writeAt(toValue(value), view, 0),
       read: (view) => toTarget(this.readAt(view, 0)),
@@ -142,15 +168,22 @@ export class FixedWidthStruct<ValueT> extends IStruct<ValueT> {
    */
   private read: (view: DataView) => ValueT
 
-  constructor({ size, write, read }: {
+  readonly toJSON: (value: ValueT) => Json
+  readonly fromJSON: (json: Json) => ValueT
+
+  constructor({ size, write, read, toJSON, fromJSON }: {
     size: number
     write: (value: ValueT, view: DataView) => void
     read: (view: DataView) => ValueT
+    toJSON: (value: ValueT) => Json
+    fromJSON: (json: Json) => ValueT
   }) {
     super()
     this.size = size
     this.write = write
     this.read = read
+    this.toJSON = toJSON
+    this.fromJSON = fromJSON
   }
 
   sizeof(_value: ValueT): number {
@@ -178,6 +211,13 @@ export class FixedWidthStruct<ValueT> extends IStruct<ValueT> {
 
   array(): VariableWidthStruct<ValueT[]> {
     return new VariableWidthStruct({
+      toJSON: (value) => value.map((v) => this.toJSON(v)),
+      fromJSON: (json) => {
+        if (!Array.isArray(json)) {
+          throw new Error("Expected an array")
+        }
+        return json.map((v) => this.fromJSON(v))
+      },
       sizeof: (value) => value.length * this.size,
       write: (value, view) => {
         for (let i = 0; i < value.length; i++) {
@@ -198,8 +238,17 @@ export class FixedWidthStruct<ValueT> extends IStruct<ValueT> {
   wrap<Target>(
     toValue: (value: Target) => ValueT,
     toTarget: (value: ValueT) => Target,
+    {
+      toJSON = ((value) => this.toJSON(toValue(value))),
+      fromJSON = ((json) => toTarget(this.fromJSON(json))),
+    }: {
+      toJSON?: (value: Target) => Json
+      fromJSON?: (json: Json) => Target
+    } = {},
   ): FixedWidthStruct<Target> {
     return new FixedWidthStruct({
+      toJSON,
+      fromJSON,
       size: this.size,
       write: (value, view) => this.writeAt(toValue(value), view, 0),
       read: (view) => toTarget(this.readAt(view, 0)),
@@ -280,8 +329,17 @@ function tuple<V1, V2, V3, V4, V5, V6, V7>(
 ): VariableWidthStruct<[V1, V2, V3, V4, V5, V6, V7]>
 // deno-lint-ignore no-explicit-any
 function tuple<T extends [IStruct<any>, ...IStruct<any>[]]>(...structs: T) {
+  const toJSON = (value: T) => value.map((v, i) => structs[i].toJSON(v))
+  const fromJSON = (json: Json) => {
+    if (!Array.isArray(json)) {
+      throw new Error("Expected an array")
+    }
+    return json.map((v, i) => structs[i].fromJSON(v)) as T
+  }
   if (structs.every((s) => s instanceof FixedWidthStruct)) {
-    return new FixedWidthStruct({
+    return new FixedWidthStruct<T>({
+      toJSON,
+      fromJSON,
       size: structs.reduce(
         (acc, s) => acc + (s as FixedWidthStruct<unknown>).size,
         0,
@@ -305,6 +363,8 @@ function tuple<T extends [IStruct<any>, ...IStruct<any>[]]>(...structs: T) {
     })
   }
   return new VariableWidthStruct<T>({
+    toJSON,
+    fromJSON,
     read: (view) => {
       const values = []
       let offset = 0
@@ -329,6 +389,9 @@ function tuple<T extends [IStruct<any>, ...IStruct<any>[]]>(...structs: T) {
 function record<V extends Record<string, any>>(
   structs: { [property in keyof V]: [number, FixedWidthStruct<V[property]>] },
 ): FixedWidthStruct<V>
+function record<V extends Record<string, any>>(
+  structs: { [property in keyof V]: [number, IStruct<V[property]>] },
+): IStruct<V>
 function record<V extends Record<string, any>>(
   structs: { [property in keyof V]: [number, IStruct<V[property]>] },
 ): IStruct<V> {
@@ -359,8 +422,29 @@ function record<V extends Record<string, any>>(
     }
   }
 
+  function toJSON(value: V): Json {
+    const obj: Record<string, any> = {}
+    for (const { key, struct } of asArray) {
+      obj[key] = struct.toJSON(value[key])
+    }
+    return obj
+  }
+
+  function fromJSON(json: Json): V {
+    if (typeof json !== "object" || json === null) {
+      throw new Error("Expected an object")
+    }
+    const obj: Record<string, any> = {}
+    for (const { key, struct } of asArray) {
+      obj[key] = struct.fromJSON((json as JsonRecord)[key])
+    }
+    return obj as V
+  }
+
   if (asArray.every((x) => x.struct instanceof FixedWidthStruct)) {
     return new FixedWidthStruct<V>({
+      toJSON,
+      fromJSON,
       size: asArray.reduce(
         (acc, { struct }) => (struct as FixedWidthStruct<unknown>).size + acc,
         0,
@@ -371,6 +455,8 @@ function record<V extends Record<string, any>>(
   }
 
   return new VariableWidthStruct<V>({
+    toJSON,
+    fromJSON,
     sizeof: (value) =>
       asArray.reduce(
         (acc, { key, struct }) => struct.sizeof(value[key]) + acc,
@@ -382,6 +468,13 @@ function record<V extends Record<string, any>>(
 }
 
 const unicodeStringStruct = new VariableWidthStruct<string>({
+  toJSON: (value) => value,
+  fromJSON: (json) => {
+    if (typeof json !== "string") {
+      throw new Error("Expected a string")
+    }
+    return json
+  },
   read: (view) => {
     const decoder = new TextDecoder()
     return decoder.decode(view)
@@ -397,46 +490,82 @@ const unicodeStringStruct = new VariableWidthStruct<string>({
   sizeof: (value) => new TextEncoder().encode(value).length,
 })
 const boolean = new FixedWidthStruct<boolean>({
+  toJSON: (value) => value,
+  fromJSON: (json) => {
+    if (typeof json !== "boolean") {
+      throw new Error("Expected a boolean")
+    }
+    return json
+  },
   read: (view) => view.getUint8(0) === 1,
   write: (value, view) => view.setUint8(0, value ? 1 : 0),
   size: 1,
 })
+
+const jsonNumber = {
+  toJSON: (value: number) => value,
+  fromJSON: (json: Json) => {
+    if (typeof json !== "number") {
+      throw new Error("Expected a number")
+    }
+    return json
+  },
+}
+
 const float64 = new FixedWidthStruct<number>({
+  ...jsonNumber,
   read: (view) => view.getFloat64(0),
   write: (value, view) => view.setFloat64(0, value),
   size: 8,
 })
 const uint32 = new FixedWidthStruct<number>({
+  ...jsonNumber,
   read: (view) => view.getUint32(0),
   write: (value, view) => view.setUint32(0, value),
   size: 4,
 })
 const int32 = new FixedWidthStruct<number>({
+  ...jsonNumber,
   read: (view) => view.getInt32(0),
   write: (value, view) => view.setInt32(0, value),
   size: 4,
 })
 const uint8 = new FixedWidthStruct<number>({
+  ...jsonNumber,
   read: (view) => view.getUint8(0),
   write: (value, view) => view.setUint8(0, value),
   size: 1,
 })
 const uint16 = new FixedWidthStruct<number>({
+  ...jsonNumber,
   read: (view) => view.getUint16(0),
   write: (value, view) => view.setUint16(0, value),
   size: 2,
 })
 const int16 = new FixedWidthStruct<number>({
+  ...jsonNumber,
   read: (view) => view.getInt16(0),
   write: (value, view) => view.setInt16(0, value),
   size: 2,
 })
+
+const jsonBigInt = {
+  toJSON: (value: bigint) => value.toString(),
+  fromJSON: (json: Json) => {
+    if (typeof json !== "string") {
+      throw new Error("Expected a string")
+    }
+    return BigInt(json)
+  },
+}
 const bigUint64 = new FixedWidthStruct<bigint>({
+  ...jsonBigInt,
   read: (view) => view.getBigUint64(0),
   write: (value, view) => view.setBigUint64(0, value),
   size: 8,
 })
 const bigInt64 = new FixedWidthStruct<bigint>({
+  ...jsonBigInt,
   read: (view) => view.getBigInt64(0),
   write: (value, view) => view.setBigInt64(0, value),
   size: 8,
@@ -457,12 +586,35 @@ export const Struct = {
   bigInt64,
   tuple,
   record,
+  timestamp: int32.wrap<Date>(
+    (date) => date.getTime(),
+    (time) => new Date(time),
+    {
+      toJSON: (date) => date.toISOString(),
+      fromJSON: (json) => {
+        if (typeof json !== "string") {
+          throw new Error("Expected a string")
+        }
+        return new Date(json)
+      },
+    },
+  ),
   date: dateTuple.wrap<Date>(
     (date) => [date.getFullYear(), date.getMonth(), date.getDate()],
     ([year, month, day]) => new Date(year, month, day),
+    {
+      toJSON: (date) => date.toISOString(),
+      fromJSON: (json) => {
+        if (typeof json !== "string") {
+          throw new Error("Expected a string")
+        }
+        return new Date(json)
+      },
+    },
   ),
   json: unicodeStringStruct.wrap<Json>(
     (json) => JSON.stringify(json),
     (json) => JSON.parse(json),
+    { toJSON: (json) => json, fromJSON: (json) => json },
   ),
 }

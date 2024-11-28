@@ -4,6 +4,8 @@ import { describe, it } from "jsr:@std/testing/bdd"
 import { FixedWidthStruct } from "./Struct.ts"
 
 const pointType = new FixedWidthStruct<{ x: number; y: number }>({
+  toJSON: (value) => value,
+  fromJSON: (json) => json as { x: number; y: number },
   size: 8,
   write: (value, view) => {
     view.setInt32(0, value.x)

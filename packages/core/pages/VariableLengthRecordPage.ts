@@ -1,4 +1,4 @@
-import { FixedWidthStruct } from "../binary/Struct.ts"
+import { Struct } from "../binary/Struct.ts"
 import { debugJson, debugLog } from "../logging.ts"
 import { PageSpaceAllocator } from "./HeapPageFile.ts"
 
@@ -13,18 +13,9 @@ import { PageSpaceAllocator } from "./HeapPageFile.ts"
  */
 type Slot = { offset: number; length: number }
 
-const slotStruct = new FixedWidthStruct<Slot>({
-  size: 8,
-  write(value, view) {
-    view.setUint32(0, value.offset)
-    view.setUint32(4, value.length)
-  },
-  read(view) {
-    return {
-      offset: view.getUint32(0),
-      length: view.getUint32(4),
-    }
-  },
+const slotStruct = Struct.record<Slot>({
+  offset: [0, Struct.uint32],
+  length: [4, Struct.uint32],
 })
 
 export type VariableLengthRecordPageAllocInfo = {

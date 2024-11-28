@@ -1,19 +1,12 @@
 import { FixedWidthArray } from "../binary/FixedWidthArray.ts"
-import { FixedWidthStruct } from "../binary/Struct.ts"
+import { FixedWidthStruct, Struct } from "../binary/Struct.ts"
 import { IBufferPool, PageId } from "./BufferPool.ts"
 
 type PageEntry = Readonly<{ pageId: PageId; freeSpace: number }>
 
-const headerPageEntryStruct = new FixedWidthStruct<PageEntry>({
-  size: 12,
-  write: (value, view) => {
-    view.setBigUint64(0, value.pageId)
-    view.setUint32(8, value.freeSpace)
-  },
-  read: (view) => ({
-    pageId: view.getBigUint64(0),
-    freeSpace: view.getUint32(8),
-  }),
+const headerPageEntryStruct = Struct.record<PageEntry>({
+  pageId: [0, Struct.bigUint64],
+  freeSpace: [8, Struct.uint32],
 })
 
 type HeaderPage = Readonly<{
@@ -23,6 +16,12 @@ type HeaderPage = Readonly<{
 
 const headerPageStruct = (pageSize: number) =>
   new FixedWidthStruct<HeaderPage>({
+    toJSON: (_value) => {
+      throw new Error("Not Implemented")
+    },
+    fromJSON: (_json) => {
+      throw new Error("Not Implemented")
+    },
     size: pageSize,
     write: (value: Pick<HeaderPage, "nextPageId">, view) => {
       view.setBigUint64(0, value.nextPageId ?? 0n)

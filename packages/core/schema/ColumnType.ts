@@ -1,4 +1,4 @@
-import { IStruct, Struct, VariableWidthStruct } from "../binary/Struct.ts"
+import { IStruct, Struct } from "../binary/Struct.ts"
 import { Comparator, EqualityChecker, Json } from "../types.ts"
 import * as uuid from "jsr:@std/uuid"
 
@@ -160,12 +160,7 @@ export const ColumnTypes = {
     return new ColumnType<Date>({
       name: "timestamp",
       isValid: (value) => value instanceof Date,
-      serializer: new VariableWidthStruct({
-        sizeof: () => 8,
-        read: (view) => new Date(Struct.unicodeStringStruct.readAt(view, 0)),
-        write: (value, view) =>
-          Struct.unicodeStringStruct.writeAt(value.toISOString(), view, 0),
-      }),
+      serializer: Struct.timestamp,
     })
   },
   date() {

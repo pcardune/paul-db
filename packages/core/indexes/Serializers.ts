@@ -29,6 +29,12 @@ export class FileNodeId implements INodeId {
 }
 
 export const fileNodeIdStruct = new FixedWidthStruct<FileNodeId | null>({
+  toJSON: (_value) => {
+    throw new Error("Not Implemented")
+  },
+  fromJSON: (_json) => {
+    throw new Error("Not Implemented")
+  },
   size: 12,
   write: (value, view) => {
     if (value === null) {
@@ -57,6 +63,12 @@ export function keyValsStruct<K, V>(
 ) {
   const valArraySerializer = valSerializer.array()
   return new VariableWidthStruct<{ key: K; vals: V[] }>({
+    toJSON: (_value) => {
+      throw new Error("Not Implemented")
+    },
+    fromJSON: (_json) => {
+      throw new Error("Not Implemented")
+    },
     sizeof: (value) => {
       return keySerializer.sizeof(value.key) +
         valArraySerializer.sizeof(value.vals)
@@ -104,6 +116,12 @@ export function leafBTreeNodeStruct<K, V>(
       "keyvals" | "nextLeafNodeId" | "prevLeafNodeId"
     >
   >({
+    toJSON: (_value) => {
+      throw new Error("Not Implemented")
+    },
+    fromJSON: (_json) => {
+      throw new Error("Not Implemented")
+    },
     sizeof: (value) => {
       return 1 + fileNodeIdStruct.sizeof(value.prevLeafNodeId) +
         fileNodeIdStruct.sizeof(value.nextLeafNodeId) +
@@ -164,6 +182,12 @@ export function internalBTreeNodeStruct<K>(keySerializer: IStruct<K>) {
   return new VariableWidthStruct<
     Pick<InternalBTreeNode<K, FileNodeId>, "keys" | "childrenNodeIds">
   >({
+    toJSON: (_value) => {
+      throw new Error("Not Implemented")
+    },
+    fromJSON: (_json) => {
+      throw new Error("Not Implemented")
+    },
     sizeof: (value) => {
       return 1 + keyArraySerializer.sizeof(value.keys) +
         nodeIdArraySerializer.sizeof(value.childrenNodeIds)

@@ -1,5 +1,5 @@
 import { AsyncIterableWrapper } from "../async.ts"
-import { FixedWidthStruct, IStruct } from "../binary/Struct.ts"
+import { IStruct, Struct } from "../binary/Struct.ts"
 import { DbFile } from "../db/DbFile.ts"
 import { INodeId } from "../indexes/BTreeNode.ts"
 import { Index } from "../indexes/Index.ts"
@@ -219,16 +219,9 @@ export class InMemoryTableStorage<RowId, RowData>
 
 export type HeapFileRowId = { pageId: PageId; slotIndex: number }
 
-const heapFileRowIdStruct: IStruct<HeapFileRowId> = new FixedWidthStruct({
-  size: 8 + 4,
-  write: (id, view) => {
-    view.setBigUint64(0, id.pageId)
-    view.setUint32(8, id.slotIndex)
-  },
-  read: (view) => ({
-    pageId: view.getBigUint64(0),
-    slotIndex: view.getUint32(8),
-  }),
+const heapFileRowIdStruct: IStruct<HeapFileRowId> = Struct.record({
+  pageId: [0, Struct.bigUint64],
+  slotIndex: [1, Struct.uint32],
 })
 export class HeapFileTableStorage<RowData>
   implements ITableStorage<HeapFileRowId, RowData> {

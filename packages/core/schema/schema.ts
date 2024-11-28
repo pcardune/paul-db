@@ -1,9 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
-import {
-  FixedWidthStruct,
-  IStruct,
-  VariableWidthStruct,
-} from "../binary/Struct.ts"
+import { IStruct, Struct } from "../binary/Struct.ts"
 import { PushTuple } from "../typetools.ts"
 import { ColumnType } from "./ColumnType.ts"
 
@@ -495,42 +491,9 @@ export function makeTableSchemaSerializer<SchemaT extends SomeTableSchema>(
     return
   }
 
-  let headerSize = 0
-  let fixedSize = 0
-  for (const column of schema.columns) {
-    const serializer = column.type.serializer!
-    if (serializer instanceof FixedWidthStruct) {
-      fixedSize += serializer.size
-    } else {
-      headerSize += 4
-    }
-  }
-
-  return new VariableWidthStruct({
-    sizeof: (record) => {
-      return schema.columns.reduce((acc, column) => {
-        return column.type.serializer!.sizeof((record as any)[column.name]) +
-          acc
-      }, 0)
-    },
-    write: (record, view) => {
-      let offset = 0
-      for (const column of schema.columns) {
-        const serializer = column.type.serializer!
-        const columnValue = (record as any)[column.name]
-        serializer.writeAt(columnValue, view, offset)
-        offset += serializer.sizeof(columnValue)
-      }
-    },
-    read: (view) => {
-      const record: Record<string, any> = {}
-      let offset = 0
-      for (const column of schema.columns) {
-        const serializer = column.type.serializer!
-        record[column.name] = serializer.readAt(view, offset)
-        offset += serializer.sizeof(record[column.name])
-      }
-      return record as StoredRecordForTableSchema<typeof schema>
-    },
-  })
+  return Struct.record(
+    Object.fromEntries(
+      schema.columns.map((c, i) => [c.name, [i, c.type.serializer!]]),
+    ),
+  ) as unknown as IStruct<StoredRecordForTableSchema<SchemaT>>
 }
