@@ -3,10 +3,6 @@ import { DbFile } from "./db/DbFile.ts"
 import { WriteAheadLog } from "./wal.ts"
 import * as path from "@std/path"
 
-export function doSomething() {
-  console.log("Doing something... from the core package")
-}
-
 export { DbFile } from "./db/DbFile.ts"
 export { Table } from "./tables/Table.ts"
 export {
@@ -24,7 +20,6 @@ export {
 
 export class PaulDB {
   private constructor(private wal: WriteAheadLog, readonly dbFile: DbFile) {
-    console.log("PaulDB constructor")
   }
 
   static async open(dirName: string, { create = false } = {}) {

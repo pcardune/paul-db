@@ -1,5 +1,5 @@
 import { column, type DbFile, Table, TableSchema } from "@paul-db/core"
-import SQLParser from "node-sql-parser"
+import SQLParser, { Column } from "node-sql-parser"
 import { Create } from "node-sql-parser/types"
 import { SomeTableSchema } from "../core/schema/schema.ts"
 import { getColumnTypeFromSQLType } from "../core/schema/ColumnType.ts"
@@ -20,7 +20,7 @@ export class SQLExecutor {
     this.parser = new SQLParser.Parser()
   }
 
-  async execute(sql: string) {
+  async execute<T>(sql: string): Promise<T> {
     let ast: SQLParser.TableColumnAst
     try {
       ast = this.parser.parse(sql)
@@ -30,16 +30,13 @@ export class SQLExecutor {
       }
       throw e
     }
-    console.log("SQL:", sql)
-    console.log("AST:", JSON.stringify(ast, null, 2))
-    await this.handleAST(ast)
+    return await this.handleAST(ast) as T
   }
 
   handleAST(ast: SQLParser.TableColumnAst) {
     const commands = Array.isArray(ast.ast) ? ast.ast : [ast.ast]
     if (commands.length > 1) {
-      console.log("Only one command at a time for now...")
-      return
+      throw new NotImplementedError("Only one command at a time for now...")
     }
     const command = commands[0]
     if (command.type === "create") {
@@ -48,10 +45,77 @@ export class SQLExecutor {
     if (command.type === "insert") {
       return this.handleInsert(command)
     }
-    console.log("Got AST:", JSON.stringify(ast, null, 2))
+    if (command.type === "select") {
+      return this.handleSelect(command)
+    }
     throw new NotImplementedError(
       `Command type ${command.type} not implemented`,
     )
+  }
+
+  async handleSelect(ast: SQLParser.Select) {
+    if (ast.where != null) {
+      throw new NotImplementedError(`WHERE clause not supported yet`)
+    }
+    if (ast.groupby != null) {
+      throw new NotImplementedError(`GROUP BY clause not supported yet`)
+    }
+    if (ast.orderby != null) {
+      throw new NotImplementedError(`ORDER BY clause not supported yet`)
+    }
+    if (ast.having != null) {
+      throw new NotImplementedError(`HAVING clause not supported yet`)
+    }
+    if (ast.limit != null) {
+      throw new NotImplementedError(`LIMIT clause not supported yet`)
+    }
+    if (ast.distinct != null) {
+      throw new NotImplementedError(`DISTINCT clause not supported yet`)
+    }
+    if (ast.with != null) {
+      throw new NotImplementedError(`WITH clause not supported yet`)
+    }
+    if (ast.window != null) {
+      throw new NotImplementedError(`WINDOW clause not supported yet`)
+    }
+    if (!Array.isArray(ast.from)) {
+      throw new NotImplementedError(
+        `Only FROM lists are supported. Found ${JSON.stringify(ast.from)}`,
+      )
+    }
+    if (ast.from.length != 1) {
+      throw new NotImplementedError(
+        `Only one table in FROM list supported. Found ${ast.from.length}`,
+      )
+    }
+    const astFrom = ast.from[0]
+    if (!("table" in astFrom)) {
+      throw new NotImplementedError(
+        `Only table names are supported in FROM lists`,
+      )
+    }
+    const tableName = astFrom.table
+    const db = astFrom.db ? astFrom.db : "default"
+    const schemas = await this.dbFile.getSchemas(db, tableName)
+    if (schemas.length === 0) {
+      throw new TableNotFoundError(`Table ${db}.${tableName} not found`)
+    }
+    const tableInstance = new Table(
+      await this.dbFile.getTableStorage(schemas[0].schema, db),
+    )
+    const astColumns = ast.columns as Column[]
+    if (astColumns.length != 1) {
+      throw new NotImplementedError(`Only SELECT * is supported for now`)
+    }
+    const expr = astColumns[0].expr as SQLParser.ColumnRefItem
+    if (expr.type !== "column_ref") {
+      throw new NotImplementedError(`Only column references are supported`)
+    }
+
+    if (expr.column != "*") {
+      throw new NotImplementedError(`Only SELECT * is supported for now`)
+    }
+    return await tableInstance.iterate().toArray()
   }
 
   async handleInsert(ast: SQLParser.Insert_Replace) {
@@ -130,12 +194,10 @@ export class SQLExecutor {
       insertObject[columnName] = insertValue.value
     }
     const rowId = await tableInstance.insert(insertObject)
-    console.log("Inserted row:", rowId, insertObject)
+    return rowId
   }
 
   async handleCreate(ast: SQLParser.Create) {
-    console.log("CREATE TABLE command")
-    console.log("Table name:", ast.table)
     if (ast.table == null) {
       throw new NotImplementedError(
         "Can't handle CREATE without table name provided",
@@ -170,7 +232,5 @@ export class SQLExecutor {
     }
 
     await this.dbFile.createTable(schema, table.db ? table.db : "default")
-
-    console.log(JSON.stringify(ast, null, 2))
   }
 }

@@ -217,12 +217,6 @@ export class Table<
     let valueToLookup = value
     if (computedColumn != null) {
       valueToLookup = computedColumn.compute(value)
-      console.log(
-        "Looking up computed column value",
-        valueToLookup,
-        "based on",
-        value,
-      )
     }
     const rowIds = await index.get(valueToLookup)
     if (rowIds.length === 0) {
@@ -253,12 +247,6 @@ export class Table<
     let valueToLookup = value
     if (computedColumn != null) {
       valueToLookup = computedColumn.compute(value)
-      console.log(
-        "Looking up computed column value",
-        valueToLookup,
-        "based on",
-        value,
-      )
     }
     return Promise.all(
       (await index.get(valueToLookup)).map((id) => {

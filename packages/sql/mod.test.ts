@@ -1,9 +1,7 @@
-import { ColumnTypes, DbFile, Table } from "@paul-db/core"
+import { DbFile, Table } from "@paul-db/core"
 import { SQLExecutor } from "./mod.ts"
 import { expect } from "jsr:@std/expect"
-import { pick } from "jsr:@std/collections"
-import { column } from "../core/schema/schema.ts"
-import { ColumnType } from "../core/schema/ColumnType.ts"
+import { omit, pick } from "jsr:@std/collections"
 
 async function getExecutor() {
   const dbFile = await DbFile.open("/tmp/paul-db-test", {
@@ -23,21 +21,24 @@ Deno.test("CREATE TABLE", async (t) => {
     expect(tables[0].db).toEqual("default")
   })
 
-  await t.step("CREATE TABLE points (x float, y float)", async () => {
-    using e = await getExecutor()
-    await e.sql.execute("CREATE TABLE points (x float, y float, color TEXT)")
-    const tables = await e.dbFile.tablesTable.scan("name", "points")
-    expect(tables).toHaveLength(1)
-    expect(tables[0].db).toEqual("default")
+  await t.step(
+    "CREATE TABLE points (x float, y float, color TEXT)",
+    async () => {
+      using e = await getExecutor()
+      await e.sql.execute("CREATE TABLE points (x float, y float, color TEXT)")
+      const tables = await e.dbFile.tablesTable.scan("name", "points")
+      expect(tables).toHaveLength(1)
+      expect(tables[0].db).toEqual("default")
 
-    const schemas = await e.dbFile.getSchemas("default", "points")
-    expect(schemas.length).toEqual(1)
-    const colRecs = schemas[0].columnRecords.map((c) =>
-      pick(c, ["name", "type"])
-    )
-    expect(colRecs).toContainEqual({ name: "x", type: "float" })
-    expect(colRecs).toContainEqual({ name: "y", type: "float" })
-  })
+      const schemas = await e.dbFile.getSchemas("default", "points")
+      expect(schemas.length).toEqual(1)
+      const colRecs = schemas[0].columnRecords.map((c) =>
+        pick(c, ["name", "type"])
+      )
+      expect(colRecs).toContainEqual({ name: "x", type: "float" })
+      expect(colRecs).toContainEqual({ name: "y", type: "float" })
+    },
+  )
 })
 
 async function getPointsTable() {
@@ -56,7 +57,7 @@ Deno.test("INSERT INTO", async (t) => {
     )
 
     expect(
-      await e.table.iterate().map((row) => pick(row, ["x", "y", "color"]))
+      await e.table.iterate().map((row) => omit(row, ["id"]))
         .toArray(),
     ).toEqual([
       { x: 1.0, y: 2.0, color: "green" },
@@ -64,15 +65,15 @@ Deno.test("INSERT INTO", async (t) => {
   })
 })
 
-Deno.test.ignore("SELECT", async (t) => {
+Deno.test("SELECT", async (t) => {
   await t.step("SELECT * FROM points", async () => {
     using e = await getPointsTable()
     await e.sql.execute(
       "INSERT INTO points (x, y, color) VALUES (1.0, 2.0, 'green')",
     )
 
-    const result = await e.sql.execute("SELECT * FROM points")
-    expect(result).toEqual([
+    const result = await e.sql.execute<{ id: string }[]>("SELECT * FROM points")
+    expect(result?.map((r) => omit(r, ["id"]))).toEqual([
       { x: 1.0, y: 2.0, color: "green" },
     ])
   })

@@ -131,7 +131,6 @@ export class DbFile {
     })
     let created = false
     if (tableRecord == null) {
-      console.log("CREATING TABLE", schema.name, "IN DB", db)
       const pageId = await this.bufferPool.allocatePage()
       await this.bufferPool.commit()
       tableRecord = await this.tablesTable.insertAndReturn({
@@ -159,7 +158,6 @@ export class DbFile {
     schemaTable: HeapFileTableInfer<typeof dbSchemasTableSchema>,
     columnsTable: HeapFileTableInfer<typeof dbTableColumnsTableSchema>,
   ) {
-    console.log("WRITING SCHEMA METADATA", schema.name)
     const table = await this.tablesTable.lookupUnique("_db_name", {
       db,
       name: schema.name,

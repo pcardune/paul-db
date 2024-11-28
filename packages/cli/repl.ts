@@ -80,7 +80,8 @@ export async function startRepl(db: PaulDB) {
 
     try {
       const ast = parser.parse(msg)
-      await new SQLExecutor(db.dbFile).handleAST(ast)
+      const result = await new SQLExecutor(db.dbFile).handleAST(ast)
+      console.log(result)
     } catch (e) {
       if (e instanceof Error) {
         console.error("Error parsing SQL:", e.message)

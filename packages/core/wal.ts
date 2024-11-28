@@ -24,7 +24,6 @@ export class WriteAheadLog {
   }
 
   async write(operation: WriteOperation) {
-    console.log("Writing to WAL")
     await this.file.lock()
     await this.file.write(
       new TextEncoder().encode(JSON.stringify(operation) + "\n"),
