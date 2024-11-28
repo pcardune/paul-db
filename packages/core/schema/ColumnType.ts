@@ -1,5 +1,5 @@
-import { IStruct, Struct } from "../binary/Struct.ts"
-import { Comparator, EqualityChecker } from "../types.ts"
+import { IStruct, Struct, VariableWidthStruct } from "../binary/Struct.ts"
+import { Comparator, EqualityChecker, Json } from "../types.ts"
 import * as uuid from "jsr:@std/uuid"
 
 export function getColumnTypeFromString(type: string): ColumnType<any> {
@@ -16,6 +16,9 @@ export function getColumnTypeFromSQLType(sqlType: string): ColumnType<any> {
     case "VARCHAR":
     case "CHAR":
       return ColumnTypes.string()
+    case "SMALLINT":
+      return ColumnTypes.int16()
+    case "INT":
     case "INTEGER":
       return ColumnTypes.int32()
     case "FLOAT":
@@ -26,6 +29,13 @@ export function getColumnTypeFromSQLType(sqlType: string): ColumnType<any> {
       return ColumnTypes.boolean()
     case "UUID":
       return ColumnTypes.uuid()
+    case "JSON":
+    case "JSONB":
+      return ColumnTypes.json()
+    case "DATE":
+      return ColumnTypes.date()
+    case "TIMESTAMP":
+      return ColumnTypes.timestamp()
     default:
       throw new Error(`Unknown SQL type: ${sqlType}`)
   }
@@ -79,10 +89,30 @@ export const ColumnTypes = {
       serializer: Struct.float64,
     })
   },
+  int16() {
+    return new ColumnType<number>({
+      name: "int16",
+      isValid: (value) =>
+        typeof value === "number" && Number.isInteger(value) &&
+        value >= -(2 ** 15 - 1) && value <= 2 ** 15 - 1,
+      serializer: Struct.int16,
+    })
+  },
+  uint16() {
+    return new ColumnType<number>({
+      name: "uint16",
+      isValid: (value) =>
+        typeof value === "number" && Number.isInteger(value) && value >= 0 &&
+        value <= 2 ** 16 - 1,
+      serializer: Struct.uint16,
+    })
+  },
   int32() {
     return new ColumnType<number>({
       name: "int32",
-      isValid: (value) => typeof value === "number" && Number.isInteger(value),
+      isValid: (value) =>
+        typeof value === "number" && Number.isInteger(value) &&
+        value >= -(2 ** 31 - 1) && value <= 2 ** 31 - 1,
       serializer: Struct.int32,
     })
   },
@@ -90,22 +120,59 @@ export const ColumnTypes = {
     return new ColumnType<number>({
       name: "uint32",
       isValid: (value) =>
-        typeof value === "number" && Number.isInteger(value) && value >= 0,
+        typeof value === "number" && Number.isInteger(value) && value >= 0 &&
+        value <= 2 ** 32 - 1,
       serializer: Struct.uint32,
     })
   },
   int64() {
     return new ColumnType<bigint>({
       name: "int64",
-      isValid: (value) => typeof value === "bigint",
+      isValid: (value) =>
+        typeof value === "bigint" && value >= -(2n ** 63n - 1n) &&
+        value <= 2n ** 63n - 1n,
       serializer: Struct.bigInt64,
     })
   },
   uint64() {
     return new ColumnType<bigint>({
       name: "uint64",
-      isValid: (value) => typeof value === "bigint" && value >= 0,
+      isValid: (value) =>
+        typeof value === "bigint" && value >= 0 && value <= 2n ** 64n - 1n,
       serializer: Struct.bigUint64,
+    })
+  },
+  json() {
+    return new ColumnType<Json>({
+      name: "json",
+      isValid: (value) => {
+        try {
+          JSON.stringify(value)
+          return true
+        } catch {
+          return false
+        }
+      },
+      serializer: Struct.json,
+    })
+  },
+  timestamp() {
+    return new ColumnType<Date>({
+      name: "timestamp",
+      isValid: (value) => value instanceof Date,
+      serializer: new VariableWidthStruct({
+        sizeof: () => 8,
+        read: (view) => new Date(Struct.unicodeStringStruct.readAt(view, 0)),
+        write: (value, view) =>
+          Struct.unicodeStringStruct.writeAt(value.toISOString(), view, 0),
+      }),
+    })
+  },
+  date() {
+    return new ColumnType<Date>({
+      name: "date",
+      isValid: (value) => value instanceof Date,
+      serializer: Struct.date,
     })
   },
 }

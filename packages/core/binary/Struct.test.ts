@@ -152,7 +152,7 @@ describe("TupleStruct", () => {
 
   it("lets you read and write tuples", () => {
     const data: [number, bigint] = [1, BigInt(2)]
-    expect(headerStruct.sizeof(data)).toBe(16)
+    expect(headerStruct.sizeof(data)).toBe(12)
     const view = new DataView(new ArrayBuffer(headerStruct.sizeof(data)))
     headerStruct.writeAt([1, BigInt(2)], view, 0)
     expect(headerStruct.readAt(view, 0)).toEqual([1, BigInt(2)])

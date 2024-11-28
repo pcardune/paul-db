@@ -107,9 +107,7 @@ export class BTree<
     )
     let heapPageFilePageId: PageId = 0n
     let rootNodeId: FileNodeId | null = null
-    if (indexInfoStruct.sizeAt(view, 0) > 0) {
-      ;[heapPageFilePageId, rootNodeId] = indexInfoStruct.readAt(view, 0)
-    }
+    ;[heapPageFilePageId, rootNodeId] = indexInfoStruct.readAt(view, 0)
 
     if (heapPageFilePageId === 0n) {
       // this is the first time this btree is being loaded.
