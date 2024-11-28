@@ -3,7 +3,6 @@ import { expect } from "jsr:@std/expect"
 import {
   column,
   computedColumn,
-  DEFAULT_INDEX_CONFIG,
   InsertRecordForTableSchema,
   makeTableSchemaSerializer,
   RecordForColumnSchema,
@@ -106,15 +105,6 @@ describe("Computed column schemas", () => {
 })
 
 describe("Schemas", () => {
-  it("creates a primary key column by default", () => {
-    const peopleSchema = TableSchema.create("people")
-    expect(peopleSchema.columns).toHaveLength(1)
-    expect(peopleSchema.columns[0].name).toBe("id")
-    expect(peopleSchema.columns[0].unique).toBe(true)
-    expect(peopleSchema.columns[0].indexed).toEqual(DEFAULT_INDEX_CONFIG)
-    expect(peopleSchema.columns[0].defaultValueFactory).toBeDefined()
-  })
-
   it("lets you specify a primary key column", () => {
     TableSchema.create(
       "people",
@@ -141,7 +131,7 @@ describe("Schemas", () => {
     // also provide a type
     expect(() => peopleSchema.withColumn("bar")).toThrow()
 
-    expect(peopleSchema.columns).toHaveLength(3)
+    expect(peopleSchema.columns).toHaveLength(2)
     expect(peopleSchema.isValidInsertRecord({ name: "Alice", age: 25 }).valid)
       .toBe(
         true,
@@ -160,7 +150,7 @@ describe("Schemas", () => {
   it("Lets you specify a column directly", () => {
     const nameColumn = column("name", ColumnTypes.any<string>())
     const peopleSchema = TableSchema.create("people").withColumn(nameColumn)
-    expect(peopleSchema.columns).toHaveLength(2)
+    expect(peopleSchema.columns).toHaveLength(1)
     expect(peopleSchema.isValidInsertRecord({ name: "Alice" }).valid).toBe(true)
   })
 
@@ -280,7 +270,6 @@ describe("Serializing and deserializing records", () => {
     expect(serializer).toBeDefined()
 
     const recordToWrite = {
-      id: "asdf",
       name: "Alice",
       age: 25,
       likesIceCream: true,
@@ -290,9 +279,7 @@ describe("Serializing and deserializing records", () => {
     serializer.writeAt(recordToWrite, view, 0)
     // deno-fmt-ignore
     expect(dumpUint8Buffer(data)).toEqual([
-        0,   0,   0,  22,      // length of the record (excluding the length itself)
-        0,   0,   0,   4,      // length of "asdf"
-       97, 115, 100, 102,      // id="asdf"
+        0,   0,   0,  14,      // length of the record (excluding the length itself)
         0,   0,   0,  25,      // age=25
         1,                     // likesIceCream=true
         0,   0,   0,   5,      // length of "Alice"
@@ -301,7 +288,6 @@ describe("Serializing and deserializing records", () => {
 
     const record = serializer.readAt(view, 0)
     expect(record).toEqual({
-      id: "asdf",
       name: "Alice",
       age: 25,
       likesIceCream: true,

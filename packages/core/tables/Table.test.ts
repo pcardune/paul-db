@@ -3,7 +3,6 @@ import { expect } from "jsr:@std/expect"
 import { assertSnapshot } from "jsr:@std/testing/snapshot"
 import { Table, TableInfer } from "./Table.ts"
 import {
-  _internals,
   column,
   computedColumn,
   StoredRecordForTableSchema,
@@ -15,23 +14,14 @@ import {
   JsonFileTableStorage,
 } from "./TableStorage.ts"
 import { ColumnType, ColumnTypes } from "../schema/ColumnType.ts"
-import { stub } from "jsr:@std/testing/mock"
 import { DbFile } from "../db/DbFile.ts"
 
 const peopleSchema = TableSchema.create("people")
   .withColumn("name", ColumnTypes.any<string>())
   .withColumn("age", ColumnTypes.positiveNumber())
 
-const stubUlid = () => {
-  let i = 1
-  return stub(_internals, "ulid", () => {
-    return `fake-ulid-${i++}`
-  })
-}
-
 describe("Create, Read, and Delete", () => {
   it("lets you insert and retrieve records", async () => {
-    using _ulidStub = stubUlid()
     const people = new Table(await InMemoryTableStorage.forSchema(peopleSchema))
 
     const aliceId = await people.insert({ name: "Alice", age: 12 })
@@ -39,16 +29,13 @@ describe("Create, Read, and Delete", () => {
     expect(await people.get(aliceId)).toEqual({
       name: "Alice",
       age: 12,
-      id: "fake-ulid-1",
     })
     expect(await people.get(bobId)).toEqual({
       name: "Bob",
       age: 12,
-      id: "fake-ulid-2",
     })
   })
   it("You can delete records", async () => {
-    using _ulidStub = stubUlid()
     const people = new Table(
       await InMemoryTableStorage.forSchema(peopleSchema),
     )
@@ -59,7 +46,6 @@ describe("Create, Read, and Delete", () => {
     expect(await people.get(bobId)).toEqual({
       name: "Bob",
       age: 12,
-      id: "fake-ulid-2",
     })
   })
 })
@@ -142,9 +128,9 @@ describe("Querying", () => {
         await InMemoryTableStorage.forSchema(peopleSchema),
       )
       await people.insertMany([
-        { name: "Alice", age: 30, id: "1" },
-        { name: "Bob", age: 30, id: "2" },
-        { name: "Charlie", age: 35, id: "3" },
+        { name: "Alice", age: 30 },
+        { name: "Bob", age: 30 },
+        { name: "Charlie", age: 35 },
       ])
 
       const data = await people.iterate()
@@ -152,8 +138,8 @@ describe("Querying", () => {
         .toArray()
 
       expect(data).toEqual([
-        { name: "Alice", age: 30, id: "1" },
-        { name: "Charlie", age: 35, id: "3" },
+        { name: "Alice", age: 30 },
+        { name: "Charlie", age: 35 },
       ])
     })
   })
@@ -164,14 +150,14 @@ describe("Querying", () => {
         await InMemoryTableStorage.forSchema(peopleSchema),
       )
       await people.insertMany([
-        { name: "Alice", age: 30, id: "1" },
-        { name: "Bob", age: 30, id: "2" },
-        { name: "Charlie", age: 35, id: "3" },
+        { name: "Alice", age: 30 },
+        { name: "Bob", age: 30 },
+        { name: "Charlie", age: 35 },
       ])
 
       expect(await people.scan("age", 30)).toEqual([
-        { name: "Alice", age: 30, id: "1" },
-        { name: "Bob", age: 30, id: "2" },
+        { name: "Alice", age: 30 },
+        { name: "Bob", age: 30 },
       ])
     })
 
@@ -184,14 +170,14 @@ describe("Querying", () => {
         await InMemoryTableStorage.forSchema(peopleSchema),
       )
       await people.insertMany([
-        { name: "Alice", email: "alice@example.com", id: "1" },
-        { name: "Alice 2", email: "Alice@example.com", id: "2" },
+        { name: "Alice", email: "alice@example.com" },
+        { name: "Alice 2", email: "Alice@example.com" },
         { name: "Bob", email: "bob@example.com" },
         { name: "Charlie", email: "charlie@website.com" },
       ])
       expect(await people.scan("email", "ALICE@EXAMPLE.COM")).toEqual([
-        { name: "Alice", email: "alice@example.com", id: "1" },
-        { name: "Alice 2", email: "Alice@example.com", id: "2" },
+        { name: "Alice", email: "alice@example.com" },
+        { name: "Alice 2", email: "Alice@example.com" },
       ])
     })
   })
@@ -223,26 +209,26 @@ describe("Querying", () => {
 
     beforeAll(async () => {
       await people.insertMany([
-        { id: "1", name: "Alice", age: 25, phone: "123-456-7890" },
-        { id: "2", name: "Bob", age: 35, phone: "123-456-7891" },
-        { id: "3", name: "Charlie", age: 25, phone: "123-456-7892" },
+        { name: "Alice", age: 25, phone: "123-456-7890" },
+        { name: "Bob", age: 35, phone: "123-456-7891" },
+        { name: "Charlie", age: 25, phone: "123-456-7892" },
       ])
     })
 
     it("lets you query using an index", async () => {
       expect(await people.lookup("age", 25)).toEqual([
-        { id: "1", name: "Alice", age: 25, phone: "123-456-7890" },
-        { id: "3", name: "Charlie", age: 25, phone: "123-456-7892" },
+        { name: "Alice", age: 25, phone: "123-456-7890" },
+        { name: "Charlie", age: 25, phone: "123-456-7892" },
       ])
       expect(await people.lookup("age", 35)).toEqual([
-        { id: "2", name: "Bob", age: 35, phone: "123-456-7891" },
+        { name: "Bob", age: 35, phone: "123-456-7891" },
       ])
     })
 
     it("lets you query using an index on a computed column", async () => {
       expect(await people.lookupComputed("lowerCaseName", "alice"))
         .toEqual([
-          { id: "1", name: "Alice", age: 25, phone: "123-456-7890" },
+          { name: "Alice", age: 25, phone: "123-456-7890" },
         ])
     })
 
@@ -265,8 +251,8 @@ Deno.test({
       "/tmp/people.json",
     )
     const people = new Table(storage)
-    await people.insert({ id: "1", name: "Alice", age: 12 })
-    await people.insert({ id: "2", name: "Bob", age: 12 })
+    await people.insert({ name: "Alice", age: 12 })
+    await people.insert({ name: "Bob", age: 12 })
     const f = Deno.readTextFileSync("/tmp/people.json")
     await assertSnapshot(t, f)
   },
@@ -285,6 +271,7 @@ Deno.test("HeapFileTableStorage", async (t) => {
   }
 
   const schema = TableSchema.create("people")
+    .withColumn("id", ColumnTypes.string(), { unique: true })
     .withColumn("firstName", ColumnTypes.string())
     .withColumn("lastName", ColumnTypes.string())
     .withColumn("age", ColumnTypes.uint32())

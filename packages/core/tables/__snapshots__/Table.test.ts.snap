@@ -3,12 +3,10 @@ export const snapshot = {};
 snapshot[`json table storage 1`] = `
 '{
   "1": {
-    "id": "1",
     "name": "Alice",
     "age": 12
   },
   "2": {
-    "id": "2",
     "name": "Bob",
     "age": 12
   }

@@ -1,3 +1,4 @@
+import { ulid } from "jsr:@std/ulid"
 import { Struct } from "../binary/Struct.ts"
 import { readBytesAt, writeBytesAt } from "../io.ts"
 import { FileBackedBufferPool, PageId } from "../pages/BufferPool.ts"
@@ -32,8 +33,12 @@ const dbPageIdsTableSchema = TableSchema.create(
 )
   .withColumn(column("pageId", ColumnTypes.uint64()))
 
+const ulidIdColumn = column("id", ColumnTypes.string()).makeUnique()
+  .withDefaultValue(() => ulid())
+
 const dbTablesTableSchema = TableSchema.create(
   "__dbTables",
+  ulidIdColumn,
 )
   .withColumn(column("db", ColumnTypes.string()))
   .withColumn(column("name", ColumnTypes.string()))
@@ -53,6 +58,7 @@ const dbIndexesTableSchema = TableSchema.create(
 
 const dbSchemasTableSchema = TableSchema.create(
   "__dbSchemas",
+  ulidIdColumn,
 )
   .withColumn(column("tableId", ColumnTypes.string()))
   .withColumn(column("version", ColumnTypes.uint32()))
@@ -63,7 +69,10 @@ const dbSchemasTableSchema = TableSchema.create(
     (input) => `${input.tableId}@${input.version}`,
   )
 
-const dbTableColumnsTableSchema = TableSchema.create("__dbTableColumns")
+const dbTableColumnsTableSchema = TableSchema.create(
+  "__dbTableColumns",
+  ulidIdColumn,
+)
   .withColumn(column("schemaId", ColumnTypes.string()).makeIndexed())
   .withColumn(column("name", ColumnTypes.string()))
   .withColumn(column("type", ColumnTypes.string()))

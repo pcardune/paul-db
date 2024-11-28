@@ -5,12 +5,7 @@ import {
   VariableWidthStruct,
 } from "../binary/Struct.ts"
 import { PushTuple } from "../typetools.ts"
-import { ColumnType, ColumnTypes } from "./ColumnType.ts"
-import { ulid } from "jsr:@std/ulid"
-
-export const _internals = {
-  ulid,
-}
+import { ColumnType } from "./ColumnType.ts"
 
 export type ColumnIndexConfig = {
   order: number
@@ -260,7 +255,7 @@ export class TableSchema<
     name: Name,
   ): TableSchema<
     Name,
-    [ColumnSchema<"id", string, true, ColumnIndexConfig, () => string>],
+    [],
     []
   >
   static create<
@@ -287,23 +282,10 @@ export class TableSchema<
     >,
   ): TableSchema<
     string,
-    [
-      ColumnSchema<
-        string,
-        any,
-        true,
-        ColumnIndexConfig,
-        undefined | (() => any)
-      >,
-    ],
+    SomeColumnSchema[],
     []
   > {
-    if (primaryKeyColumn == null) {
-      primaryKeyColumn = column("id", ColumnTypes.string())
-        .makeUnique()
-        .withDefaultValue(() => _internals.ulid())
-    }
-    return new TableSchema(name, [primaryKeyColumn], [])
+    return new TableSchema(name, primaryKeyColumn ? [primaryKeyColumn] : [], [])
   }
 
   isValidInsertRecord(
