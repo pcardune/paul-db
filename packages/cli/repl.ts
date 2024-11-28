@@ -1,6 +1,7 @@
 import { PaulDB } from "@paul-db/core"
 import SQLParser from "npm:node-sql-parser"
 import { Input } from "@cliffy/prompt"
+import { SQLExecutor } from "@paul-db/sql"
 
 export async function startRepl(db: PaulDB) {
   Deno.stdout.write(new TextEncoder().encode("Welcome to the PaulDB REPL\n"))
@@ -79,52 +80,12 @@ export async function startRepl(db: PaulDB) {
 
     try {
       const ast = parser.parse(msg)
-      await new SQLExecutor(db).handleAST(ast)
+      await new SQLExecutor(db.dbFile).handleAST(ast)
     } catch (e) {
       if (e instanceof Error) {
         console.error("Error parsing SQL:", e.message)
       }
       continue
     }
-  }
-}
-
-class SQLExecutor {
-  constructor(private db: PaulDB) {}
-
-  handleAST(ast: SQLParser.TableColumnAst) {
-    const commands = Array.isArray(ast.ast) ? ast.ast : [ast.ast]
-    if (commands.length > 1) {
-      console.log("Only one command at a time for now...")
-      return
-    }
-    const command = commands[0]
-    if (command.type === "create") {
-      return this.handleCreate(command)
-    }
-    console.log("Sorry, I can't handle this command yet.")
-    console.log("Got AST:", JSON.stringify(ast, null, 2))
-  }
-
-  async handleCreate(ast: SQLParser.Create) {
-    console.log("CREATE TABLE command")
-    console.log("Table name:", ast.table)
-    if (ast.table == null) {
-      console.log("No table name provided")
-      return
-    }
-    if (ast.table.length != 1) {
-      console.log("Only one table name allowed, found:", ast.table.length)
-      return
-    }
-    const table = ast.table[0]
-    console.log("create table", table)
-
-    await this.db.dbFile.tablesTable.insert({
-      db: table.db ? table.db : "default",
-      name: table.table,
-      heapPageId: 12023n,
-    })
-    console.log(JSON.stringify(ast, null, 2))
   }
 }

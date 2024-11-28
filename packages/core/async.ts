@@ -29,6 +29,19 @@ export function filterAsync<T>(
   }
 }
 
+export function mapAsync<T, U>(
+  iterable: AsyncIterable<T>,
+  mapper: (item: T) => U,
+): AsyncIterable<U> {
+  return {
+    [Symbol.asyncIterator]: async function* () {
+      for await (const item of iterable) {
+        yield mapper(item)
+      }
+    },
+  }
+}
+
 /**
  * Wraps an async iterable to provide additional functionality.
  */
@@ -45,5 +58,9 @@ export class AsyncIterableWrapper<T> {
 
   filter(predicate: (item: T) => boolean): AsyncIterableWrapper<T> {
     return new AsyncIterableWrapper(filterAsync(this.iterable, predicate))
+  }
+
+  map<U>(mapper: (item: T) => U): AsyncIterableWrapper<U> {
+    return new AsyncIterableWrapper(mapAsync(this.iterable, mapper))
   }
 }

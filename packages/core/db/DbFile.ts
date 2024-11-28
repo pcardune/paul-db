@@ -1,9 +1,10 @@
 import { Struct } from "../binary/Struct.ts"
 import { readBytesAt, writeBytesAt } from "../io.ts"
 import { FileBackedBufferPool, PageId } from "../pages/BufferPool.ts"
-import { ColumnTypes } from "../schema/ColumnType.ts"
+import { ColumnTypes, getColumnTypeFromString } from "../schema/ColumnType.ts"
 import {
   column,
+  ColumnSchema,
   SomeTableSchema,
   StoredRecordForTableSchema,
   TableSchema,
@@ -386,5 +387,54 @@ export class DbFile {
 
   [Symbol.dispose](): void {
     this.close()
+  }
+
+  async createTable<SchemaT extends SomeTableSchema>(
+    schema: SchemaT,
+    db: string = "default",
+  ) {
+    const storage = await this.getTableStorage(schema, db)
+    return new Table(storage)
+  }
+
+  async getSchemas(db: string, tableName: string) {
+    const tableRecord = await this.tablesTable.lookupUnique("_db_name", {
+      db,
+      name: tableName,
+    })
+    if (tableRecord == null) {
+      throw new Error(`No table found named ${tableName}`)
+    }
+    const schemaTable = await this.getSchemasTable()
+    const schemaRecords = await schemaTable.schemaTable.scan(
+      "tableId",
+      tableRecord.id,
+    )
+    return await Promise.all(schemaRecords.map(async (schemaRecord) => {
+      const columnRecords = await schemaTable.columnsTable.scan(
+        "schemaId",
+        schemaRecord.id,
+      )
+
+      let schema: SomeTableSchema = TableSchema.create(tableName)
+      for (const columnRecord of columnRecords) {
+        if (columnRecord.name === "id") {
+          // THIS IS A HACK.
+          // the schema comes with a default primary key column
+          // TODO: handle the default primary key column better
+          continue
+        }
+        schema = schema.withColumn(
+          new ColumnSchema(
+            columnRecord.name,
+            getColumnTypeFromString(columnRecord.type),
+            columnRecord.unique,
+            columnRecord.indexed ? { order: 2 } : false,
+          ),
+        )
+      }
+
+      return { schema, columnRecords, schemaRecord: schemaRecord }
+    }))
   }
 }

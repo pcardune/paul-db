@@ -2,6 +2,35 @@ import { IStruct, Struct } from "../binary/Struct.ts"
 import { Comparator, EqualityChecker } from "../types.ts"
 import * as uuid from "jsr:@std/uuid"
 
+export function getColumnTypeFromString(type: string): ColumnType<any> {
+  const t = type.toLowerCase()
+  if (t in ColumnTypes) {
+    return (ColumnTypes as Record<string, () => ColumnType<any>>)[t]()
+  }
+  throw new Error(`Unknown type: ${type}`)
+}
+
+export function getColumnTypeFromSQLType(sqlType: string): ColumnType<any> {
+  switch (sqlType) {
+    case "TEXT":
+    case "VARCHAR":
+    case "CHAR":
+      return ColumnTypes.string()
+    case "INTEGER":
+      return ColumnTypes.int32()
+    case "FLOAT":
+    case "REAL":
+    case "DOUBLE":
+      return ColumnTypes.float()
+    case "BOOLEAN":
+      return ColumnTypes.boolean()
+    case "UUID":
+      return ColumnTypes.uuid()
+    default:
+      throw new Error(`Unknown SQL type: ${sqlType}`)
+  }
+}
+
 export const ColumnTypes = {
   any<T>() {
     return new ColumnType<T>({

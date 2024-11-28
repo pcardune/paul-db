@@ -1,5 +1,5 @@
 {
-  "workspace": ["./packages/core", "./packages/cli"],
+  "workspace": ["./packages/core", "./packages/cli", "./packages/sql"],
   "tasks": {
     "dev": "deno run --watch main.ts",
     "coverage": "deno test --coverage && deno coverage --lcov --output=coverage/cov.lcov coverage && genhtml -o coverage/html coverage/cov.lcov"

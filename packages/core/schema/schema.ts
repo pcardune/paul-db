@@ -460,6 +460,15 @@ export class TableSchema<
     >,
     ComputedColumnsT
   > {
+    const columnName = typeof nameOrColumn === "string"
+      ? nameOrColumn
+      : nameOrColumn.name
+    if (
+      this.columns.some((c) => c.name === columnName) ||
+      this.computedColumns.some((c) => c.name === columnName)
+    ) {
+      throw new Error(`Column '${columnName}' already exists`)
+    }
     if (typeof nameOrColumn === "string") {
       if (type) {
         if (options) {

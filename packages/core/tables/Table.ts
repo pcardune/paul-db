@@ -143,12 +143,6 @@ export class Table<
     for (const column of this.schema.computedColumns) {
       const index = this._allIndexes.get(column.name)
       if (index) {
-        console.log(
-          "INSERTING INTO INDEX",
-          column.name,
-          column.compute(record),
-          id,
-        )
         await index.insert(column.compute(record), id)
       } else if (column.indexed) {
         throw new Error(`Column ${column.name} is not indexed`)

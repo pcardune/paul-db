@@ -8,6 +8,19 @@ export function doSomething() {
 }
 
 export { DbFile } from "./db/DbFile.ts"
+export { Table } from "./tables/Table.ts"
+export {
+  column,
+  ColumnSchema,
+  computedColumn,
+  TableSchema,
+} from "./schema/schema.ts"
+export {
+  ColumnType,
+  ColumnTypes,
+  getColumnTypeFromSQLType,
+  getColumnTypeFromString,
+} from "./schema/ColumnType.ts"
 
 export class PaulDB {
   private constructor(private wal: WriteAheadLog, readonly dbFile: DbFile) {

@@ -1,0 +1,8 @@
+{
+  "name": "@paul-db/sql",
+  "version": "0.0.1",
+  "exports": "./mod.ts",
+  "imports": {
+    "node-sql-parser": "npm:node-sql-parser@^5.3.4"
+  }
+}
