@@ -17,14 +17,14 @@ import {
 
 const SYSTEM_DB = "system"
 
-const headerStruct = Struct.tuple(
-  Struct.uint32, // pageId
-  Struct.bigUint64, // headerPageId
-  Struct.bigUint64, // __dbPageIds_pageType index pageId
-  Struct.bigUint64, // __dbTables_id index pageId
-  Struct.bigUint64, // __dbTables_db_name index pageId
-  Struct.bigUint64, // __dbIndexes index pageId
-)
+const headerStruct = Struct.record({
+  pageSize: [0, Struct.uint32],
+  headerPageId: [1, Struct.bigUint64],
+  pageTypeIndexPageId: [2, Struct.bigUint64],
+  dbTables_id_IndexPageId: [3, Struct.bigUint64],
+  dbTables_db_name_IndexPageId: [4, Struct.bigUint64],
+  dbIndexesIndexPageId: [5, Struct.bigUint64],
+})
 
 const dbPageIdsTableSchema = TableSchema.create(
   "__dbPageIds",
@@ -253,7 +253,7 @@ export class DbFile {
     let dbIndexesIndexPageId: PageId
 
     /** Where the buffer pool starts in the file */
-    const bufferPoolOffset = headerStruct.sizeof([1, 0n, 0n, 0n, 0n, 0n])
+    const bufferPoolOffset = headerStruct.size
 
     const fileInfo = await file.stat()
     const needsCreation = fileInfo.size === 0
@@ -268,7 +268,14 @@ export class DbFile {
       await writeBytesAt(
         file,
         0,
-        headerStruct.toUint8Array([pageSize, 0n, 0n, 0n, 0n, 0n]),
+        headerStruct.toUint8Array({
+          pageSize: pageSize,
+          headerPageId: 0n,
+          pageTypeIndexPageId: 0n,
+          dbTables_id_IndexPageId: 0n,
+          dbTables_db_name_IndexPageId: 0n,
+          dbIndexesIndexPageId: 0n,
+        }),
       )
 
       bufferPool = await FileBackedBufferPool.create(
@@ -285,14 +292,14 @@ export class DbFile {
       await writeBytesAt(
         file,
         0,
-        headerStruct.toUint8Array([
-          pageSize,
-          headerPageId,
-          pageTypeIndexPageId,
-          dbTables_id_IndexPageId,
-          dbTables_db_name_IndexPageId,
-          dbIndexesIndexPageId,
-        ]),
+        headerStruct.toUint8Array({
+          pageSize: pageSize,
+          headerPageId: headerPageId,
+          pageTypeIndexPageId: pageTypeIndexPageId,
+          dbTables_id_IndexPageId: dbTables_id_IndexPageId,
+          dbTables_db_name_IndexPageId: dbTables_db_name_IndexPageId,
+          dbIndexesIndexPageId: dbIndexesIndexPageId,
+        }),
       )
     } else {
       // read the header
@@ -300,12 +307,12 @@ export class DbFile {
         (await readBytesAt(file, 0, 4096)).buffer,
       )
       const header = headerStruct.readAt(view, 0)
-      const pageSize = header[0]
-      headerPageId = header[1]
-      pageTypeIndexPageId = header[2]
-      dbTables_id_IndexPageId = header[3]
-      dbTables_db_name_IndexPageId = header[4]
-      dbIndexesIndexPageId = header[5]
+      const { pageSize: pageSize } = header
+      headerPageId = header.headerPageId
+      pageTypeIndexPageId = header.pageTypeIndexPageId
+      dbTables_id_IndexPageId = header.dbTables_id_IndexPageId
+      dbTables_db_name_IndexPageId = header.dbTables_db_name_IndexPageId
+      dbIndexesIndexPageId = header.dbIndexesIndexPageId
       bufferPool = await FileBackedBufferPool.create(
         file,
         pageSize,

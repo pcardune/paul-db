@@ -158,3 +158,16 @@ describe("TupleStruct", () => {
     expect(headerStruct.readAt(view, 0)).toEqual([1, BigInt(2)])
   })
 })
+
+describe("RecordStruct", () => {
+  const pointObjectStruct = Struct.record({
+    x: [0, Struct.uint32],
+    y: [1, Struct.uint32],
+  })
+
+  it("lets you read and write objects", () => {
+    const view = new DataView(new ArrayBuffer(pointObjectStruct.size))
+    pointObjectStruct.writeAt({ x: 1, y: 2 }, view, 0)
+    expect(pointObjectStruct.readAt(view, 0)).toEqual({ x: 1, y: 2 })
+  })
+})

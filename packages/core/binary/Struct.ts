@@ -326,6 +326,61 @@ function tuple<T extends [IStruct<any>, ...IStruct<any>[]]>(...structs: T) {
   })
 }
 
+function record<V extends Record<string, any>>(
+  structs: { [property in keyof V]: [number, FixedWidthStruct<V[property]>] },
+): FixedWidthStruct<V>
+function record<V extends Record<string, any>>(
+  structs: { [property in keyof V]: [number, IStruct<V[property]>] },
+): IStruct<V> {
+  const asArray = Object.entries(structs).map(([key, [order, struct]]) => ({
+    key,
+    order,
+    struct,
+  })).sort((a, b) => a.order - b.order)
+  const orderSet = new Set(asArray.map((x) => x.order))
+  if (orderSet.size !== asArray.length) {
+    throw new Error("Duplicate orders in record")
+  }
+
+  function read(view: DataView): V {
+    const obj: Record<string, any> = {}
+    let offset = 0
+    for (const { key, struct } of asArray) {
+      obj[key] = struct.readAt(view, offset)
+      offset += struct.sizeof(obj[key])
+    }
+    return obj as V
+  }
+  function write(value: V, view: DataView): void {
+    let offset = 0
+    for (const { key, struct } of asArray) {
+      struct.writeAt(value[key], view, offset)
+      offset += struct.sizeof(value[key])
+    }
+  }
+
+  if (asArray.every((x) => x.struct instanceof FixedWidthStruct)) {
+    return new FixedWidthStruct<V>({
+      size: asArray.reduce(
+        (acc, { struct }) => (struct as FixedWidthStruct<unknown>).size + acc,
+        0,
+      ),
+      read,
+      write,
+    })
+  }
+
+  return new VariableWidthStruct<V>({
+    sizeof: (value) =>
+      asArray.reduce(
+        (acc, { key, struct }) => struct.sizeof(value[key]) + acc,
+        0,
+      ),
+    read,
+    write,
+  })
+}
+
 const unicodeStringStruct = new VariableWidthStruct<string>({
   read: (view) => {
     const decoder = new TextDecoder()
@@ -401,6 +456,7 @@ export const Struct = {
   bigUint64,
   bigInt64,
   tuple,
+  record,
   date: dateTuple.wrap<Date>(
     (date) => [date.getFullYear(), date.getMonth(), date.getDate()],
     ([year, month, day]) => new Date(year, month, day),
