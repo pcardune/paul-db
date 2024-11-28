@@ -282,27 +282,7 @@ export class Table<
   iterate(): AsyncIterableWrapper<
     StoredRecordForTableSchema<SchemaT>
   > {
-    const pkIndex = this._allIndexes.get(this.schema.columns[0].name)
-    if (!pkIndex) {
-      throw new Error("Primary key index not found")
-    }
-
-    const data = this.data
-
-    const iterator = {
-      [Symbol.asyncIterator]: async function* () {
-        const allKeys = await pkIndex.getRange({})
-        for (const key of allKeys) {
-          for (const id of key.vals) {
-            const record = await data.get(id)
-            if (record) {
-              yield record
-            }
-          }
-        }
-      },
-    }
-    return new AsyncIterableWrapper(iterator)
+    return this.data.iterate().map(([_rowId, record]) => record)
   }
 
   scanIter<

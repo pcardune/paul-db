@@ -111,6 +111,8 @@ export type PageSpaceAllocator<AllocInfo extends { freeSpace: number }> = {
   ) => AllocInfo | Promise<AllocInfo>
 }
 
+export type { HeaderPageRef }
+
 /**
  * A heap page file is a file that stores variable-length records in a
  * collection of pages. There are multiple ways to implement this, but

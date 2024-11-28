@@ -1,9 +1,10 @@
+import { AsyncIterableWrapper } from "../async.ts"
 import { FixedWidthStruct, IStruct } from "../binary/Struct.ts"
 import { DbFile } from "../db/DbFile.ts"
 import { INodeId } from "../indexes/BTreeNode.ts"
 import { Index } from "../indexes/Index.ts"
 import { IBufferPool, PageId } from "../pages/BufferPool.ts"
-import { HeapPageFile } from "../pages/HeapPageFile.ts"
+import { HeaderPageRef, HeapPageFile } from "../pages/HeapPageFile.ts"
 import {
   VariableLengthRecordPage,
   VariableLengthRecordPageAllocInfo,
@@ -21,6 +22,7 @@ export interface ITableStorage<RowId, RowData> {
   insert(data: RowData): Promise<RowId>
   remove(id: RowId): Promise<void>
   commit(): Promise<void>
+  iterate(): AsyncIterableWrapper<[RowId, RowData]>
 }
 
 export class JsonFileTableStorage<RowData>
@@ -117,6 +119,15 @@ export class JsonFileTableStorage<RowData>
     }
     await Deno.writeTextFile(this.filename, JSON.stringify(this.data, null, 2))
   }
+
+  iterate(): AsyncIterableWrapper<[number, RowData]> {
+    const rows = this.data
+    return new AsyncIterableWrapper(async function* iter() {
+      for (const [id, data] of Object.entries(rows)) {
+        yield [Number(id), data] as [number, RowData]
+      }
+    })
+  }
 }
 
 export class InMemoryTableStorage<RowId, RowData>
@@ -130,6 +141,15 @@ export class InMemoryTableStorage<RowId, RowData>
   ) {
     this.dirtyRecords = new Map()
     this.deletedRecords = new Set()
+  }
+
+  iterate(): AsyncIterableWrapper<[RowId, RowData]> {
+    const rows = this.data
+    return new AsyncIterableWrapper(async function* iter() {
+      for (const [id, data] of rows.entries()) {
+        yield [id, data] as [RowId, RowData]
+      }
+    })
   }
 
   static async forSchema<SchemaT extends SomeTableSchema>(
@@ -217,6 +237,37 @@ export class HeapFileTableStorage<RowData>
     private heapPageFile: HeapPageFile<VariableLengthRecordPageAllocInfo>,
     private serializer: IStruct<RowData>,
   ) {
+  }
+
+  iterate(): AsyncIterableWrapper<[HeapFileRowId, RowData]> {
+    const heapPageFile = this.heapPageFile
+    const bufferPool = this.bufferPool
+    const getRecord = this.get.bind(this)
+    return new AsyncIterableWrapper(async function* () {
+      let currentDirectoryPageRef: HeaderPageRef | null =
+        heapPageFile.headerPageRef
+      while (currentDirectoryPageRef != null) {
+        const directoryPage = await currentDirectoryPageRef.get()
+        for (const entry of directoryPage.entries) {
+          const recordPageBuffer = await bufferPool.getPage(entry.pageId)
+          const recordPage = new VariableLengthRecordPage(
+            new DataView(recordPageBuffer.buffer),
+          )
+          for (
+            const [_slot, slotIndex] of recordPage.iterSlots().filter((
+              [slot],
+            ) => slot.length > 0)
+          ) {
+            const id: HeapFileRowId = { slotIndex, pageId: entry.pageId }
+            const data = await getRecord(id)
+            if (data != null) {
+              yield [id, data]
+            }
+          }
+        }
+        currentDirectoryPageRef = await heapPageFile.headerPageRef.getNext()
+      }
+    })
   }
 
   private async getRecordView(id: HeapFileRowId) {

@@ -147,11 +147,11 @@ describe("Querying", () => {
         { name: "Charlie", age: 35, id: "3" },
       ])
 
-      expect(
-        await people.iterate()
-          .filter((r) => r.name.toLowerCase().includes("a"))
-          .toArray(),
-      ).toEqual([
+      const data = await people.iterate()
+        .filter((r) => r.name.toLowerCase().includes("a"))
+        .toArray()
+
+      expect(data).toEqual([
         { name: "Alice", age: 30, id: "1" },
         { name: "Charlie", age: 35, id: "3" },
       ])

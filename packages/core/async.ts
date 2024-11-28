@@ -46,7 +46,17 @@ export function mapAsync<T, U>(
  * Wraps an async iterable to provide additional functionality.
  */
 export class AsyncIterableWrapper<T> {
-  constructor(private iterable: AsyncIterable<T>) {}
+  private iterable: AsyncIterable<T>
+
+  constructor(
+    iterable: AsyncIterable<T> | (() => AsyncGenerator<T, void, unknown>),
+  ) {
+    if (typeof iterable === "function") {
+      this.iterable = iterable()
+    } else {
+      this.iterable = iterable
+    }
+  }
 
   [Symbol.asyncIterator]() {
     return this.iterable[Symbol.asyncIterator]()
