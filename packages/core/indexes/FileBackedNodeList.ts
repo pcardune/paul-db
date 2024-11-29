@@ -4,6 +4,7 @@ import { debugJson, debugLog } from "../logging.ts"
 import { IBufferPool } from "../pages/BufferPool.ts"
 import { HeapPageFile } from "../pages/HeapPageFile.ts"
 import {
+  ReadonlyVariableLengthRecordPage,
   VariableLengthRecordPageAllocInfo,
   WriteableVariableLengthRecordPage,
 } from "../pages/VariableLengthRecordPage.ts"
@@ -33,18 +34,28 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
   }
 
   // this is only here for types safety
-  private getRecordView(id: FileNodeId): Promise<ReadonlyDataView | undefined> {
-    return this.getWriteableRecordView(id)
-  }
-
-  private async getWriteableRecordView(
+  private async getRecordView(
     id: FileNodeId,
-  ): Promise<WriteableDataView | undefined> {
-    const view = await this.bufferPool.getWriteablePage(id.pageId)
-    const recordPage = new WriteableVariableLengthRecordPage(view)
+  ): Promise<ReadonlyDataView | undefined> {
+    const view = await this.bufferPool.getPageView(id.pageId)
+    const recordPage = new ReadonlyVariableLengthRecordPage(view)
     const slot = recordPage.getSlotEntry(id.slotIndex)
     if (slot.length === 0) return undefined // this was deleted
     return view.slice(slot.offset, slot.length)
+  }
+
+  private async writeToRecord(
+    id: FileNodeId,
+    writer: (view: WriteableDataView) => void | Promise<void>,
+  ): Promise<void> {
+    await this.bufferPool.writeToPage(id.pageId, (view) => {
+      const recordPage = new WriteableVariableLengthRecordPage(view)
+      const slot = recordPage.getSlotEntry(id.slotIndex)
+      if (slot.length === 0) {
+        throw new Error("Node not found")
+      }
+      return writer(view.slice(slot.offset, slot.length))
+    })
   }
 
   async get(nodeId: FileNodeId): Promise<BTreeNode<K, V, FileNodeId>> {
@@ -117,8 +128,9 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
     const size = this.leafNodeSerializer.sizeof(data)
     const { pageId, allocInfo: { slot, slotIndex } } = await this.heapPageFile
       .allocateSpace(size)
-    const view = await this.bufferPool.getWriteablePage(pageId)
-    this.leafNodeSerializer.writeAt(data, view, slot.offset)
+    await this.bufferPool.writeToPage(pageId, (view) => {
+      this.leafNodeSerializer.writeAt(data, view, slot.offset)
+    })
     const nodeId = new FileNodeId({ pageId, slotIndex })
 
     this.bufferPool.markDirty(nodeId.pageId)
@@ -141,8 +153,9 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
     const size = this.internalNodeSerializer.sizeof(data)
     const { pageId, allocInfo: { slot, slotIndex } } = await this.heapPageFile
       .allocateSpace(size)
-    const view = await this.bufferPool.getWriteablePage(pageId)
-    this.internalNodeSerializer.writeAt(data, view, slot.offset)
+    await this.bufferPool.writeToPage(pageId, (view) => {
+      this.internalNodeSerializer.writeAt(data, view, slot.offset)
+    })
 
     const nodeId = new FileNodeId({ pageId, slotIndex })
 
@@ -162,37 +175,36 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
   async commit(): Promise<void> {
     debugLog("INodeLIst.commit()")
     for (const node of this.dirtyNodes.values()) {
-      const view = await this.getWriteableRecordView(node.nodeId)
-      if (view == null) throw new Error("Node not found")
-      if (node instanceof LeafBTreeNode) {
-        const size = this.leafNodeSerializer.sizeof(node)
-        if (size > view.byteLength) {
-          throw new Error(
-            `Leaf Node ${node.nodeId.serialize()} too large: ${size} > ${view.byteLength}`,
-          )
+      await this.writeToRecord(node.nodeId, (view) => {
+        if (node instanceof LeafBTreeNode) {
+          const size = this.leafNodeSerializer.sizeof(node)
+          if (size > view.byteLength) {
+            throw new Error(
+              `Leaf Node ${node.nodeId.serialize()} too large: ${size} > ${view.byteLength}`,
+            )
+          }
+          this.leafNodeSerializer.writeAt(node, view, 0)
+        } else {
+          const size = this.internalNodeSerializer.sizeof(node)
+          if (this.internalNodeSerializer.sizeof(node) > view.byteLength) {
+            throw new Error(
+              `Internal Node ${node.nodeId.serialize()} too large: ${size} > ${view.byteLength}`,
+            )
+          }
+          this.internalNodeSerializer.writeAt(node, view, 0)
         }
-        this.leafNodeSerializer.writeAt(node, view, 0)
-      } else {
-        const size = this.internalNodeSerializer.sizeof(node)
-        if (this.internalNodeSerializer.sizeof(node) > view.byteLength) {
-          throw new Error(
-            `Internal Node ${node.nodeId.serialize()} too large: ${size} > ${view.byteLength}`,
-          )
-        }
-        this.internalNodeSerializer.writeAt(node, view, 0)
-      }
+      })
       this.dirtyNodes.delete(this.cacheKey(node.nodeId))
-      this.bufferPool.markDirty(node.nodeId.pageId)
     }
     await this.bufferPool.commit()
   }
 
   async deleteNode(nodeId: FileNodeId): Promise<void> {
     debugLog(`deleteNode(${nodeId})`)
-    const view = await this.bufferPool.getWriteablePage(nodeId.pageId)
-    const recordPage = new WriteableVariableLengthRecordPage(view)
-    recordPage.freeSlot(nodeId.slotIndex)
-    this.bufferPool.markDirty(nodeId.pageId)
+    await this.bufferPool.writeToPage(nodeId.pageId, (view) => {
+      const recordPage = new WriteableVariableLengthRecordPage(view)
+      recordPage.freeSlot(nodeId.slotIndex)
+    })
     this.dirtyNodes.delete(this.cacheKey(nodeId))
   }
 }

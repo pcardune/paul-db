@@ -21,7 +21,7 @@
       "type": "node",
       // "program": "${workspaceFolder}/main.ts",
       "cwd": "${workspaceFolder}",
-      "env": {},
+      "env": { "DEBUG": "true" },
       "runtimeExecutable": "/Users/pcardune/.deno/bin/deno",
       "runtimeArgs": [
         "test",

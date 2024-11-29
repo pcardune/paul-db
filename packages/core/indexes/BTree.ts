@@ -100,21 +100,22 @@ export class BTree<
       isEqual = (a, b) => a === b,
     }: InMemoryBTreeConfig<K, V> = {},
   ) {
-    const view = await bufferPool.getWriteablePage(pageId)
     const indexInfoStruct = Struct.tuple(
       Struct.bigUint64, // heapPageFile page id
       fileNodeIdStruct, // root node id
     )
     let heapPageFilePageId: PageId = 0n
     let rootNodeId: FileNodeId | null = null
+    const view = await bufferPool.getPageView(pageId)
     ;[heapPageFilePageId, rootNodeId] = indexInfoStruct.readAt(view, 0)
 
     if (heapPageFilePageId === 0n) {
       // this is the first time this btree is being loaded.
       // create the header page
       heapPageFilePageId = await bufferPool.allocatePage()
-      indexInfoStruct.writeAt([heapPageFilePageId, rootNodeId], view, 0)
-      bufferPool.markDirty(pageId)
+      await bufferPool.writeToPage(heapPageFilePageId, (view) => {
+        indexInfoStruct.writeAt([heapPageFilePageId, rootNodeId], view, 0)
+      })
     }
     const heapPageFile = new HeapPageFile(
       bufferPool,
@@ -128,6 +129,8 @@ export class BTree<
       valStruct,
     )
     if (rootNodeId == null) {
+      // this is the first time this btree is being loaded.
+      // create the initial set of nodes
       const childNode = await nodes.createLeafNode({
         keyvals: [],
         nextLeafNodeId: null,
@@ -139,9 +142,11 @@ export class BTree<
       })
       await nodes.commit()
       rootNodeId = rootNode.nodeId
-      indexInfoStruct.writeAt([heapPageFilePageId, rootNodeId], view, 0)
-      bufferPool.markDirty(pageId)
+      await bufferPool.writeToPage(pageId, (view) => {
+        indexInfoStruct.writeAt([heapPageFilePageId, rootNodeId], view, 0)
+      })
     }
+    await bufferPool.commit()
     const btree = new BTree<K, V, FileNodeId, FileBackedNodeList<K, V>>(
       {
         order,
@@ -149,13 +154,14 @@ export class BTree<
         isEqual,
         nodes: nodes,
         rootNodeId,
-        onRootNodeChanged: () => {
-          indexInfoStruct.writeAt(
-            [heapPageFilePageId, btree.rootNodeId],
-            view,
-            0,
-          )
-          bufferPool.markDirty(pageId)
+        onRootNodeChanged: async () => {
+          await bufferPool.writeToPage(pageId, (view) => {
+            indexInfoStruct.writeAt(
+              [heapPageFilePageId, btree.rootNodeId],
+              view,
+              0,
+            )
+          })
         },
       },
     )
@@ -234,7 +240,7 @@ export class BTree<
       isEqual: (a: V, b: V) => boolean
       nodes: NodeListT
       rootNodeId: NodeId
-      onRootNodeChanged: () => void
+      onRootNodeChanged: () => Promise<void> | void
     },
   ) {
     this.onRootNodeChanged = onRootNodeChanged

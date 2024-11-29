@@ -15,7 +15,11 @@ export interface IBufferPool {
    */
   getPageView(pageId: PageId): Promise<ReadonlyDataView>
 
-  getWriteablePage(pageId: PageId): Promise<WriteablePage>
+  // getWriteablePage(pageId: PageId): Promise<WriteablePage>
+  writeToPage<R>(
+    pageId: PageId,
+    writer: (view: WriteablePage) => R | Promise<R>,
+  ): R | Promise<R>
 
   markDirty(pageId: PageId): void
   commit(): Promise<void>
@@ -53,9 +57,14 @@ export class InMemoryBufferPool implements IBufferPool {
     return new ReadonlyDataView(page.buffer)
   }
 
-  async getWriteablePage(pageId: PageId): Promise<WriteablePage> {
+  async writeToPage<R>(
+    pageId: PageId,
+    writer: (view: WriteablePage) => Promise<R> | R,
+  ): Promise<R> {
     const page = await this.getPage(pageId)
-    return new WriteablePage(page.buffer)
+    const result = writer(new WriteablePage(page.buffer))
+    this.markDirty(pageId)
+    return result
   }
 
   markDirty(_pageId: PageId): void {
@@ -145,9 +154,14 @@ export class FileBackedBufferPool implements IBufferPool {
     return new ReadonlyDataView(page.buffer)
   }
 
-  async getWriteablePage(pageId: PageId): Promise<WriteablePage> {
+  async writeToPage<R>(
+    pageId: PageId,
+    writer: (view: WriteablePage) => R | Promise<R>,
+  ): Promise<R> {
     const page = await this.getPage(pageId)
-    return new WriteablePage(page.buffer)
+    const result = writer(new WriteablePage(page.buffer))
+    this.markDirty(pageId)
+    return result
   }
 
   markDirty(pageId: PageId): void {

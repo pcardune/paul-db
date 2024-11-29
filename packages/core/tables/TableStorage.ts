@@ -300,15 +300,17 @@ export class HeapFileTableStorage<RowData>
       // but we'll check just in case to make it easier to find bugs.
       throw new Error("Record too large")
     }
-    const view = await this.bufferPool.getWriteablePage(pageId)
-    this.serializer.writeAt(data, view, slot.offset)
+    await this.bufferPool.writeToPage(pageId, (view) => {
+      this.serializer.writeAt(data, view, slot.offset)
+    })
     return { pageId, slotIndex }
   }
 
   async remove(id: HeapFileRowId): Promise<void> {
-    const view = await this.bufferPool.getWriteablePage(id.pageId)
-    const recordPage = new WriteableVariableLengthRecordPage(view)
-    recordPage.freeSlot(id.slotIndex)
+    await this.bufferPool.writeToPage(id.pageId, (view) => {
+      const recordPage = new WriteableVariableLengthRecordPage(view)
+      recordPage.freeSlot(id.slotIndex)
+    })
   }
 
   async commit(): Promise<void> {

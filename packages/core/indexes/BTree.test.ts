@@ -239,15 +239,13 @@ const fixtures: {
 ]
 
 for (const { name, makeBTree } of fixtures) {
-  Deno.test(`BTree (${name})`, async (t) => {
-    await t.step("Starts out empty", async () => {
-      using handle = await makeBTree()
-      const { btree } = handle
-      await assertWellFormedBtree(btree)
-      await btree.insert(1, "Paul")
-      await assertWellFormedBtree(btree)
-    })
+  Deno.test(`[${name}] Starts out empty`, async () => {
+    using handle = await makeBTree()
+    const { btree } = handle
+    await assertWellFormedBtree(btree)
+  })
 
+  Deno.test(`BTree (${name})`, async (t) => {
     await t.step("Does basic operations", async () => {
       using handle = await makeBTree()
       const { btree } = handle

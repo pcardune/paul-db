@@ -42,12 +42,12 @@ class HeaderPageRef {
   }
 
   async set(headerPage: HeaderPage) {
-    const view = await this.bufferPool.getWriteablePage(this.pageId)
-    if (headerPageStruct.sizeof(headerPage) > view.byteLength) {
-      throw new HeaderPageRef.OutOfSpaceError("Header page is out of space")
-    }
-    headerPageStruct.writeAt(headerPage, view, 0)
-    this.bufferPool.markDirty(this.pageId)
+    await this.bufferPool.writeToPage(this.pageId, (view) => {
+      if (headerPageStruct.sizeof(headerPage) > view.byteLength) {
+        throw new HeaderPageRef.OutOfSpaceError("Header page is out of space")
+      }
+      headerPageStruct.writeAt(headerPage, view, 0)
+    })
     return await this.get()
   }
 
@@ -129,15 +129,16 @@ export class HeapPageFile<AllocInfo extends { freeSpace: number }> {
    */
   private async pushNewHeaderPageRef(): Promise<HeaderPageRef> {
     const newHeaderPageId = await this.bufferPool.allocatePage()
-    const dataView = await this.bufferPool.getWriteablePage(newHeaderPageId)
-    headerPageStruct.writeAt(
-      {
-        nextPageId: this.headerPageRef.pageId,
-        entries: [],
-      },
-      dataView,
-      0,
-    )
+    await this.bufferPool.writeToPage(newHeaderPageId, (dataView) => {
+      headerPageStruct.writeAt(
+        {
+          nextPageId: this.headerPageRef.pageId,
+          entries: [],
+        },
+        dataView,
+        0,
+      )
+    })
     this._headerPageRef = new HeaderPageRef(this.bufferPool, newHeaderPageId)
     return this._headerPageRef
   }
@@ -148,11 +149,10 @@ export class HeapPageFile<AllocInfo extends { freeSpace: number }> {
     let headerPage = await this.headerPageRef.get()
     for (const [i, entry] of headerPage.entries.entries()) {
       if (entry.freeSpace >= bytes) {
-        const allocInfo = await this.allocator.allocateSpaceInPage(
-          await this.bufferPool.getWriteablePage(entry.pageId),
-          bytes,
+        const allocInfo = await this.bufferPool.writeToPage(
+          entry.pageId,
+          (pageView) => this.allocator.allocateSpaceInPage(pageView, bytes),
         )
-        this.bufferPool.markDirty(entry.pageId)
         headerPage = await this.headerPageRef.set({
           ...headerPage,
           entries: headerPage.entries.map((e, j) =>
@@ -169,11 +169,10 @@ export class HeapPageFile<AllocInfo extends { freeSpace: number }> {
     }
 
     const newPageId = await this.bufferPool.allocatePage()
-    const allocInfo = await this.allocator.allocateSpaceInPage(
-      await this.bufferPool.getWriteablePage(newPageId),
-      bytes,
+    const allocInfo = await this.bufferPool.writeToPage(
+      newPageId,
+      (pageView) => this.allocator.allocateSpaceInPage(pageView, bytes),
     )
-    this.bufferPool.markDirty(newPageId)
 
     const newEntry = {
       pageId: newPageId,
