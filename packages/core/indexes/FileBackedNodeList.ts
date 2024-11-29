@@ -109,14 +109,10 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
         })`,
     )
     const size = this.leafNodeSerializer.sizeof(data)
-    const buffer = new ArrayBuffer(size)
     const { pageId, allocInfo: { slot, slotIndex } } = await this.heapPageFile
-      .allocateSpace(buffer.byteLength)
-    const page = await this.bufferPool.getPage(pageId)
-    // TODO: instead of writing to buffer first and then copying,
-    // just write directly to the page.
-    this.leafNodeSerializer.writeAt(data, new DataView(buffer), 0)
-    page.set(new Uint8Array(buffer), slot.offset)
+      .allocateSpace(size)
+    const view = await this.bufferPool.getPageView(pageId)
+    this.leafNodeSerializer.writeAt(data, view, slot.offset)
     const nodeId = new FileNodeId({ pageId, slotIndex })
 
     this.bufferPool.markDirty(nodeId.pageId)
@@ -137,14 +133,10 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
     data: { keys: K[]; childrenNodeIds: FileNodeId[] },
   ): Promise<InternalBTreeNode<K, FileNodeId>> {
     const size = this.internalNodeSerializer.sizeof(data)
-    const buffer = new ArrayBuffer(size)
     const { pageId, allocInfo: { slot, slotIndex } } = await this.heapPageFile
-      .allocateSpace(buffer.byteLength)
-    const page = await this.bufferPool.getPage(pageId)
-    // TODO: instead of writing to buffer first and then copying,
-    // just write directly to the page.
-    this.internalNodeSerializer.writeAt(data, new DataView(buffer), 0)
-    page.set(new Uint8Array(buffer), slot.offset)
+      .allocateSpace(size)
+    const view = await this.bufferPool.getPageView(pageId)
+    this.internalNodeSerializer.writeAt(data, view, slot.offset)
 
     const nodeId = new FileNodeId({ pageId, slotIndex })
 
@@ -191,8 +183,8 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
 
   async deleteNode(nodeId: FileNodeId): Promise<void> {
     debugLog(`deleteNode(${nodeId})`)
-    const page = await this.bufferPool.getPage(nodeId.pageId)
-    const recordPage = new VariableLengthRecordPage(new DataView(page.buffer))
+    const view = await this.bufferPool.getPageView(nodeId.pageId)
+    const recordPage = new VariableLengthRecordPage(view)
     recordPage.freeSlot(nodeId.slotIndex)
     this.bufferPool.markDirty(nodeId.pageId)
     this.dirtyNodes.delete(this.cacheKey(nodeId))

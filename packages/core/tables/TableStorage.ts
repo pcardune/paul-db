@@ -242,9 +242,8 @@ export class HeapFileTableStorage<RowData>
       while (currentDirectoryPageRef != null) {
         const directoryPage = await currentDirectoryPageRef.get()
         for (const entry of directoryPage.entries) {
-          const recordPageBuffer = await bufferPool.getPage(entry.pageId)
           const recordPage = new VariableLengthRecordPage(
-            new DataView(recordPageBuffer.buffer),
+            await bufferPool.getPageView(entry.pageId),
           )
           for (
             const [_slot, slotIndex] of recordPage.iterSlots().filter((
@@ -264,12 +263,11 @@ export class HeapFileTableStorage<RowData>
   }
 
   private async getRecordView(id: HeapFileRowId) {
-    const page = await this.bufferPool.getPage(id.pageId)
-    const view = new DataView(page.buffer)
+    const view = await this.bufferPool.getPageView(id.pageId)
     const recordPage = new VariableLengthRecordPage(view)
     const slot = recordPage.getSlotEntry(id.slotIndex)
     if (slot.length === 0) return undefined // this was deleted
-    return new DataView(page.buffer, slot.offset, slot.length)
+    return new DataView(view.buffer, view.byteOffset + slot.offset, slot.length)
   }
 
   async get(id: HeapFileRowId): Promise<RowData | undefined> {
@@ -282,8 +280,7 @@ export class HeapFileTableStorage<RowData>
     id: HeapFileRowId,
     _data: RowData,
   ): Promise<void> {
-    const page = await this.bufferPool.getPage(id.pageId)
-    const view = new DataView(page.buffer)
+    const view = await this.bufferPool.getPageView(id.pageId)
     const recordPage = new VariableLengthRecordPage(view)
     const slot = recordPage.getSlotEntry(id.slotIndex)
     if (slot.length === 0) {
@@ -302,14 +299,13 @@ export class HeapFileTableStorage<RowData>
       // but we'll check just in case to make it easier to find bugs.
       throw new Error("Record too large")
     }
-    const page = await this.bufferPool.getPage(pageId)
-    this.serializer.writeAt(data, new DataView(page.buffer), slot.offset)
+    const view = await this.bufferPool.getPageView(pageId)
+    this.serializer.writeAt(data, view, slot.offset)
     return { pageId, slotIndex }
   }
 
   async remove(id: HeapFileRowId): Promise<void> {
-    const page = await this.bufferPool.getPage(id.pageId)
-    const view = new DataView(page.buffer)
+    const view = await this.bufferPool.getPageView(id.pageId)
     const recordPage = new VariableLengthRecordPage(view)
     recordPage.freeSlot(id.slotIndex)
   }

@@ -52,8 +52,8 @@ describe("FileBackedBufferPool", () => {
     })
 
     it("writes the correct data to disk", async () => {
-      const page = await bufferPool.getPage(pages[1])
-      new DataView(page.buffer).setUint32(0, 0xdeadbeef)
+      const view = await bufferPool.getPageView(pages[1])
+      view.setUint32(0, 0xdeadbeef)
       bufferPool.markDirty(pages[1])
       expect(Deno.statSync(filePath).size).toBe(0)
 
@@ -68,8 +68,8 @@ describe("FileBackedBufferPool", () => {
       let newBufferPool: FileBackedBufferPool
       beforeEach(async () => {
         // copy filePath to a new file
-        const page = await bufferPool.getPage(pages[1])
-        new DataView(page.buffer).setUint32(0, 0xdeadbeef)
+        const view = await bufferPool.getPageView(pages[1])
+        view.setUint32(0, 0xdeadbeef)
         bufferPool.markDirty(pages[1])
         await bufferPool.commit()
         Deno.copyFileSync(filePath, filePath + ".copy")
@@ -87,8 +87,8 @@ describe("FileBackedBufferPool", () => {
       })
 
       it("reads the correct data from disk", async () => {
-        const page = await newBufferPool.getPage(pages[1])
-        expect(new DataView(page.buffer).getUint32(0)).toBe(0xdeadbeef)
+        const view = await newBufferPool.getPageView(pages[1])
+        expect(view.getUint32(0)).toBe(0xdeadbeef)
       })
     })
 

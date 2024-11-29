@@ -52,9 +52,9 @@ class HeaderPageRef {
    * Get the header page at this reference's page ID.
    */
   async get(): Promise<HeaderPage> {
-    const data = await this.bufferPool.getPage(this.pageId)
+    const view = await this.bufferPool.getPageView(this.pageId)
     return headerPageStruct(this.bufferPool.pageSize).readAt(
-      new DataView(data.buffer),
+      view,
       0,
     )
   }
@@ -65,8 +65,7 @@ class HeaderPageRef {
    */
   async pushNew(): Promise<HeaderPageRef> {
     const newHeaderPageId = await this.bufferPool.allocatePage()
-    const headerPageData = await this.bufferPool.getPage(newHeaderPageId)
-    const dataView = new DataView(headerPageData.buffer)
+    const dataView = await this.bufferPool.getPageView(newHeaderPageId)
     headerPageStruct(this.bufferPool.pageSize).writeAt(
       {
         nextPageId: this.pageId,

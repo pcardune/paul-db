@@ -6,7 +6,6 @@ export interface IBufferPool {
   get pageSize(): number
   allocatePage(): Promise<PageId>
   freePage(pageId: PageId): void
-  getPage(pageId: PageId): Promise<Uint8Array>
 
   /**
    * Get a DataView for the given page ID.
@@ -16,25 +15,11 @@ export interface IBufferPool {
   commit(): Promise<void>
 }
 
-abstract class BaseBufferPool implements IBufferPool {
-  abstract get pageSize(): number
-  abstract allocatePage(): Promise<PageId>
-  abstract freePage(pageId: PageId): void
-  abstract getPage(pageId: PageId): Promise<Uint8Array>
-  getPageView(pageId: PageId): Promise<DataView> {
-    return this.getPage(pageId).then((page) => new DataView(page.buffer))
-  }
-  abstract markDirty(pageId: PageId): void
-  abstract commit(): Promise<void>
-}
-
-export class InMemoryBufferPool extends BaseBufferPool implements IBufferPool {
+export class InMemoryBufferPool implements IBufferPool {
   private pages: Map<PageId, Uint8Array> = new Map()
   private freeList: PageId[] = []
 
-  constructor(readonly pageSize: number) {
-    super()
-  }
+  constructor(readonly pageSize: number) {}
 
   allocatePage(): Promise<PageId> {
     if (this.freeList.length > 0) {
@@ -49,12 +34,16 @@ export class InMemoryBufferPool extends BaseBufferPool implements IBufferPool {
     this.freeList.push(pageId)
   }
 
-  getPage(pageId: PageId): Promise<Uint8Array> {
+  private getPage(pageId: PageId): Promise<Uint8Array> {
     const page = this.pages.get(pageId)
     if (!page) {
       throw new Error(`Page ${pageId} not found`)
     }
     return Promise.resolve(page)
+  }
+
+  getPageView(pageId: PageId): Promise<DataView> {
+    return this.getPage(pageId).then((page) => new DataView(page.buffer))
   }
 
   markDirty(_pageId: PageId): void {
@@ -67,8 +56,7 @@ export class InMemoryBufferPool extends BaseBufferPool implements IBufferPool {
   }
 }
 
-export class FileBackedBufferPool extends BaseBufferPool
-  implements IBufferPool {
+export class FileBackedBufferPool implements IBufferPool {
   private pages: Map<PageId, Uint8Array> = new Map()
   private dirtyPages: Set<PageId> = new Set()
   private __lastWrittenFreePageId: PageId = 0n
@@ -78,10 +66,7 @@ export class FileBackedBufferPool extends BaseBufferPool
     readonly pageSize: number,
     private freePageId: PageId,
     private fileOffset: bigint,
-  ) {
-    super()
-    // this.__lastWrittenFreePageId = freePageId
-  }
+  ) {}
 
   static async create(
     file: Deno.FsFile,
@@ -133,7 +118,7 @@ export class FileBackedBufferPool extends BaseBufferPool
     this.freePageId = pageId
   }
 
-  async getPage(pageId: PageId): Promise<Uint8Array> {
+  private async getPage(pageId: PageId): Promise<Uint8Array> {
     const page = this.pages.get(pageId)
     if (page) {
       return Promise.resolve(page)
@@ -141,6 +126,10 @@ export class FileBackedBufferPool extends BaseBufferPool
     const data = await readBytesAt(this.file, pageId, this.pageSize)
     this.pages.set(pageId, data)
     return data
+  }
+
+  getPageView(pageId: PageId): Promise<DataView> {
+    return this.getPage(pageId).then((page) => new DataView(page.buffer))
   }
 
   markDirty(pageId: PageId): void {
