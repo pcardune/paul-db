@@ -15,6 +15,7 @@ import {
   HeapFileTableInfer,
   HeapFileTableStorage,
 } from "../tables/TableStorage.ts"
+import { WriteableDataView } from "../binary/dataview.ts"
 
 const SYSTEM_DB = "system"
 
@@ -312,7 +313,7 @@ export class DbFile {
       )
     } else {
       // read the header
-      const view: DataView = new DataView(
+      const view = new WriteableDataView(
         (await readBytesAt(file, 0, 4096)).buffer,
       )
       const header = headerStruct.readAt(view, 0)

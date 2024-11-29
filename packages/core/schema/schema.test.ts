@@ -12,6 +12,7 @@ import {
 import { StoredRecordForTableSchema } from "./schema.ts"
 import { ColumnTypes } from "./ColumnType.ts"
 import { dumpUint8Buffer } from "../binary/util.ts"
+import { WriteableDataView } from "../binary/dataview.ts"
 
 function assertType<T>(_value: T) {}
 type TypeEquals<Actual, Expected> = Actual extends Expected ? true
@@ -275,7 +276,7 @@ describe("Serializing and deserializing records", () => {
       likesIceCream: true,
     }
     const data = new ArrayBuffer(serializer.sizeof(recordToWrite))
-    const view = new DataView(data)
+    const view = new WriteableDataView(data)
     serializer.writeAt(recordToWrite, view, 0)
     // deno-fmt-ignore
     expect(dumpUint8Buffer(data)).toEqual([

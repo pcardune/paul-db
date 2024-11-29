@@ -71,7 +71,7 @@ describe("HeapPageFile", () => {
     it("links headers pages together, allocating new ones as needed", async () => {
       const initialHeaderPageId = heapPageFile.headerPageRef.pageId
       expect(initialHeaderPageId).toBe(8n)
-      expect(heapPageFile.headerPageRef.getNext()).resolves.toBe(null)
+      expect(await heapPageFile.headerPageRef.getNext()).toBe(null)
       for (let i = 0; i < 100; i++) {
         await heapPageFile.allocateSpace(50)
       }
@@ -82,13 +82,13 @@ describe("HeapPageFile", () => {
         nextPage = await nextPage.getNext()
       }
       expect(pageList).toEqual([
-        5608n,
-        4808n,
-        4008n,
-        3208n,
-        2408n,
-        1608n,
-        808n,
+        5708n,
+        4908n,
+        4108n,
+        3308n,
+        2508n,
+        1708n,
+        908n,
         8n,
       ])
     })

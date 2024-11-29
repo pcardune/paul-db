@@ -1,9 +1,10 @@
 import { Json, JsonRecord } from "../types.ts"
+import { ReadonlyDataView, WriteableDataView } from "./dataview.ts"
 
 export abstract class IStruct<ValueT> {
   abstract sizeof(value: ValueT): number
-  abstract readAt(view: DataView, offset: number): ValueT
-  abstract writeAt(value: ValueT, view: DataView, offset: number): void
+  abstract readAt(view: ReadonlyDataView, offset: number): ValueT
+  abstract writeAt(value: ValueT, view: WriteableDataView, offset: number): void
   abstract array(): IStruct<ValueT[]>
   abstract wrap<Target>(
     toValue: (value: Target) => ValueT,
@@ -12,14 +13,17 @@ export abstract class IStruct<ValueT> {
 
   abstract toJSON(value: ValueT): Json
   abstract fromJSON(json: Json): ValueT
+  abstract emptyValue(): ValueT
 
   toUint8Array(value: ValueT): Uint8Array {
     const size = this.sizeof(value)
     const buffer = new ArrayBuffer(size + 4)
-    const view = new DataView(buffer)
+    const view = new WriteableDataView(buffer)
     this.writeAt(value, view, 0)
     return new Uint8Array(buffer)
   }
+
+  static NoSpaceError = class extends Error {}
 }
 export class VariableWidthStruct<ValueT> extends IStruct<ValueT> {
   /**
@@ -30,17 +34,19 @@ export class VariableWidthStruct<ValueT> extends IStruct<ValueT> {
   /**
    * Writes a value to a DataView.
    */
-  private write: (value: ValueT, view: DataView) => void
+  private write: (value: ValueT, view: WriteableDataView) => void
 
   /**
    * Reads a value from a DataView.
    */
-  private read: (view: DataView) => ValueT
+  private read: (view: ReadonlyDataView) => ValueT
 
   readonly toJSON: (value: ValueT) => Json
   readonly fromJSON: (json: Json) => ValueT
 
-  constructor({ sizeof, write, read, toJSON, fromJSON }: {
+  readonly emptyValue: () => ValueT
+
+  constructor({ sizeof, write, read, toJSON, fromJSON, emptyValue }: {
     /**
      * Calculate the size of this value in bytes.
      * @param value The javascript value to calculate the size of
@@ -48,10 +54,11 @@ export class VariableWidthStruct<ValueT> extends IStruct<ValueT> {
      * that the write and read methods will have access to.
      */
     sizeof: (value: ValueT) => number
-    write: (value: ValueT, view: DataView) => void
-    read: (view: DataView) => ValueT
+    write: (value: ValueT, view: WriteableDataView) => void
+    read: (view: ReadonlyDataView) => ValueT
     toJSON: (value: ValueT) => Json
     fromJSON: (json: Json) => ValueT
+    emptyValue: () => ValueT
   }) {
     super()
     this._sizeof = sizeof
@@ -59,6 +66,7 @@ export class VariableWidthStruct<ValueT> extends IStruct<ValueT> {
     this.read = read
     this.toJSON = toJSON
     this.fromJSON = fromJSON
+    this.emptyValue = emptyValue
   }
 
   sizeof(value: ValueT): number {
@@ -69,35 +77,36 @@ export class VariableWidthStruct<ValueT> extends IStruct<ValueT> {
    * Return the size of the data at the location without
    * reading all of it.
    */
-  sizeAt(view: DataView, offset: number): number {
+  sizeAt(view: ReadonlyDataView, offset: number): number {
     return view.getUint32(offset)
   }
 
-  readAt(view: DataView, offset: number): ValueT {
+  readAt(view: ReadonlyDataView, offset: number): ValueT {
     const size = view.getUint32(offset)
+    if (size === 0) {
+      return this.emptyValue()
+    }
     return this.read(
-      new DataView(view.buffer, view.byteOffset + offset + 4, size),
+      view.slice(offset + 4, size),
     )
   }
 
-  writeAt(value: ValueT, view: DataView, offset: number): void {
+  writeAt(value: ValueT, view: WriteableDataView, offset: number): void {
     const size = this._sizeof(value)
     view.setUint32(offset, size)
     if (size > view.byteLength - offset - 4) {
-      throw new Error(
+      throw new IStruct.NoSpaceError(
         `Need to write ${size} bytes, but only ${
           view.byteLength - offset - 4
         } bytes available in this view`,
       )
     }
-    this.write(
-      value,
-      new DataView(view.buffer, view.byteOffset + offset + 4, size),
-    )
+    this.write(value, view.slice(offset + 4, size))
   }
 
   array(): VariableWidthStruct<ValueT[]> {
-    return new VariableWidthStruct({
+    return new VariableWidthStruct<ValueT[]>({
+      emptyValue: () => [],
       toJSON: (value) => value.map((v) => this.toJSON(v)),
       fromJSON: (json) => {
         if (!Array.isArray(json)) {
@@ -138,12 +147,13 @@ export class VariableWidthStruct<ValueT> extends IStruct<ValueT> {
       fromJSON?: (json: Json) => Target
     } = {},
   ): VariableWidthStruct<Target> {
-    return new VariableWidthStruct({
+    return new VariableWidthStruct<Target>({
       toJSON,
       fromJSON,
       sizeof: (value) => this.sizeof(toValue(value)),
       write: (value, view) => this.writeAt(toValue(value), view, 0),
       read: (view) => toTarget(this.readAt(view, 0)),
+      emptyValue: () => toTarget(this.emptyValue()),
     })
   }
 }
@@ -161,20 +171,20 @@ export class FixedWidthStruct<ValueT> extends IStruct<ValueT> {
   /**
    * Writes a value to a DataView.
    */
-  private write: (value: ValueT, view: DataView) => void
+  private write: (value: ValueT, view: WriteableDataView) => void
 
   /**
    * Reads a value from a DataView.
    */
-  private read: (view: DataView) => ValueT
+  private read: (view: ReadonlyDataView) => ValueT
 
   readonly toJSON: (value: ValueT) => Json
   readonly fromJSON: (json: Json) => ValueT
 
   constructor({ size, write, read, toJSON, fromJSON }: {
     size: number
-    write: (value: ValueT, view: DataView) => void
-    read: (view: DataView) => ValueT
+    write: (value: ValueT, view: WriteableDataView) => void
+    read: (view: ReadonlyDataView) => ValueT
     toJSON: (value: ValueT) => Json
     fromJSON: (json: Json) => ValueT
   }) {
@@ -190,27 +200,29 @@ export class FixedWidthStruct<ValueT> extends IStruct<ValueT> {
     return this.size
   }
 
-  readAt(view: DataView, offset: number): ValueT {
+  override emptyValue(): ValueT {
+    return this.readAt(new WriteableDataView(this.size), 0)
+  }
+
+  readAt(view: ReadonlyDataView, offset: number): ValueT {
     if (offset + this.size > view.byteLength) {
       throw new Error("Reading past the end of the view")
     }
     return this.read(
-      new DataView(view.buffer, view.byteOffset + offset, this.size),
+      view.slice(offset, this.size),
     )
   }
 
-  writeAt(value: ValueT, view: DataView, offset: number): void {
+  writeAt(value: ValueT, view: WriteableDataView, offset: number): void {
     if (offset + this.size > view.byteLength) {
       throw new Error("Writing past the end of the view")
     }
-    this.write(
-      value,
-      new DataView(view.buffer, view.byteOffset + offset, this.size),
-    )
+    this.write(value, view.slice(offset, this.size))
   }
 
   array(): VariableWidthStruct<ValueT[]> {
-    return new VariableWidthStruct({
+    return new VariableWidthStruct<ValueT[]>({
+      emptyValue: () => [],
       toJSON: (value) => value.map((v) => this.toJSON(v)),
       fromJSON: (json) => {
         if (!Array.isArray(json)) {
@@ -365,6 +377,7 @@ function tuple<T extends [IStruct<any>, ...IStruct<any>[]]>(...structs: T) {
   return new VariableWidthStruct<T>({
     toJSON,
     fromJSON,
+    emptyValue: () => structs.map((s) => s.emptyValue()) as T,
     read: (view) => {
       const values = []
       let offset = 0
@@ -405,7 +418,7 @@ function record<V extends Record<string, any>>(
     throw new Error("Duplicate orders in record")
   }
 
-  function read(view: DataView): V {
+  function read(view: ReadonlyDataView): V {
     const obj: Record<string, any> = {}
     let offset = 0
     for (const { key, struct } of asArray) {
@@ -414,7 +427,7 @@ function record<V extends Record<string, any>>(
     }
     return obj as V
   }
-  function write(value: V, view: DataView): void {
+  function write(value: V, view: WriteableDataView): void {
     let offset = 0
     for (const { key, struct } of asArray) {
       struct.writeAt(value[key], view, offset)
@@ -455,6 +468,12 @@ function record<V extends Record<string, any>>(
   }
 
   return new VariableWidthStruct<V>({
+    emptyValue: () => {
+      return asArray.reduce((acc, { key, struct }) => {
+        acc[key] = struct.emptyValue()
+        return acc
+      }, {} as Record<string, any>) as V
+    },
     toJSON,
     fromJSON,
     sizeof: (value) =>
@@ -468,6 +487,7 @@ function record<V extends Record<string, any>>(
 }
 
 const unicodeStringStruct = new VariableWidthStruct<string>({
+  emptyValue: () => "",
   toJSON: (value) => value,
   fromJSON: (json) => {
     if (typeof json !== "string") {
@@ -476,16 +496,10 @@ const unicodeStringStruct = new VariableWidthStruct<string>({
     return json
   },
   read: (view) => {
-    const decoder = new TextDecoder()
-    return decoder.decode(view)
+    return view.decodeText()
   },
   write: (value, view) => {
-    const encoder = new TextEncoder()
-    const bytes = encoder.encode(value)
-    new Uint8Array(view.buffer, view.byteOffset, view.byteLength).set(
-      bytes,
-      0,
-    )
+    view.setFromText(value)
   },
   sizeof: (value) => new TextEncoder().encode(value).length,
 })

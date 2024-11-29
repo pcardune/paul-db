@@ -2,7 +2,7 @@ import { assert, assertEquals, assertNotStrictEquals } from "@std/assert"
 import { Struct } from "../binary/Struct.ts"
 import { FileBackedBufferPool } from "../pages/BufferPool.ts"
 import { HeapPageFile } from "../pages/HeapPageFile.ts"
-import { VariableLengthRecordPage } from "../pages/VariableLengthRecordPage.ts"
+import { ReadonlyVariableLengthRecordPage } from "../pages/VariableLengthRecordPage.ts"
 import { FileBackedNodeList } from "./FileBackedNodeList.ts"
 import { assertStrictEquals } from "@std/assert/strict-equals"
 
@@ -18,7 +18,7 @@ async function makeNodeList() {
   const heapPageFile = new HeapPageFile(
     bufferPool,
     heapPageId,
-    VariableLengthRecordPage.allocator,
+    ReadonlyVariableLengthRecordPage.allocator,
   )
   const nodelist = new FileBackedNodeList<number, string>(
     bufferPool,

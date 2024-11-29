@@ -1,6 +1,9 @@
+import { ReadonlyDataView, WriteableDataView } from "../binary/dataview.ts"
 import { readBytesAt } from "../io.ts"
 
 export type PageId = bigint
+
+class WriteablePage extends WriteableDataView {}
 
 export interface IBufferPool {
   get pageSize(): number
@@ -10,7 +13,10 @@ export interface IBufferPool {
   /**
    * Get a DataView for the given page ID.
    */
-  getPageView(pageId: PageId): Promise<DataView>
+  getPageView(pageId: PageId): Promise<ReadonlyDataView>
+
+  getWriteablePage(pageId: PageId): Promise<WriteablePage>
+
   markDirty(pageId: PageId): void
   commit(): Promise<void>
 }
@@ -42,8 +48,14 @@ export class InMemoryBufferPool implements IBufferPool {
     return Promise.resolve(page)
   }
 
-  getPageView(pageId: PageId): Promise<DataView> {
-    return this.getPage(pageId).then((page) => new DataView(page.buffer))
+  async getPageView(pageId: PageId): Promise<ReadonlyDataView> {
+    const page = await this.getPage(pageId)
+    return new ReadonlyDataView(page.buffer)
+  }
+
+  async getWriteablePage(pageId: PageId): Promise<WriteablePage> {
+    const page = await this.getPage(pageId)
+    return new WriteablePage(page.buffer)
   }
 
   markDirty(_pageId: PageId): void {
@@ -128,8 +140,14 @@ export class FileBackedBufferPool implements IBufferPool {
     return data
   }
 
-  getPageView(pageId: PageId): Promise<DataView> {
-    return this.getPage(pageId).then((page) => new DataView(page.buffer))
+  async getPageView(pageId: PageId): Promise<ReadonlyDataView> {
+    const page = await this.getPage(pageId)
+    return new ReadonlyDataView(page.buffer)
+  }
+
+  async getWriteablePage(pageId: PageId): Promise<WriteablePage> {
+    const page = await this.getPage(pageId)
+    return new WriteablePage(page.buffer)
   }
 
   markDirty(pageId: PageId): void {

@@ -1,6 +1,7 @@
 import { describe, it } from "jsr:@std/testing/bdd"
 import { FixedWidthStruct, Struct, VariableWidthStruct } from "./Struct.ts"
 import { expect } from "jsr:@std/expect"
+import { WriteableDataView } from "./dataview.ts"
 
 const pointStruct = new FixedWidthStruct<{ x: number; y: number }>({
   toJSON: (value) => value,
@@ -18,7 +19,7 @@ const pointStruct = new FixedWidthStruct<{ x: number; y: number }>({
 
 describe("FixedWidthStruct", () => {
   it("lets you read and write values that take a fixed amount of space", () => {
-    const view = new DataView(new ArrayBuffer(pointStruct.size * 4))
+    const view = new WriteableDataView(pointStruct.size * 4)
     pointStruct.writeAt({ x: 1, y: 2 }, view, 0)
     pointStruct.writeAt({ x: 3, y: 4 }, view, pointStruct.size * 1)
     pointStruct.writeAt({ x: 5, y: 6 }, view, pointStruct.size * 2)
@@ -40,14 +41,14 @@ describe("FixedWidthStruct", () => {
   })
 
   it("throws when reading out of bounds", () => {
-    const view = new DataView(new ArrayBuffer(pointStruct.size * 4))
+    const view = new WriteableDataView(new ArrayBuffer(pointStruct.size * 4))
     expect(() => pointStruct.readAt(view, pointStruct.size * 4)).toThrow(
       "Reading past the end of the view",
     )
   })
 
   it("throws when writing out of bounds", () => {
-    const view = new DataView(new ArrayBuffer(pointStruct.size * 4))
+    const view = new WriteableDataView(new ArrayBuffer(pointStruct.size * 4))
     expect(() =>
       pointStruct.writeAt({ x: 1, y: 2 }, view, pointStruct.size * 4)
     ).toThrow(
@@ -66,7 +67,7 @@ describe("FixedWidthStruct", () => {
         { x: 7, y: 8 },
       ]
 
-      const view = new DataView(
+      const view = new WriteableDataView(
         new ArrayBuffer(pointArrayStruct.sizeof(points)),
       )
 
@@ -87,6 +88,7 @@ describe("VariableWidthStruct", () => {
     toJSON: (value) => value,
     fromJSON: (json) => json as { x: number; y: number }[],
     sizeof: (value) => pointStruct.size * value.length,
+    emptyValue: () => [],
     write(value, view) {
       for (let i = 0; i < value.length; i++) {
         pointStruct.writeAt(value[i], view, i * pointStruct.size)
@@ -114,7 +116,9 @@ describe("VariableWidthStruct", () => {
   })
 
   it("lets you read and write values that take a variable amount of space", () => {
-    const view = new DataView(new ArrayBuffer(pointListStruct.sizeof(points)))
+    const view = new WriteableDataView(
+      new ArrayBuffer(pointListStruct.sizeof(points)),
+    )
 
     pointListStruct.writeAt(
       points,
@@ -129,6 +133,14 @@ describe("VariableWidthStruct", () => {
       { x: 7, y: 8 },
     ])
   })
+
+  it("lets you read uninitialized values", () => {
+    const view = new WriteableDataView(
+      new ArrayBuffer(pointListStruct.sizeof([])),
+    )
+    expect(pointListStruct.readAt(view, 0)).toEqual([])
+  })
+
   describe(".array()", () => {
     it("Creates a struct for storing an array of variable-width values", () => {
       const pointMatrixStruct = pointListStruct.array()
@@ -136,7 +148,7 @@ describe("VariableWidthStruct", () => {
         [{ x: 1, y: 2 }, { x: 3, y: 4 }],
         [{ x: 5, y: 6 }, { x: 7, y: 8 }, { x: 9, y: 10 }],
       ]
-      const view = new DataView(
+      const view = new WriteableDataView(
         new ArrayBuffer(pointMatrixStruct.sizeof(pointMatrix)),
       )
       pointMatrixStruct.writeAt(pointMatrix, view, 0)
@@ -157,7 +169,9 @@ describe("TupleStruct", () => {
   it("lets you read and write tuples", () => {
     const data: [number, bigint] = [1, BigInt(2)]
     expect(headerStruct.sizeof(data)).toBe(12)
-    const view = new DataView(new ArrayBuffer(headerStruct.sizeof(data)))
+    const view = new WriteableDataView(
+      new ArrayBuffer(headerStruct.sizeof(data)),
+    )
     headerStruct.writeAt([1, BigInt(2)], view, 0)
     expect(headerStruct.readAt(view, 0)).toEqual([1, BigInt(2)])
   })
@@ -170,7 +184,7 @@ describe("RecordStruct", () => {
   })
 
   it("lets you read and write objects", () => {
-    const view = new DataView(new ArrayBuffer(pointObjectStruct.size))
+    const view = new WriteableDataView(new ArrayBuffer(pointObjectStruct.size))
     pointObjectStruct.writeAt({ x: 1, y: 2 }, view, 0)
     expect(pointObjectStruct.readAt(view, 0)).toEqual({ x: 1, y: 2 })
   })

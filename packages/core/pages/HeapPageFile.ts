@@ -1,5 +1,5 @@
-import { FixedWidthArray } from "../binary/FixedWidthArray.ts"
-import { FixedWidthStruct, Struct } from "../binary/Struct.ts"
+import { WriteableDataView } from "../binary/dataview.ts"
+import { Struct } from "../binary/Struct.ts"
 import { IBufferPool, PageId } from "./BufferPool.ts"
 
 type PageEntry = Readonly<{ pageId: PageId; freeSpace: number }>
@@ -10,33 +10,14 @@ const headerPageEntryStruct = Struct.record<PageEntry>({
 })
 
 type HeaderPage = Readonly<{
-  nextPageId: bigint | null
-  entries: FixedWidthArray<PageEntry>
+  nextPageId: bigint
+  entries: PageEntry[]
 }>
 
-const headerPageStruct = (pageSize: number) =>
-  new FixedWidthStruct<HeaderPage>({
-    toJSON: (_value) => {
-      throw new Error("Not Implemented")
-    },
-    fromJSON: (_json) => {
-      throw new Error("Not Implemented")
-    },
-    size: pageSize,
-    write: (value: Pick<HeaderPage, "nextPageId">, view) => {
-      view.setBigUint64(0, value.nextPageId ?? 0n)
-    },
-    read: (view) => {
-      const nextPageId = view.getBigUint64(0)
-      return ({
-        nextPageId: nextPageId === 0n ? null : nextPageId,
-        entries: new FixedWidthArray(
-          new DataView(view.buffer, 8, view.byteLength - 8),
-          headerPageEntryStruct,
-        ),
-      })
-    },
-  })
+const headerPageStruct = Struct.record<HeaderPage>({
+  nextPageId: [0, Struct.bigUint64],
+  entries: [1, headerPageEntryStruct.array()],
+})
 
 /**
  * This class models the linked list of header pages.
@@ -45,39 +26,29 @@ class HeaderPageRef {
   constructor(
     private bufferPool: IBufferPool,
     readonly pageId: PageId,
-  ) {
-  }
+  ) {}
+
+  static OutOfSpaceError = class extends Error {}
 
   /**
    * Get the header page at this reference's page ID.
    */
   async get(): Promise<HeaderPage> {
     const view = await this.bufferPool.getPageView(this.pageId)
-    return headerPageStruct(this.bufferPool.pageSize).readAt(
+    return headerPageStruct.readAt(
       view,
       0,
     )
   }
 
-  /**
-   * Push a new empty header page onto the linked list. It will be the new
-   * head of the list.
-   */
-  async pushNew(): Promise<HeaderPageRef> {
-    const newHeaderPageId = await this.bufferPool.allocatePage()
-    const dataView = await this.bufferPool.getPageView(newHeaderPageId)
-    headerPageStruct(this.bufferPool.pageSize).writeAt(
-      {
-        nextPageId: this.pageId,
-        entries: FixedWidthArray.empty({
-          type: headerPageEntryStruct,
-          length: 0,
-        }),
-      },
-      dataView,
-      0,
-    )
-    return new HeaderPageRef(this.bufferPool, newHeaderPageId)
+  async set(headerPage: HeaderPage) {
+    const view = await this.bufferPool.getWriteablePage(this.pageId)
+    if (headerPageStruct.sizeof(headerPage) > view.byteLength) {
+      throw new HeaderPageRef.OutOfSpaceError("Header page is out of space")
+    }
+    headerPageStruct.writeAt(headerPage, view, 0)
+    this.bufferPool.markDirty(this.pageId)
+    return await this.get()
   }
 
   /**
@@ -85,7 +56,7 @@ class HeaderPageRef {
    */
   async getNext(): Promise<HeaderPageRef | null> {
     const headerPage = await this.get()
-    if (headerPage.nextPageId === null) {
+    if (headerPage.nextPageId === 0n) {
       return null
     }
     return new HeaderPageRef(this.bufferPool, headerPage.nextPageId)
@@ -104,7 +75,7 @@ class HeaderPageRef {
  */
 export type PageSpaceAllocator<AllocInfo extends { freeSpace: number }> = {
   allocateSpaceInPage: (
-    pageView: DataView,
+    pageView: WriteableDataView,
     numBytes: number,
   ) => AllocInfo | Promise<AllocInfo>
 }
@@ -152,44 +123,86 @@ export class HeapPageFile<AllocInfo extends { freeSpace: number }> {
     return this._headerPageRef
   }
 
+  /**
+   * Push a new empty header page onto the linked list. It will be the new
+   * head of the list.
+   */
+  private async pushNewHeaderPageRef(): Promise<HeaderPageRef> {
+    const newHeaderPageId = await this.bufferPool.allocatePage()
+    const dataView = await this.bufferPool.getWriteablePage(newHeaderPageId)
+    headerPageStruct.writeAt(
+      {
+        nextPageId: this.headerPageRef.pageId,
+        entries: [],
+      },
+      dataView,
+      0,
+    )
+    this._headerPageRef = new HeaderPageRef(this.bufferPool, newHeaderPageId)
+    return this._headerPageRef
+  }
+
   async allocateSpace(
     bytes: number,
   ): Promise<{ pageId: PageId; allocInfo: AllocInfo }> {
     let headerPage = await this.headerPageRef.get()
-    for (const [i, entry] of headerPage.entries.enumerate()) {
+    for (const [i, entry] of headerPage.entries.entries()) {
       if (entry.freeSpace >= bytes) {
         const allocInfo = await this.allocator.allocateSpaceInPage(
-          await this.bufferPool.getPageView(entry.pageId),
+          await this.bufferPool.getWriteablePage(entry.pageId),
           bytes,
         )
         this.bufferPool.markDirty(entry.pageId)
-        headerPage.entries.set(i, {
-          pageId: entry.pageId,
-          freeSpace: allocInfo.freeSpace,
+        headerPage = await this.headerPageRef.set({
+          ...headerPage,
+          entries: headerPage.entries.map((e, j) =>
+            j === i
+              ? {
+                ...e,
+                freeSpace: allocInfo.freeSpace,
+              }
+              : e
+          ),
         })
-        return { pageId: headerPage.entries.get(i).pageId, allocInfo }
+        return { pageId: headerPage.entries[i].pageId, allocInfo }
       }
-    }
-
-    if (headerPage.entries.length >= headerPage.entries.maxLength) {
-      // no room for a new entry in this header page, so we'll allocate a
-      // new header page
-      this._headerPageRef = await this.headerPageRef.pushNew()
-      headerPage = await this._headerPageRef.get()
     }
 
     const newPageId = await this.bufferPool.allocatePage()
     const allocInfo = await this.allocator.allocateSpaceInPage(
-      await this.bufferPool.getPageView(newPageId),
+      await this.bufferPool.getWriteablePage(newPageId),
       bytes,
     )
     this.bufferPool.markDirty(newPageId)
-    headerPage.entries.push({
+
+    const newEntry = {
       pageId: newPageId,
       freeSpace: allocInfo.freeSpace,
+    }
+    try {
+      headerPage = await this.headerPageRef.set({
+        ...headerPage,
+        entries: [...headerPage.entries, newEntry],
+      })
+      return {
+        pageId: headerPage.entries.at(-1)!.pageId,
+        allocInfo,
+      }
+    } catch (e) {
+      if (!(e instanceof HeaderPageRef.OutOfSpaceError)) {
+        throw e
+      }
+    }
+    // no room for a new entry in this header page, so we'll allocate a
+    // new header page
+    const newPageRef = await this.pushNewHeaderPageRef()
+    headerPage = await newPageRef.get()
+    headerPage = await newPageRef.set({
+      ...headerPage,
+      entries: [newEntry],
     })
     return {
-      pageId: headerPage.entries.get(headerPage.entries.length - 1).pageId,
+      pageId: headerPage.entries.at(-1)!.pageId,
       allocInfo,
     }
   }

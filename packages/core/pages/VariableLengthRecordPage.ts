@@ -1,3 +1,4 @@
+import { ReadonlyDataView, WriteableDataView } from "../binary/dataview.ts"
 import { Struct } from "../binary/Struct.ts"
 import { debugJson, debugLog } from "../logging.ts"
 import { PageSpaceAllocator } from "./HeapPageFile.ts"
@@ -24,12 +25,12 @@ export type VariableLengthRecordPageAllocInfo = {
   slotIndex: number
 }
 
-export class VariableLengthRecordPage {
-  constructor(private view: DataView) {}
+export class ReadonlyVariableLengthRecordPage {
+  constructor(private view: ReadonlyDataView) {}
 
   static allocator: PageSpaceAllocator<VariableLengthRecordPageAllocInfo> = {
-    allocateSpaceInPage: (pageView: DataView, numBytes: number) => {
-      const recordPage = new VariableLengthRecordPage(pageView)
+    allocateSpaceInPage: (pageView: WriteableDataView, numBytes: number) => {
+      const recordPage = new WriteableVariableLengthRecordPage(pageView)
       const { slot, slotIndex } = recordPage.allocateSlot(numBytes)
       return {
         freeSpace: recordPage.freeSpace,
@@ -46,10 +47,6 @@ export class VariableLengthRecordPage {
     return this.view.getUint32(this.view.byteLength - 4)
   }
 
-  private set slotCount(value: number) {
-    this.view.setUint32(this.view.byteLength - 4, value)
-  }
-
   /**
    * The offset of the free space in the page.
    *
@@ -60,13 +57,9 @@ export class VariableLengthRecordPage {
     return this.view.getUint32(this.view.byteLength - 8)
   }
 
-  private set freeSpaceOffset(value: number) {
-    this.view.setUint32(this.view.byteLength - 8, value)
-  }
-
-  private getSlotView(slotIndex: number): DataView {
+  private getSlotView(slotIndex: number): ReadonlyDataView {
     const slotOffset = this.view.byteLength - 8 - 8 * (slotIndex + 1)
-    return new DataView(this.view.buffer, this.view.byteOffset + slotOffset, 8)
+    return this.view.slice(slotOffset, 8)
   }
 
   /**
@@ -74,42 +67,6 @@ export class VariableLengthRecordPage {
    */
   getSlotEntry(slotIndex: number): Slot {
     return slotStruct.readAt(this.getSlotView(slotIndex), 0)
-  }
-  private setSlotEntry(slotIndex: number, slot: Slot): void {
-    slotStruct.writeAt(slot, this.getSlotView(slotIndex), 0)
-  }
-
-  /**
-   * Marks a slot as free for future allocations
-   */
-  freeSlot(slotIndex: number): void {
-    debugLog(() => `freeSlot(${slotIndex}) ${debugJson(this.dumpSlots(), 2)}`)
-    if (slotIndex >= this.slotCount) {
-      debugLog(
-        `  -> freeSlot(${slotIndex}) slot index out of bounds, already deleted?`,
-      )
-      return // already deleted
-    }
-    this.setSlotEntry(slotIndex, { offset: 0, length: 0 })
-
-    this.freeSpaceOffset = this.iterSlots().reduce((acc, [slot]) => {
-      if (slot.length === 0) return acc
-      return Math.max(acc, slot.offset + slot.length)
-    }, 0)
-
-    if (slotIndex === this.slotCount - 1) {
-      debugLog(`  -> freeSlot(${slotIndex}) last slot, reducing slot count`)
-      // this is the last slot, lets try to reduce the slot count
-      let i = this.slotCount - 1
-      for (; i >= 0; i--) {
-        if (this.getSlotEntry(i).length > 0) break
-      }
-      this.slotCount = i + 1
-    }
-    debugLog(
-      () =>
-        `  -> freeSlot(${slotIndex}) done ${debugJson(this.dumpSlots(), 2)}`,
-    )
   }
 
   *iterSlots(): Generator<[Slot, number]> {
@@ -153,42 +110,6 @@ export class VariableLengthRecordPage {
   }
 
   /**
-   * Allocate space for `numBytes` bytes in the page and return the slot.
-   * @param numBytes that are needed
-   * @returns a slot with _at least_ `numBytes` of space, though may be bigger
-   * if it reuses an existing slot.
-   */
-  allocateSlot(numBytes: number): { slot: Slot; slotIndex: number } {
-    debugLog(
-      () => `allocateSlot(${numBytes}): ${debugJson(this.dumpSlots(), 2)}`,
-    )
-    if (this.freeSpace < numBytes) {
-      throw new Error("Not enough free space")
-    }
-
-    const firstFreeSlotIndex = this.getFreeSlots().next().value
-
-    const firstFreeBlock =
-      this.getFreeBlocks().filter((block) => block.length >= numBytes).next()
-        .value
-    let slot: Slot
-    if (firstFreeBlock == null) {
-      slot = { offset: this.freeSpaceOffset, length: numBytes }
-      this.freeSpaceOffset += numBytes
-    } else {
-      slot = { offset: firstFreeBlock.offset, length: numBytes }
-    }
-
-    if (firstFreeSlotIndex == null) {
-      this.setSlotEntry(this.slotCount, slot)
-      this.slotCount++
-      return { slot, slotIndex: this.slotCount - 1 }
-    }
-    this.setSlotEntry(firstFreeSlotIndex, slot)
-    return { slot, slotIndex: firstFreeSlotIndex }
-  }
-
-  /**
    * The number of bytes of free space in the page.
    *
    * This takes into account the fact that an allocation _might_ need to
@@ -209,13 +130,101 @@ export class VariableLengthRecordPage {
   get footerSize(): number {
     return 8 + slotStruct.size * this.slotCount
   }
+}
 
-  get nextSlotSpace(): DataView {
-    return new DataView(
-      this.view.buffer,
-      this.view.byteOffset + this.view.byteLength - this.footerSize -
-        slotStruct.size,
-      slotStruct.size,
+export class WriteableVariableLengthRecordPage
+  extends ReadonlyVariableLengthRecordPage {
+  constructor(private writeableView: WriteableDataView) {
+    super(writeableView)
+  }
+
+  private setSlotCount(value: number) {
+    this.writeableView.setUint32(this.writeableView.byteLength - 4, value)
+  }
+
+  private setFreeSpaceOffset(value: number) {
+    this.writeableView.setUint32(this.writeableView.byteLength - 8, value)
+  }
+
+  private getWriteableSlotView(slotIndex: number): WriteableDataView {
+    const slotOffset = this.writeableView.byteLength - 8 - 8 * (slotIndex + 1)
+    return this.writeableView.slice(slotOffset, 8)
+  }
+
+  private setSlotEntry(slotIndex: number, slot: Slot): void {
+    slotStruct.writeAt(slot, this.getWriteableSlotView(slotIndex), 0)
+  }
+
+  /**
+   * Marks a slot as free for future allocations
+   */
+  freeSlot(slotIndex: number): void {
+    debugLog(() => `freeSlot(${slotIndex}) ${debugJson(this.dumpSlots(), 2)}`)
+    if (slotIndex >= this.slotCount) {
+      debugLog(
+        `  -> freeSlot(${slotIndex}) slot index out of bounds, already deleted?`,
+      )
+      return // already deleted
+    }
+    this.setSlotEntry(slotIndex, { offset: 0, length: 0 })
+
+    this.setFreeSpaceOffset(
+      this.iterSlots().reduce((acc, [slot]) => {
+        if (slot.length === 0) return acc
+        return Math.max(acc, slot.offset + slot.length)
+      }, 0),
     )
+
+    if (slotIndex === this.slotCount - 1) {
+      debugLog(`  -> freeSlot(${slotIndex}) last slot, reducing slot count`)
+      // this is the last slot, lets try to reduce the slot count
+      let i = this.slotCount - 1
+      for (; i >= 0; i--) {
+        if (this.getSlotEntry(i).length > 0) break
+      }
+      this.setSlotCount(i + 1)
+    }
+    debugLog(
+      () =>
+        `  -> freeSlot(${slotIndex}) done ${debugJson(this.dumpSlots(), 2)}`,
+    )
+  }
+
+  /**
+   * Allocate space for `numBytes` bytes in the page and return the slot.
+   * @param numBytes that are needed
+   * @returns a slot with _at least_ `numBytes` of space, though may be bigger
+   * if it reuses an existing slot.
+   */
+  allocateSlot(numBytes: number): { slot: Slot; slotIndex: number } {
+    debugLog(
+      () => `allocateSlot(${numBytes}): ${debugJson(this.dumpSlots(), 2)}`,
+    )
+    if (this.freeSpace < numBytes) {
+      throw new Error(
+        `Not enough free space want ${numBytes} have ${this.freeSpace}`,
+      )
+    }
+
+    const firstFreeSlotIndex = this.getFreeSlots().next().value
+
+    const firstFreeBlock =
+      this.getFreeBlocks().filter((block) => block.length >= numBytes).next()
+        .value
+    let slot: Slot
+    if (firstFreeBlock == null) {
+      slot = { offset: this.freeSpaceOffset, length: numBytes }
+      this.setFreeSpaceOffset(this.freeSpaceOffset + numBytes)
+    } else {
+      slot = { offset: firstFreeBlock.offset, length: numBytes }
+    }
+
+    if (firstFreeSlotIndex == null) {
+      this.setSlotEntry(this.slotCount, slot)
+      this.setSlotCount(this.slotCount + 1)
+      return { slot, slotIndex: this.slotCount - 1 }
+    }
+    this.setSlotEntry(firstFreeSlotIndex, slot)
+    return { slot, slotIndex: firstFreeSlotIndex }
   }
 }

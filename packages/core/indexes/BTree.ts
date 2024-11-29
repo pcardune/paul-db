@@ -8,7 +8,7 @@ import {
 } from "./BTreeNode.ts"
 import { IBufferPool, PageId } from "../pages/BufferPool.ts"
 import { HeapPageFile } from "../pages/HeapPageFile.ts"
-import { VariableLengthRecordPage } from "../pages/VariableLengthRecordPage.ts"
+import { ReadonlyVariableLengthRecordPage } from "../pages/VariableLengthRecordPage.ts"
 import { FileNodeId, fileNodeIdStruct } from "./Serializers.ts"
 import { IStruct, Struct } from "../binary/Struct.ts"
 import { FileBackedNodeList } from "./FileBackedNodeList.ts"
@@ -100,7 +100,7 @@ export class BTree<
       isEqual = (a, b) => a === b,
     }: InMemoryBTreeConfig<K, V> = {},
   ) {
-    const view = await bufferPool.getPageView(pageId)
+    const view = await bufferPool.getWriteablePage(pageId)
     const indexInfoStruct = Struct.tuple(
       Struct.bigUint64, // heapPageFile page id
       fileNodeIdStruct, // root node id
@@ -119,7 +119,7 @@ export class BTree<
     const heapPageFile = new HeapPageFile(
       bufferPool,
       heapPageFilePageId,
-      VariableLengthRecordPage.allocator,
+      ReadonlyVariableLengthRecordPage.allocator,
     )
     const nodes = new FileBackedNodeList<K, V>(
       bufferPool,

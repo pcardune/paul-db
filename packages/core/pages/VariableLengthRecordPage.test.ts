@@ -1,15 +1,18 @@
 import { beforeEach, describe, it } from "jsr:@std/testing/bdd"
-import { VariableLengthRecordPage } from "./VariableLengthRecordPage.ts"
+import { WriteableVariableLengthRecordPage } from "./VariableLengthRecordPage.ts"
 import { expect } from "jsr:@std/expect"
 import { randomIntegerBetween, randomSeeded } from "@std/random"
+import { WriteableDataView } from "../binary/dataview.ts"
 
 describe("VariableLengthRecordPage", () => {
-  let page: VariableLengthRecordPage
+  let page: WriteableVariableLengthRecordPage
   let buffer: ArrayBuffer
   const pageSize = 4 * 20
 
   function assertWellFormedPage(buffer: ArrayBuffer) {
-    const page = new VariableLengthRecordPage(new DataView(buffer))
+    const page = new WriteableVariableLengthRecordPage(
+      new WriteableDataView(buffer),
+    )
     expect(page.freeSpaceOffset).toBeGreaterThanOrEqual(0)
     expect(page.freeSpaceOffset).toBeLessThanOrEqual(buffer.byteLength)
     expect(page.slotCount).toBeGreaterThanOrEqual(0)
@@ -36,8 +39,8 @@ describe("VariableLengthRecordPage", () => {
   }
 
   beforeEach(() => {
-    buffer = new Uint32Array(pageSize / 4).buffer
-    page = new VariableLengthRecordPage(new DataView(buffer))
+    buffer = new ArrayBuffer(pageSize)
+    page = new WriteableVariableLengthRecordPage(new WriteableDataView(buffer))
   })
 
   it("Starts out empty", () => {
@@ -191,7 +194,9 @@ describe("VariableLengthRecordPage", () => {
   it("Can do a lot of random allocations and frees and maintain structural integrity", () => {
     const prng = randomSeeded(0n)
     const buffer = new ArrayBuffer(4092)
-    const page = new VariableLengthRecordPage(new DataView(buffer))
+    const page = new WriteableVariableLengthRecordPage(
+      new WriteableDataView(buffer),
+    )
     for (let i = 0; i < 1000; i++) {
       const action = randomIntegerBetween(0, 1, { prng })
       if (action === 0 && page.freeSpace > 0) {

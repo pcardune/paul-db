@@ -1,5 +1,5 @@
 import { expect } from "jsr:@std/expect"
-import { FixedWidthArray } from "./FixedWidthArray.ts"
+import { ReadableFixedWidthArray } from "./FixedWidthArray.ts"
 import { describe, it } from "jsr:@std/testing/bdd"
 import { FixedWidthStruct } from "./Struct.ts"
 
@@ -19,14 +19,17 @@ const pointType = new FixedWidthStruct<{ x: number; y: number }>({
 
 describe("Creating FixedWidthArray", () => {
   it("can create an empty array that can hold a given number of element", () => {
-    const array = FixedWidthArray.empty({ length: 10, type: pointType })
+    const array = ReadableFixedWidthArray.empty({ length: 10, type: pointType })
     expect(array.length).toBe(0)
     expect(array.maxLength).toBe(10)
     expect(array.bufferSize).toBe(4 + 10 * 8)
   })
 
   it("can create an empty array with a given buffer size", () => {
-    const array = FixedWidthArray.empty({ bufferSize: 100, type: pointType })
+    const array = ReadableFixedWidthArray.empty({
+      bufferSize: 100,
+      type: pointType,
+    })
     expect(array.length).toBe(0)
     expect(array.maxLength).toBe(12)
     expect(array.bufferSize).toBe(100)
@@ -35,7 +38,7 @@ describe("Creating FixedWidthArray", () => {
 
 describe("Reading and Writing", () => {
   it("lets you push and pop elements", () => {
-    const array = FixedWidthArray.empty({ length: 10, type: pointType })
+    const array = ReadableFixedWidthArray.empty({ length: 10, type: pointType })
     array.push({ x: 1, y: 2 })
     array.push({ x: 3, y: 4 })
     expect(array.length).toBe(2)
@@ -46,7 +49,7 @@ describe("Reading and Writing", () => {
   })
 
   it("lets you read and write elements", () => {
-    const array = FixedWidthArray.empty({ length: 10, type: pointType })
+    const array = ReadableFixedWidthArray.empty({ length: 10, type: pointType })
     array.push({ x: 1, y: 2 })
     array.push({ x: 3, y: 4 })
     expect(array.get(0)).toEqual({ x: 1, y: 2 })
@@ -56,13 +59,13 @@ describe("Reading and Writing", () => {
   })
 
   it("throws when reading or writing out of bounds", () => {
-    const array = FixedWidthArray.empty({ length: 10, type: pointType })
+    const array = ReadableFixedWidthArray.empty({ length: 10, type: pointType })
     expect(() => array.get(10)).toThrow("Index out of bounds")
     expect(() => array.set(10, { x: 1, y: 2 })).toThrow("Index out of bounds")
   })
 
   it("lets you iterate over elements", () => {
-    const array = FixedWidthArray.empty({ length: 10, type: pointType })
+    const array = ReadableFixedWidthArray.empty({ length: 10, type: pointType })
     array.push({ x: 1, y: 2 })
     array.push({ x: 3, y: 4 })
     expect([...array]).toEqual([{ x: 1, y: 2 }, { x: 3, y: 4 }])

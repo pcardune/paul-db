@@ -69,6 +69,9 @@ export function keyValsStruct<K, V>(
     fromJSON: (_json) => {
       throw new Error("Not Implemented")
     },
+    emptyValue: () => {
+      throw new Error("Not Implemented")
+    },
     sizeof: (value) => {
       return keySerializer.sizeof(value.key) +
         valArraySerializer.sizeof(value.vals)
@@ -120,6 +123,9 @@ export function leafBTreeNodeStruct<K, V>(
       throw new Error("Not Implemented")
     },
     fromJSON: (_json) => {
+      throw new Error("Not Implemented")
+    },
+    emptyValue: () => {
       throw new Error("Not Implemented")
     },
     sizeof: (value) => {
@@ -186,6 +192,9 @@ export function internalBTreeNodeStruct<K>(keySerializer: IStruct<K>) {
       throw new Error("Not Implemented")
     },
     fromJSON: (_json) => {
+      throw new Error("Not Implemented")
+    },
+    emptyValue: () => {
       throw new Error("Not Implemented")
     },
     sizeof: (value) => {

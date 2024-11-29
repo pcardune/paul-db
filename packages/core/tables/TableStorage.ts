@@ -6,8 +6,9 @@ import { Index } from "../indexes/Index.ts"
 import { IBufferPool, PageId } from "../pages/BufferPool.ts"
 import { HeaderPageRef, HeapPageFile } from "../pages/HeapPageFile.ts"
 import {
-  VariableLengthRecordPage,
+  ReadonlyVariableLengthRecordPage,
   VariableLengthRecordPageAllocInfo,
+  WriteableVariableLengthRecordPage,
 } from "../pages/VariableLengthRecordPage.ts"
 import {
   makeTableSchemaSerializer,
@@ -242,7 +243,7 @@ export class HeapFileTableStorage<RowData>
       while (currentDirectoryPageRef != null) {
         const directoryPage = await currentDirectoryPageRef.get()
         for (const entry of directoryPage.entries) {
-          const recordPage = new VariableLengthRecordPage(
+          const recordPage = new ReadonlyVariableLengthRecordPage(
             await bufferPool.getPageView(entry.pageId),
           )
           for (
@@ -264,10 +265,10 @@ export class HeapFileTableStorage<RowData>
 
   private async getRecordView(id: HeapFileRowId) {
     const view = await this.bufferPool.getPageView(id.pageId)
-    const recordPage = new VariableLengthRecordPage(view)
+    const recordPage = new ReadonlyVariableLengthRecordPage(view)
     const slot = recordPage.getSlotEntry(id.slotIndex)
     if (slot.length === 0) return undefined // this was deleted
-    return new DataView(view.buffer, view.byteOffset + slot.offset, slot.length)
+    return view.slice(slot.offset, slot.length)
   }
 
   async get(id: HeapFileRowId): Promise<RowData | undefined> {
@@ -281,7 +282,7 @@ export class HeapFileTableStorage<RowData>
     _data: RowData,
   ): Promise<void> {
     const view = await this.bufferPool.getPageView(id.pageId)
-    const recordPage = new VariableLengthRecordPage(view)
+    const recordPage = new ReadonlyVariableLengthRecordPage(view)
     const slot = recordPage.getSlotEntry(id.slotIndex)
     if (slot.length === 0) {
       throw new Error("Cannot set a deleted record")
@@ -299,14 +300,14 @@ export class HeapFileTableStorage<RowData>
       // but we'll check just in case to make it easier to find bugs.
       throw new Error("Record too large")
     }
-    const view = await this.bufferPool.getPageView(pageId)
+    const view = await this.bufferPool.getWriteablePage(pageId)
     this.serializer.writeAt(data, view, slot.offset)
     return { pageId, slotIndex }
   }
 
   async remove(id: HeapFileRowId): Promise<void> {
-    const view = await this.bufferPool.getPageView(id.pageId)
-    const recordPage = new VariableLengthRecordPage(view)
+    const view = await this.bufferPool.getWriteablePage(id.pageId)
+    const recordPage = new WriteableVariableLengthRecordPage(view)
     recordPage.freeSlot(id.slotIndex)
   }
 
@@ -327,7 +328,7 @@ export class HeapFileTableStorage<RowData>
     const heapPageFile = new HeapPageFile(
       bufferPool,
       heapPageId,
-      VariableLengthRecordPage.allocator,
+      ReadonlyVariableLengthRecordPage.allocator,
     )
 
     const indexes = new Map<string, Index<unknown, HeapFileRowId, INodeId>>()

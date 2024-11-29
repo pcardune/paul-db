@@ -1,10 +1,11 @@
+import { ReadonlyDataView, WriteableDataView } from "../binary/dataview.ts"
 import { IStruct } from "../binary/Struct.ts"
 import { debugJson, debugLog } from "../logging.ts"
 import { IBufferPool } from "../pages/BufferPool.ts"
 import { HeapPageFile } from "../pages/HeapPageFile.ts"
 import {
-  VariableLengthRecordPage,
   VariableLengthRecordPageAllocInfo,
+  WriteableVariableLengthRecordPage,
 } from "../pages/VariableLengthRecordPage.ts"
 import { BTreeNode, InternalBTreeNode, LeafBTreeNode } from "./BTreeNode.ts"
 import { INodeList } from "./NodeList.ts"
@@ -31,14 +32,19 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
     this.internalNodeSerializer = internalBTreeNodeStruct(keyStruct)
   }
 
-  // TODO: this was copied from HeapFileTableStorage,
-  // so maybe it should be refactored into a shared utility
-  private async getRecordView(id: FileNodeId) {
-    const view = await this.bufferPool.getPageView(id.pageId)
-    const recordPage = new VariableLengthRecordPage(view)
+  // this is only here for types safety
+  private getRecordView(id: FileNodeId): Promise<ReadonlyDataView | undefined> {
+    return this.getWriteableRecordView(id)
+  }
+
+  private async getWriteableRecordView(
+    id: FileNodeId,
+  ): Promise<WriteableDataView | undefined> {
+    const view = await this.bufferPool.getWriteablePage(id.pageId)
+    const recordPage = new WriteableVariableLengthRecordPage(view)
     const slot = recordPage.getSlotEntry(id.slotIndex)
     if (slot.length === 0) return undefined // this was deleted
-    return new DataView(view.buffer, view.byteOffset + slot.offset, slot.length)
+    return view.slice(slot.offset, slot.length)
   }
 
   async get(nodeId: FileNodeId): Promise<BTreeNode<K, V, FileNodeId>> {
@@ -111,7 +117,7 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
     const size = this.leafNodeSerializer.sizeof(data)
     const { pageId, allocInfo: { slot, slotIndex } } = await this.heapPageFile
       .allocateSpace(size)
-    const view = await this.bufferPool.getPageView(pageId)
+    const view = await this.bufferPool.getWriteablePage(pageId)
     this.leafNodeSerializer.writeAt(data, view, slot.offset)
     const nodeId = new FileNodeId({ pageId, slotIndex })
 
@@ -135,7 +141,7 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
     const size = this.internalNodeSerializer.sizeof(data)
     const { pageId, allocInfo: { slot, slotIndex } } = await this.heapPageFile
       .allocateSpace(size)
-    const view = await this.bufferPool.getPageView(pageId)
+    const view = await this.bufferPool.getWriteablePage(pageId)
     this.internalNodeSerializer.writeAt(data, view, slot.offset)
 
     const nodeId = new FileNodeId({ pageId, slotIndex })
@@ -156,7 +162,7 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
   async commit(): Promise<void> {
     debugLog("INodeLIst.commit()")
     for (const node of this.dirtyNodes.values()) {
-      const view = await this.getRecordView(node.nodeId)
+      const view = await this.getWriteableRecordView(node.nodeId)
       if (view == null) throw new Error("Node not found")
       if (node instanceof LeafBTreeNode) {
         const size = this.leafNodeSerializer.sizeof(node)
@@ -183,8 +189,8 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
 
   async deleteNode(nodeId: FileNodeId): Promise<void> {
     debugLog(`deleteNode(${nodeId})`)
-    const view = await this.bufferPool.getPageView(nodeId.pageId)
-    const recordPage = new VariableLengthRecordPage(view)
+    const view = await this.bufferPool.getWriteablePage(nodeId.pageId)
+    const recordPage = new WriteableVariableLengthRecordPage(view)
     recordPage.freeSlot(nodeId.slotIndex)
     this.bufferPool.markDirty(nodeId.pageId)
     this.dirtyNodes.delete(this.cacheKey(nodeId))
