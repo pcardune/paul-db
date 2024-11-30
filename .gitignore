@@ -1,2 +1,5 @@
 coverage
 test_output
+
+# npm dependencies
+node_modules/

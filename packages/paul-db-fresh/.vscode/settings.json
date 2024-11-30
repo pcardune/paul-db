@@ -1,12 +1,11 @@
 {
   "deno.enable": true,
   "deno.lint": true,
-  "editor.formatOnSave": true,
   "editor.defaultFormatter": "denoland.vscode-deno",
-  "[typescript]": {
+  "[typescriptreact]": {
     "editor.defaultFormatter": "denoland.vscode-deno"
   },
-  "[typescriptreact]": {
+  "[typescript]": {
     "editor.defaultFormatter": "denoland.vscode-deno"
   },
   "[javascriptreact]": {
@@ -15,5 +14,7 @@
   "[javascript]": {
     "editor.defaultFormatter": "denoland.vscode-deno"
   },
-  "css.customData": [".vscode/tailwind.json"]
+  "css.customData": [
+    ".vscode/tailwind.json"
+  ]
 }
