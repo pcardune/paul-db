@@ -30,4 +30,31 @@ new Command().name("paul-db").version("0.0.1")
           await startRepl(db)
         },
       ),
-  ).parse(["deno", "main.ts", ...Deno.args])
+  )
+  .addCommand(
+    program
+      .command("export")
+      .argument("<dir>", "The directory to export")
+      .argument("[output]", "The output file")
+      .option("--table <table>", "The table to export")
+      .option("--dbName <dbName>", "The db to export", "default")
+      .option("--recordsOnly", "Don't export table metadata")
+      .action(async (dir, output, { table, dbName, recordsOnly }) => {
+        using db = await PaulDB.open(dir)
+        if (output) {
+          await Deno.open(output, { create: true, write: true, truncate: true })
+        }
+        for await (const record of db.dbFile.export({ table, db: dbName })) {
+          const json = JSON.stringify(recordsOnly ? record.record : record)
+
+          if (output) {
+            await Deno.writeTextFile(output, json + "\n", {
+              append: true,
+            })
+          } else {
+            console.log(json)
+          }
+        }
+      }),
+  )
+  .parse(["deno", "main.ts", ...Deno.args])

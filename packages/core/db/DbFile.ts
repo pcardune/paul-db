@@ -16,6 +16,7 @@ import {
   HeapFileTableStorage,
 } from "../tables/TableStorage.ts"
 import { ReadonlyDataView } from "../binary/dataview.ts"
+import { debugLog } from "../logging.ts"
 
 const SYSTEM_DB = "system"
 
@@ -241,6 +242,33 @@ export class DbFile {
       )
     }
     return storage
+  }
+
+  async *export(filter: { db?: string; table?: string } = {}) {
+    debugLog("DbFile.export()")
+    const tables = await this.tablesTable.iterate().toArray()
+    for (const tableRecord of tables) {
+      if (filter.db && tableRecord.db !== filter.db) {
+        continue
+      }
+      if (filter.table && tableRecord.name !== filter.table) {
+        continue
+      }
+      debugLog("  -> Exporting", tableRecord)
+      const schemas = await this.getSchemas(tableRecord.db, tableRecord.name)
+      if (schemas.length === 0) {
+        console.warn("No schema found for", tableRecord)
+        continue
+      }
+      const storage = await this.getTableStorage(
+        schemas[0].schema,
+        tableRecord.db,
+      )
+      for await (const [_rowId, record] of storage.data.iterate()) {
+        const json = storage.data.serializer.toJSON(record)
+        yield { table: tableRecord.name, db: tableRecord.db, record: json }
+      }
+    }
   }
 
   static async open(

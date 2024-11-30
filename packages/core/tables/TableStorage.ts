@@ -229,7 +229,7 @@ export class HeapFileTableStorage<RowData>
   private constructor(
     private bufferPool: IBufferPool,
     private heapPageFile: HeapPageFile<VariableLengthRecordPageAllocInfo>,
-    private serializer: IStruct<RowData>,
+    readonly serializer: IStruct<RowData>,
   ) {
   }
 

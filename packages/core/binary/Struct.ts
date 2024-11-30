@@ -408,11 +408,16 @@ function record<V extends Record<string, any>>(
 function record<V extends Record<string, any>>(
   structs: { [property in keyof V]: [number, IStruct<V[property]>] },
 ): IStruct<V> {
-  const asArray = Object.entries(structs).map(([key, [order, struct]]) => ({
-    key,
-    order,
-    struct,
-  })).sort((a, b) => a.order - b.order)
+  const asArray = Object.entries(structs).map(
+    (entry: [string, [number, IStruct<unknown>]]) => {
+      const [key, [order, struct]] = entry
+      return ({
+        key,
+        order,
+        struct,
+      })
+    },
+  ).sort((a, b) => a.order - b.order)
   const orderSet = new Set(asArray.map((x) => x.order))
   if (orderSet.size !== asArray.length) {
     throw new Error("Duplicate orders in record")
