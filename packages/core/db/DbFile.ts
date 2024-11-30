@@ -15,7 +15,7 @@ import {
   HeapFileTableInfer,
   HeapFileTableStorage,
 } from "../tables/TableStorage.ts"
-import { WriteableDataView } from "../binary/dataview.ts"
+import { ReadonlyDataView } from "../binary/dataview.ts"
 
 const SYSTEM_DB = "system"
 
@@ -144,6 +144,7 @@ export class DbFile {
       const pageId = await this.bufferPool.allocatePage()
       await this.bufferPool.commit()
       tableRecord = await this.tablesTable.insertAndReturn({
+        id: `${db}.${schema.name}`,
         name: schema.name,
         heapPageId: pageId,
         db,
@@ -180,6 +181,7 @@ export class DbFile {
       throw new Error(`Table ${schema.name} not found`)
     }
     const schemaRecord = await schemaTable.insertAndReturn({
+      id: `${table.id}@0`,
       tableId: table.id,
       version: 0,
     })
@@ -313,8 +315,8 @@ export class DbFile {
       )
     } else {
       // read the header
-      const view = new WriteableDataView(
-        (await readBytesAt(file, 0, 4096)).buffer,
+      const view = new ReadonlyDataView(
+        (await readBytesAt(file, 0, headerStruct.size)).buffer,
       )
       const header = headerStruct.readAt(view, 0)
       const { pageSize: pageSize } = header
@@ -364,36 +366,38 @@ export class DbFile {
         { id: dbTables_id_IndexPageId, _db_name: dbTables_db_name_IndexPageId },
       ),
     )
-    if (needsCreation) {
-      await dbTablesTable.insertMany([
-        {
-          id: "__dbPageIds",
-          db: SYSTEM_DB,
-          name: "__dbPageIds",
-          heapPageId: headerPageId,
-        },
-        {
-          id: "__dbIndexes",
-          db: SYSTEM_DB,
-          name: "__dbIndexes",
-          heapPageId: dbIndexesIndexPageId,
-        },
-        {
-          id: "__dbTables",
-          db: SYSTEM_DB,
-          name: "__dbTables",
-          heapPageId: dbTables_id_IndexPageId,
-        },
-      ])
-    }
-
-    return new DbFile(
+    const dbFile = new DbFile(
       file,
       bufferPool,
       dbPageIdsTable,
       dbIndexesTable,
       dbTablesTable,
     )
+    if (needsCreation) {
+      await dbFile.tablesTable.insertMany([
+        {
+          id: `${SYSTEM_DB}.__dbPageIds`,
+          db: SYSTEM_DB,
+          name: "__dbPageIds",
+          heapPageId: headerPageId,
+        },
+        {
+          id: `${SYSTEM_DB}.__dbIndexes`,
+          db: SYSTEM_DB,
+          name: "__dbIndexes",
+          heapPageId: dbIndexesIndexPageId,
+        },
+        {
+          id: `${SYSTEM_DB}.__dbTables`,
+          db: SYSTEM_DB,
+          name: "__dbTables",
+          heapPageId: dbTables_id_IndexPageId,
+        },
+      ])
+      await dbFile.getSchemasTable()
+    }
+
+    return dbFile
   }
 
   close() {

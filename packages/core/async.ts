@@ -74,3 +74,46 @@ export class AsyncIterableWrapper<T> {
     return new AsyncIterableWrapper(mapAsync(this.iterable, mapper))
   }
 }
+
+/**
+ * A simple mutex implementation.
+ */
+export class Mutex {
+  private locked = false
+  private queue: (() => void)[] = []
+
+  /**
+   * Acquire the lock. If the lock is already held, this will wait until it is
+   * released.
+   *
+   * @returns A promise that resolves when the lock is acquired.
+   */
+  acquire(): Promise<void> {
+    if (!this.locked) {
+      this.locked = true
+      return Promise.resolve()
+    }
+
+    return new Promise((resolve) => {
+      this.queue.push(resolve)
+    })
+  }
+
+  /**
+   * Release the lock.
+   */
+  release(): void {
+    if (this.queue.length > 0) {
+      this.queue.shift()!()
+    } else {
+      this.locked = false
+    }
+  }
+
+  /**
+   * Whether the lock is currently held.
+   */
+  get isLocked(): boolean {
+    return this.locked
+  }
+}

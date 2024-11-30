@@ -1,7 +1,9 @@
 import { ReadonlyDataView, WriteableDataView } from "../binary/dataview.ts"
 import { Struct } from "../binary/Struct.ts"
 import { EOFError, readBytesAt, writeBytesAt } from "../io.ts"
-import { debugLog } from "../logging.ts"
+import { debugLogger } from "../logging.ts"
+
+const debugLog = debugLogger(false)
 
 export type PageId = bigint
 
@@ -84,6 +86,8 @@ export class FileBackedBufferPool implements IBufferPool {
   private dirtyPages: Set<PageId> = new Set()
   private __lastWrittenFreePageId: PageId = -1n
 
+  static headerStruct = Struct.bigUint64
+
   private constructor(
     private file: Deno.FsFile,
     readonly pageSize: number,
@@ -101,7 +105,15 @@ export class FileBackedBufferPool implements IBufferPool {
     if (stat.size > freePageId + 8n) {
       // when the file is not empty, we need to look at the first
       // 8 bytes to see where the free list starts
-      const freeListData = await readBytesAt(file, offset, 8)
+      const freeListData = await readBytesAt(
+        file,
+        offset,
+        FileBackedBufferPool.headerStruct.size,
+      )
+      freePageId = FileBackedBufferPool.headerStruct.readAt(
+        new ReadonlyDataView(freeListData.buffer),
+        0,
+      )
       freePageId = new DataView(freeListData.buffer).getBigUint64(0)
     }
     return new FileBackedBufferPool(file, pageSize, freePageId, BigInt(offset))
@@ -195,7 +207,7 @@ export class FileBackedBufferPool implements IBufferPool {
       await writeBytesAt(
         this.file,
         this.fileOffset,
-        Struct.bigUint64.toUint8Array(this.freePageId),
+        FileBackedBufferPool.headerStruct.toUint8Array(this.freePageId),
       )
       this.__lastWrittenFreePageId = this.freePageId
     }
@@ -209,11 +221,7 @@ export class FileBackedBufferPool implements IBufferPool {
       if (!data) {
         throw new Error(`Dirty Page ${pageId} not found in page cache`)
       }
-      await this.file.seek(pageId, Deno.SeekMode.Start)
-      const bytesWritten = await this.file.write(data)
-      if (bytesWritten !== this.pageSize) {
-        throw new Error(`Unexpected number of bytes written: ${bytesWritten}`)
-      }
+      await writeBytesAt(this.file, pageId, data)
     }
     this.dirtyPages.clear()
     this._pageCache.clear()

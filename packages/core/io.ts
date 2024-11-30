@@ -1,3 +1,5 @@
+import { Mutex } from "./async.ts"
+
 export class EOFError extends Error {}
 
 /**
@@ -29,6 +31,8 @@ async function readBytes(file: Deno.FsFile, numBytes: number) {
   return buffer
 }
 
+const readMutexes = new Map<Deno.FsFile, Mutex>()
+
 /**
  * Read the given number of bytes from the file at the given offset.
  */
@@ -37,8 +41,19 @@ export async function readBytesAt(
   offset: bigint | number,
   numBytes: number,
 ) {
+  let mutex = readMutexes.get(file)
+  if (!mutex) {
+    mutex = new Mutex()
+    readMutexes.set(file, mutex)
+  }
+  await mutex.acquire()
   await file.seek(offset, Deno.SeekMode.Start)
-  return readBytes(file, numBytes)
+  return readBytes(file, numBytes).finally(() => {
+    mutex.release()
+    if (!mutex.isLocked) {
+      readMutexes.delete(file)
+    }
+  })
 }
 
 export async function writeBytesAt(

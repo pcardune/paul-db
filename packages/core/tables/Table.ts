@@ -248,11 +248,10 @@ export class Table<
     if (computedColumn != null) {
       valueToLookup = computedColumn.compute(value)
     }
-    return Promise.all(
-      (await index.get(valueToLookup)).map((id) => {
-        return this.data.get(id) as Promise<StoredRecordForTableSchema<SchemaT>>
-      }),
-    )
+    const ids = await index.get(valueToLookup)
+    return Promise.all(ids.map((id) => this.data.get(id))) as Promise<
+      StoredRecordForTableSchema<SchemaT>[]
+    >
   }
 
   async lookupComputed<
