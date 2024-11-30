@@ -40,6 +40,13 @@ describe("FixedWidthStruct", () => {
     })
   })
 
+  it("lets you generate a uint8array", () => {
+    const bytes = pointStruct.toUint8Array({ x: 1, y: 2 })
+    expect(new DataView(bytes.buffer).getUint32(0)).toBe(1)
+    expect(new DataView(bytes.buffer).getUint32(4)).toBe(2)
+    expect(bytes.byteLength).toBe(8)
+  })
+
   it("throws when reading out of bounds", () => {
     const view = new WriteableDataView(new ArrayBuffer(pointStruct.size * 4))
     expect(() => pointStruct.readAt(view, pointStruct.size * 4)).toThrow(

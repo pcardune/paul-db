@@ -17,7 +17,7 @@ export abstract class IStruct<ValueT> {
 
   toUint8Array(value: ValueT): Uint8Array {
     const size = this.sizeof(value)
-    const buffer = new ArrayBuffer(size + 4)
+    const buffer = new ArrayBuffer(size)
     const view = new WriteableDataView(buffer)
     this.writeAt(value, view, 0)
     return new Uint8Array(buffer)
