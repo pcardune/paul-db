@@ -1,29 +1,26 @@
 import { afterEach, beforeEach, describe, it } from "jsr:@std/testing/bdd"
 import { FileBackedBufferPool } from "./BufferPool.ts"
 import { expect } from "jsr:@std/expect"
+import { generateTestFilePath } from "../testing.ts"
 
 describe("FileBackedBufferPool", () => {
   let bufferPool: FileBackedBufferPool
-  const filePath = "/tmp/bufferpool"
+  using tempFile = generateTestFilePath("FileBackedBufferPool.data")
   const pageSize = 4096
   beforeEach(async () => {
-    Deno.openSync(filePath, {
-      create: true,
-      write: true,
-      truncate: true,
-    }).close()
     bufferPool = await FileBackedBufferPool.create(
-      await Deno.open(filePath, {
+      await Deno.open(tempFile.filePath, {
         read: true,
         write: true,
         create: true,
+        truncate: true,
       }),
       pageSize,
     )
   })
   afterEach(() => {
     bufferPool.close()
-    Deno.removeSync(filePath)
+    Deno.removeSync(tempFile.filePath)
   })
 
   describe("Allocation", () => {
@@ -37,18 +34,18 @@ describe("FileBackedBufferPool", () => {
 
     it("doesn't write to disk after allocating a page", () => {
       expect(pages).toEqual([8n, BigInt(pageSize) + 8n])
-      expect(Deno.statSync(filePath).size).toBe(0)
+      expect(Deno.statSync(tempFile.filePath).size).toBe(0)
     })
 
     it("writes to disk on commit", async () => {
       await bufferPool.commit()
-      expect(Deno.statSync(filePath).size).toBe(8200)
+      expect(Deno.statSync(tempFile.filePath).size).toBe(8200)
     })
 
     it.skip("writes to disk after marking a page dirty", async () => {
       bufferPool.markDirty(pages[0])
       await bufferPool.commit()
-      expect(Deno.statSync(filePath).size).toBe(4096 + 8)
+      expect(Deno.statSync(tempFile.filePath).size).toBe(4096 + 8)
     })
 
     it("writes the correct data to disk", async () => {
@@ -57,18 +54,27 @@ describe("FileBackedBufferPool", () => {
         (view) => view.setUint32(0, 0xdeadbeef),
       )
       bufferPool.markDirty(pages[1])
-      expect(Deno.statSync(filePath).size).toBe(0)
+      expect(Deno.statSync(tempFile.filePath).size).toBe(0)
 
       // now we commit and the data is written
       await bufferPool.commit()
-      expect(Deno.statSync(filePath).size).toBe(8192 + 8)
-      const data = await readBytesFromFile(filePath, Number(pages[1]), 8)
+      expect(Deno.statSync(tempFile.filePath).size).toBe(8192 + 8)
+      const data = await readBytesFromFile(
+        tempFile.filePath,
+        Number(pages[1]),
+        8,
+      )
       expect(data.getUint32(0)).toBe(0xdeadbeef)
     })
 
     describe("Reading data", () => {
       let newBufferPool: FileBackedBufferPool
+
+      let copyPath: ReturnType<typeof generateTestFilePath>
+
       beforeEach(async () => {
+        copyPath = generateTestFilePath("Btree.data")
+
         // copy filePath to a new file
         await bufferPool.writeToPage(
           pages[1],
@@ -76,9 +82,9 @@ describe("FileBackedBufferPool", () => {
         )
         bufferPool.markDirty(pages[1])
         await bufferPool.commit()
-        Deno.copyFileSync(filePath, filePath + ".copy")
+        Deno.copyFileSync(tempFile.filePath, copyPath.filePath)
         newBufferPool = await FileBackedBufferPool.create(
-          await Deno.open(filePath + ".copy", {
+          await Deno.open(copyPath.filePath, {
             read: true,
             write: true,
             create: true,
@@ -88,6 +94,7 @@ describe("FileBackedBufferPool", () => {
       })
       afterEach(() => {
         newBufferPool.close()
+        copyPath[Symbol.dispose]()
       })
 
       it("reads the correct data from disk", async () => {
@@ -109,9 +116,10 @@ describe("FileBackedBufferPool", () => {
       it("are tracked in the file after commit", async () => {
         await bufferPool.freePage(pages[0])
         await bufferPool.commit()
-        expect(readBytesFromFileSync(filePath, 0, 8).getBigUint64(0)).toBe(
-          pages[0],
-        )
+        expect(readBytesFromFileSync(tempFile.filePath, 0, 8).getBigUint64(0))
+          .toBe(
+            pages[0],
+          )
       })
 
       it("multiple freed pages are linked together", async () => {
@@ -120,13 +128,21 @@ describe("FileBackedBufferPool", () => {
         await bufferPool.freePage(pages[1])
         await bufferPool.freePage(pages[3])
         await bufferPool.commit()
-        const firstFreePage = readBytesFromFileSync(filePath, 0, 8)
+        const firstFreePage = readBytesFromFileSync(tempFile.filePath, 0, 8)
           .getBigUint64(0)
         expect(firstFreePage).toBe(pages[3])
-        const secondFreePage = readBytesFromFileSync(filePath, firstFreePage, 8)
+        const secondFreePage = readBytesFromFileSync(
+          tempFile.filePath,
+          firstFreePage,
+          8,
+        )
           .getBigUint64(0)
         expect(secondFreePage).toBe(pages[1])
-        const thirdFreePage = readBytesFromFileSync(filePath, secondFreePage, 8)
+        const thirdFreePage = readBytesFromFileSync(
+          tempFile.filePath,
+          secondFreePage,
+          8,
+        )
           .getBigUint64(0)
         // the last free page should point to the end of the file
         expect(thirdFreePage).toBe(pages[3] + BigInt(bufferPool.pageSize))

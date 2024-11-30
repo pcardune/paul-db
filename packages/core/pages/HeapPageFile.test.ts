@@ -2,23 +2,20 @@ import { expect } from "jsr:@std/expect"
 import { afterEach, beforeEach, describe, it } from "jsr:@std/testing/bdd"
 import { FileBackedBufferPool } from "./BufferPool.ts"
 import { HeapPageFile } from "./HeapPageFile.ts"
+import { generateTestFilePath } from "../testing.ts"
 
 describe("HeapPageFile", () => {
-  const filePath = "/tmp/heap-page-file-test"
+  const tempFile = generateTestFilePath("HeapPageFile.data")
   const pageSize = 100
   let bufferPool: FileBackedBufferPool
   let heapPageFile: HeapPageFile<{ freeSpace: number }>
   beforeEach(async () => {
-    Deno.openSync(filePath, {
-      create: true,
-      write: true,
-      truncate: true,
-    }).close()
     bufferPool = await FileBackedBufferPool.create(
-      await Deno.open(filePath, {
+      await Deno.open(tempFile.filePath, {
         read: true,
         write: true,
         create: true,
+        truncate: true,
       }),
       pageSize,
     )
@@ -40,7 +37,7 @@ describe("HeapPageFile", () => {
   })
   afterEach(() => {
     bufferPool.close()
-    Deno.removeSync(filePath)
+    Deno.removeSync(tempFile.filePath)
   })
 
   describe("Allocating space", () => {

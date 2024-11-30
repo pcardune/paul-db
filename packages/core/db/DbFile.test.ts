@@ -1,8 +1,13 @@
 import { expect } from "jsr:@std/expect"
 import { DbFile } from "../mod.ts"
+import { generateTestFilePath } from "../testing.ts"
 
 Deno.test("DbFile initialization", async (t) => {
-  using db = await DbFile.open("test.db", { create: true, truncate: true })
+  using tempFile = generateTestFilePath("DbFile.db")
+  using db = await DbFile.open(tempFile.filePath, {
+    create: true,
+    truncate: true,
+  })
   async function dumpState(db: DbFile) {
     const pages = await db.dbPageIdsTable.iterate().toArray()
     const tables = await db.tablesTable.iterate().toArray()
@@ -111,8 +116,8 @@ Deno.test("DbFile initialization", async (t) => {
     await getColumns(db)
   })
 
-  await t.step("Reopening the db yields the same initial state", async (t) => {
-    using db = await DbFile.open("test.db")
+  await t.step("Reopening the db yields the same initial state", async () => {
+    using db = await DbFile.open(tempFile.filePath)
     const newState = await dumpState(db)
     expect(newState).toEqual(initialState)
     await getColumns(db)

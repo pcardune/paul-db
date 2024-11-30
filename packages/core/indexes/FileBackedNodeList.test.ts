@@ -5,14 +5,19 @@ import { HeapPageFile } from "../pages/HeapPageFile.ts"
 import { ReadonlyVariableLengthRecordPage } from "../pages/VariableLengthRecordPage.ts"
 import { FileBackedNodeList } from "./FileBackedNodeList.ts"
 import { assertStrictEquals } from "@std/assert/strict-equals"
+import { generateTestFilePath } from "../testing.ts"
 
 async function makeNodeList() {
-  const file = await Deno.open("/tmp/test.db", {
-    read: true,
-    write: true,
-    create: true,
-    truncate: true,
-  })
+  const tempFile = generateTestFilePath("FileBackedNodeList.data")
+  const file = await Deno.open(
+    tempFile.filePath,
+    {
+      read: true,
+      write: true,
+      create: true,
+      truncate: true,
+    },
+  )
   const bufferPool = await FileBackedBufferPool.create(file, 4096)
   const heapPageId = await bufferPool.allocatePage()
   const heapPageFile = new HeapPageFile(
@@ -26,7 +31,13 @@ async function makeNodeList() {
     Struct.uint32,
     Struct.unicodeStringStruct,
   )
-  return { nodelist, [Symbol.dispose]: () => file.close() }
+  return {
+    nodelist,
+    [Symbol.dispose]: () => {
+      file.close()
+      tempFile[Symbol.dispose]()
+    },
+  }
 }
 
 Deno.test("FileBackedNodeList.createLeafNode()", async (t) => {

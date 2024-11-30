@@ -9,6 +9,7 @@ import {
 } from "./BTreeNode.ts"
 import { Struct } from "../binary/Struct.ts"
 import { FileBackedBufferPool } from "../pages/BufferPool.ts"
+import { generateTestFilePath } from "../testing.ts"
 
 // TODO: consider using expect.extend to make custom matchers for this
 // see https://jsr.io/@std/expect/doc/~/expect.extend
@@ -194,9 +195,9 @@ async function assertWellFormedInternalNode<K, V, NodeId extends INodeId>(
     await assertWellFormedNode(btree, childNode)
   }
 }
-
 const makeInFileBTree = async (order = 2) => {
-  const file = await Deno.open("/tmp/btree.data", {
+  const tempFile = generateTestFilePath("Btree.data")
+  const file = await Deno.open(tempFile.filePath, {
     read: true,
     write: true,
     create: true,
@@ -213,7 +214,8 @@ const makeInFileBTree = async (order = 2) => {
       { order, compare: (a, b) => a - b },
     ),
     [Symbol.dispose]: () => {
-      file.close()
+      file[Symbol.dispose]()
+      tempFile[Symbol.dispose]()
     },
   }
 }

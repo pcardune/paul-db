@@ -15,6 +15,7 @@ import {
 } from "./TableStorage.ts"
 import { ColumnType, ColumnTypes } from "../schema/ColumnType.ts"
 import { DbFile } from "../db/DbFile.ts"
+import { generateTestFilePath } from "../testing.ts"
 
 const peopleSchema = TableSchema.create("people")
   .withColumn("name", ColumnTypes.any<string>())
@@ -245,21 +246,21 @@ Deno.test({
   name: "json table storage",
   permissions: { read: true, write: true },
   fn: async (t) => {
-    Deno.removeSync("/tmp/people.json")
+    using tempFile = generateTestFilePath("people.json")
     const storage = await JsonFileTableStorage.forSchema(
       peopleSchema,
-      "/tmp/people.json",
+      tempFile.filePath,
     )
     const people = new Table(storage)
     await people.insert({ name: "Alice", age: 12 })
     await people.insert({ name: "Bob", age: 12 })
-    const f = Deno.readTextFileSync("/tmp/people.json")
+    const f = Deno.readTextFileSync(tempFile.filePath)
     await assertSnapshot(t, f)
   },
 })
 
 Deno.test("HeapFileTableStorage", async (t) => {
-  const filePath = "/tmp/people.data"
+  using tempFile = generateTestFilePath("people.data")
 
   const schema = TableSchema.create("people")
     .withColumn("id", ColumnTypes.string(), { unique: true })
@@ -277,7 +278,9 @@ Deno.test("HeapFileTableStorage", async (t) => {
     return { table, [Symbol.dispose]: () => dbFile.close() }
   }
 
-  using resources = await useTableResources(filePath, { truncate: true })
+  using resources = await useTableResources(tempFile.filePath, {
+    truncate: true,
+  })
   const { table: people } = resources
   let aliceRowId: HeapFileRowId
 
@@ -300,7 +303,7 @@ Deno.test("HeapFileTableStorage", async (t) => {
     }
   })
 
-  using resources2 = await useTableResources(filePath)
+  using resources2 = await useTableResources(tempFile.filePath)
   const fixtures = [
     { resources, name: "table that was written to" },
     { resources: resources2, name: "a just opened file" },
