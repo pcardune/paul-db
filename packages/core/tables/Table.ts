@@ -156,6 +156,29 @@ export class Table<
     return this.data.get(id)
   }
 
+  async removeWhere<
+    IName extends FilterTuple<
+      SchemaT["columns"],
+      { indexed: ColumnIndexConfig }
+    >["name"],
+    ValueT extends ValueForColumnSchema<
+      FilterTuple<SchemaT["columns"], { name: IName }>
+    >,
+  >(
+    indexName: IName,
+    value: ValueT,
+  ): Promise<void> {
+    const index = this._allIndexes.get(indexName)
+    if (!index) {
+      throw new Error(`Index ${indexName} does not exist`)
+    }
+    const ids = await index.get(value)
+    for (const id of ids) {
+      await this.data.remove(id)
+    }
+    await this.data.commit()
+  }
+
   async remove(id: RowIdT): Promise<void> {
     await this.data.remove(id)
     await this.data.commit()

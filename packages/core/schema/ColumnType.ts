@@ -57,9 +57,10 @@ export const ColumnTypes = {
     })
   },
   uuid() {
-    return new ColumnType<`${string}-${string}-${string}-${string}-${string}`>({
+    return new ColumnType<string>({
       name: "uuid",
       isValid: (value) => uuid.validate(value),
+      serializer: Struct.unicodeStringStruct,
     })
   },
   positiveNumber() {
