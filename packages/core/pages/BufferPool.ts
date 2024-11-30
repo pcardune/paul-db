@@ -1,5 +1,7 @@
 import { ReadonlyDataView, WriteableDataView } from "../binary/dataview.ts"
-import { readBytesAt } from "../io.ts"
+import { Struct } from "../binary/Struct.ts"
+import { EOFError, readBytesAt, writeBytesAt } from "../io.ts"
+import { debugLog } from "../logging.ts"
 
 export type PageId = bigint
 
@@ -8,7 +10,7 @@ class WriteablePage extends WriteableDataView {}
 export interface IBufferPool {
   get pageSize(): number
   allocatePage(): Promise<PageId>
-  freePage(pageId: PageId): void
+  freePage(pageId: PageId): Promise<void> | void
 
   /**
    * Get a DataView for the given page ID.
@@ -78,9 +80,9 @@ export class InMemoryBufferPool implements IBufferPool {
 }
 
 export class FileBackedBufferPool implements IBufferPool {
-  private pages: Map<PageId, Uint8Array> = new Map()
+  private _pageCache: Map<PageId, Uint8Array> = new Map()
   private dirtyPages: Set<PageId> = new Set()
-  private __lastWrittenFreePageId: PageId = 0n
+  private __lastWrittenFreePageId: PageId = -1n
 
   private constructor(
     private file: Deno.FsFile,
@@ -115,42 +117,56 @@ export class FileBackedBufferPool implements IBufferPool {
 
   async allocatePage(): Promise<PageId> {
     if (this.freePageId !== this.fileOffset) {
+      // there is a free page we can reuse
       const pageId = this.freePageId
-      const page = await this.getPage(pageId)
-      this.freePageId = new DataView(page.buffer).getBigUint64(0)
-      page.fill(0)
-      this.markDirty(pageId)
+      try {
+        await this.writeToPage(pageId, (view) => {
+          this.freePageId = view.getBigUint64(0)
+          view.fill(0)
+        })
+      } catch (e) {
+        if (e instanceof EOFError) {
+          // we hit the end of the file, so let's just make some more space
+          // by appending a new page
+          this.freePageId = pageId + BigInt(this.pageSize)
+          this._pageCache.set(pageId, new Uint8Array(this.pageSize))
+          this.markDirty(pageId)
+        } else {
+          throw e
+        }
+      }
       return pageId
     }
 
+    // no free pages, so we need to allocate a new one
     const pageId = this.fileOffset + 8n +
-      BigInt(this.pages.size * this.pageSize)
-    this.pages.set(pageId, new Uint8Array(this.pageSize))
+      BigInt(this._pageCache.size * this.pageSize)
+    this.freePageId = pageId + BigInt(this.pageSize)
+    this._pageCache.set(pageId, new Uint8Array(this.pageSize))
+    this.markDirty(pageId)
     return pageId
   }
 
-  freePage(pageId: PageId): void {
-    const page = this.pages.get(pageId)
-    if (page === undefined) {
-      throw new Error(`Page ${pageId} not found`)
-    }
-    new DataView(page.buffer).setBigUint64(0, this.freePageId)
-    this.dirtyPages.add(pageId)
+  async freePage(pageId: PageId): Promise<void> {
+    await this.writeToPage(pageId, (view) => {
+      view.setBigUint64(0, this.freePageId)
+    })
     this.freePageId = pageId
   }
 
-  private async getPage(pageId: PageId): Promise<Uint8Array> {
-    const page = this.pages.get(pageId)
+  private async _getPageBuffer(pageId: PageId): Promise<Uint8Array> {
+    const page = this._pageCache.get(pageId)
     if (page) {
       return Promise.resolve(page)
     }
     const data = await readBytesAt(this.file, pageId, this.pageSize)
-    this.pages.set(pageId, data)
+    this._pageCache.set(pageId, data)
     return data
   }
 
   async getPageView(pageId: PageId): Promise<ReadonlyDataView> {
-    const page = await this.getPage(pageId)
+    debugLog(() => `BufferPool.getPageView(${pageId})`)
+    const page = await this._getPageBuffer(pageId)
     return new ReadonlyDataView(page.buffer)
   }
 
@@ -158,13 +174,14 @@ export class FileBackedBufferPool implements IBufferPool {
     pageId: PageId,
     writer: (view: WriteablePage) => R | Promise<R>,
   ): Promise<R> {
-    const page = await this.getPage(pageId)
+    const page = await this._getPageBuffer(pageId)
     const result = writer(new WriteablePage(page.buffer))
     this.markDirty(pageId)
     return result
   }
 
   markDirty(pageId: PageId): void {
+    debugLog(() => `BufferPool.markDirty(${pageId})`)
     this.dirtyPages.add(pageId)
   }
 
@@ -175,19 +192,22 @@ export class FileBackedBufferPool implements IBufferPool {
 
   async commit(): Promise<void> {
     if (this.freePageId !== this.__lastWrittenFreePageId) {
-      const freeListData = new Uint8Array(8)
-      new DataView(freeListData.buffer).setBigUint64(0, this.freePageId)
-      await this.file.seek(this.fileOffset, Deno.SeekMode.Start)
-      const bytesWritten = await this.file.write(freeListData)
-      if (bytesWritten !== 8) {
-        throw new Error(`Unexpected number of bytes written: ${bytesWritten}`)
-      }
+      await writeBytesAt(
+        this.file,
+        this.fileOffset,
+        Struct.bigUint64.toUint8Array(this.freePageId),
+      )
       this.__lastWrittenFreePageId = this.freePageId
     }
+    debugLog(() =>
+      `BufferPool.commit() Committing ${this.dirtyPages.size} pages: ${
+        Array.from(this.dirtyPages).join(", ")
+      }`
+    )
     for (const pageId of this.dirtyPages) {
-      const data = this.pages.get(pageId)
+      const data = this._pageCache.get(pageId)
       if (!data) {
-        throw new Error(`Page ${pageId} not found`)
+        throw new Error(`Dirty Page ${pageId} not found in page cache`)
       }
       await this.file.seek(pageId, Deno.SeekMode.Start)
       const bytesWritten = await this.file.write(data)
@@ -196,5 +216,6 @@ export class FileBackedBufferPool implements IBufferPool {
       }
     }
     this.dirtyPages.clear()
+    this._pageCache.clear()
   }
 }

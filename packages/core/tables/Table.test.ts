@@ -260,15 +260,6 @@ Deno.test({
 
 Deno.test("HeapFileTableStorage", async (t) => {
   const filePath = "/tmp/people.data"
-  try {
-    Deno.removeSync(filePath)
-  } catch (e) {
-    if (e instanceof Deno.errors.NotFound) {
-      // ignore
-    } else {
-      throw e
-    }
-  }
 
   const schema = TableSchema.create("people")
     .withColumn("id", ColumnTypes.string(), { unique: true })
@@ -279,13 +270,14 @@ Deno.test("HeapFileTableStorage", async (t) => {
 
   async function useTableResources(
     filePath: string,
+    { truncate = false } = {},
   ) {
-    const dbFile = await DbFile.open(filePath, { create: true })
+    const dbFile = await DbFile.open(filePath, { create: true, truncate })
     const table = new Table(await dbFile.getTableStorage(schema))
     return { table, [Symbol.dispose]: () => dbFile.close() }
   }
 
-  using resources = await useTableResources(filePath)
+  using resources = await useTableResources(filePath, { truncate: true })
   const { table: people } = resources
   let aliceRowId: HeapFileRowId
 

@@ -115,4 +115,8 @@ export class WriteableDataView extends ReadonlyDataView {
     const bytes = encoder.encode(text)
     new Uint8Array(this.view.buffer).set(bytes, this.view.byteOffset)
   }
+
+  fill(value: number, start?: number, end?: number): void {
+    new Uint8Array(this.view.buffer).fill(value, start, end)
+  }
 }

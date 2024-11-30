@@ -1,3 +1,5 @@
+export class EOFError extends Error {}
+
 /**
  * Read from the file to fill the given buffer.
  */
@@ -6,7 +8,7 @@ async function readBytesInto(file: Deno.FsFile, into: Uint8Array) {
   while (bytesRead < into.length) {
     const n = await file.read(into.subarray(bytesRead))
     if (n === null) {
-      throw new Error("Failed to read")
+      throw new EOFError("Failed to read")
     }
     bytesRead += n
   }
