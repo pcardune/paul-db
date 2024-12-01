@@ -19,12 +19,12 @@ export class ColumnSchema<
   constructor(
     readonly name: Name,
     readonly type: ColumnType<ValueT>,
-    readonly unique: UniqueT,
+    readonly isUnique: UniqueT,
     readonly indexed: IndexedT,
     readonly defaultValueFactory?: DefaultValueFactoryT,
   ) {}
 
-  withName<NewName extends string>(name: NewName) {
+  named<NewName extends string>(name: NewName) {
     return new ColumnSchema<
       NewName,
       ValueT,
@@ -34,12 +34,12 @@ export class ColumnSchema<
     >(
       name,
       this.type,
-      this.unique,
+      this.isUnique,
       this.indexed,
     )
   }
 
-  makeUnique(
+  unique(
     indexConfig: ColumnIndexConfig = DEFAULT_INDEX_CONFIG,
   ): ColumnSchema<Name, ValueT, true, ColumnIndexConfig, DefaultValueFactoryT> {
     return new ColumnSchema(
@@ -51,7 +51,7 @@ export class ColumnSchema<
     )
   }
 
-  makeIndexed(): ColumnSchema<
+  index(): ColumnSchema<
     Name,
     ValueT,
     UniqueT,
@@ -61,19 +61,19 @@ export class ColumnSchema<
     return new ColumnSchema(
       this.name,
       this.type,
-      this.unique,
+      this.isUnique,
       DEFAULT_INDEX_CONFIG,
       this.defaultValueFactory,
     )
   }
 
-  withDefaultValue(
+  defaultTo(
     defaultValueFactory: () => ValueT,
   ): ColumnSchema<Name, ValueT, UniqueT, IndexedT, () => ValueT> {
     return new ColumnSchema(
       this.name,
       this.type,
-      this.unique,
+      this.isUnique,
       this.indexed,
       defaultValueFactory,
     )
@@ -97,13 +97,13 @@ class ComputedColumnSchema<
   constructor(
     readonly name: Name,
     readonly type: ColumnType<OutputT>,
-    readonly unique: UniqueT,
+    readonly isUnique: UniqueT,
     readonly indexed: IndexedT,
     readonly compute: (input: InputT) => OutputT,
   ) {
   }
 
-  makeUnique(
+  unique(
     indexConfig = DEFAULT_INDEX_CONFIG,
   ): ComputedColumnSchema<Name, true, ColumnIndexConfig, InputT, OutputT> {
     return new ComputedColumnSchema(
@@ -115,13 +115,13 @@ class ComputedColumnSchema<
     )
   }
 
-  makeIndexed(
+  index(
     indexConfig = DEFAULT_INDEX_CONFIG,
   ): ComputedColumnSchema<Name, UniqueT, ColumnIndexConfig, InputT, OutputT> {
     return new ComputedColumnSchema(
       this.name,
       this.type,
-      this.unique,
+      this.isUnique,
       indexConfig,
       this.compute,
     )
@@ -368,11 +368,11 @@ export class TableSchema<
         name,
         type,
         compute,
-      ).makeUnique(),
+      ).unique(),
     ])
   }
 
-  withColumn<
+  with<
     CName extends string,
     CValue,
     CUnique extends boolean,
@@ -394,7 +394,7 @@ export class TableSchema<
     >,
     ComputedColumnsT
   >
-  withColumn<CName extends string, CValue>(
+  with<CName extends string, CValue>(
     name: CName,
     type: ColumnType<CValue>,
   ): TableSchema<
@@ -405,7 +405,7 @@ export class TableSchema<
     >,
     ComputedColumnsT
   >
-  withColumn<CName extends string, CValue>(
+  with<CName extends string, CValue>(
     name: CName,
     type: ColumnType<CValue>,
     options: {
@@ -419,7 +419,7 @@ export class TableSchema<
     >,
     ComputedColumnsT
   >
-  withColumn<
+  with<
     CName extends string,
     CValue,
     CUnique extends boolean,
@@ -453,7 +453,7 @@ export class TableSchema<
           return new TableSchema(this.name, [
             ...this.columns,
             column(nameOrColumn, type)
-              .makeUnique() as ColumnSchema<
+              .unique() as ColumnSchema<
                 CName,
                 CValue,
                 CUnique,

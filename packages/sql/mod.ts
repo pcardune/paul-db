@@ -227,7 +227,7 @@ export class SQLExecutor {
           columnDef.definition.dataType,
         )
         const col = column(columnDef.column.column, columnType)
-        schema = schema.withColumn(col)
+        schema = schema.with(col)
       }
     }
 

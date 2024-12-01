@@ -101,7 +101,7 @@ export class Table<
     }
 
     for (const column of this.schema.columns) {
-      if (!column.unique) continue
+      if (!column.isUnique) continue
       const index = this._allIndexes.get(column.name)
       if (!index) {
         throw new Error(
@@ -116,7 +116,7 @@ export class Table<
       }
     }
     for (const column of this.schema.computedColumns) {
-      if (!column.unique) continue
+      if (!column.isUnique) continue
       const index = this._allIndexes.get(column.name)
       if (!index) {
         throw new Error(
@@ -187,7 +187,7 @@ export class Table<
   async lookupUniqueOrThrow<
     IName extends FilterTuple<
       SchemaT["columns"] | SchemaT["computedColumns"],
-      { unique: true }
+      { isUnique: true }
     >["name"],
     ValueT extends
       | ValueForColumnSchema<
@@ -214,7 +214,7 @@ export class Table<
   async lookupUnique<
     IName extends FilterTuple<
       SchemaT["columns"] | SchemaT["computedColumns"],
-      { unique: true }
+      { isUnique: true }
     >["name"],
     ValueT extends
       | ValueForColumnSchema<
@@ -304,7 +304,9 @@ export class Table<
   iterate(): AsyncIterableWrapper<
     StoredRecordForTableSchema<SchemaT>
   > {
-    return this.data.iterate().map(([_rowId, record]) => record)
+    return this.data.iterate().map(([_rowId, record]) =>
+      record
+    ) as AsyncIterableWrapper<StoredRecordForTableSchema<SchemaT>>
   }
 
   scanIter<

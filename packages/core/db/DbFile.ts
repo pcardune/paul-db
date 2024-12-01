@@ -31,20 +31,20 @@ const headerStruct = Struct.record({
 
 const dbPageIdsTableSchema = TableSchema.create(
   "__dbPageIds",
-  column("pageType", ColumnTypes.string()).makeUnique(),
+  column("pageType", ColumnTypes.string()).unique(),
 )
-  .withColumn(column("pageId", ColumnTypes.uint64()))
+  .with(column("pageId", ColumnTypes.uint64()))
 
-const ulidIdColumn = column("id", ColumnTypes.string()).makeUnique()
-  .withDefaultValue(() => ulid())
+const ulidIdColumn = column("id", ColumnTypes.string()).unique()
+  .defaultTo(() => ulid())
 
 const dbTablesTableSchema = TableSchema.create(
   "__dbTables",
   ulidIdColumn,
 )
-  .withColumn(column("db", ColumnTypes.string()))
-  .withColumn(column("name", ColumnTypes.string()))
-  .withColumn(column("heapPageId", ColumnTypes.uint64()))
+  .with(column("db", ColumnTypes.string()))
+  .with(column("name", ColumnTypes.string()))
+  .with(column("heapPageId", ColumnTypes.uint64()))
   .withUniqueConstraint(
     "_db_name",
     ColumnTypes.string(),
@@ -54,16 +54,16 @@ const dbTablesTableSchema = TableSchema.create(
 
 const dbIndexesTableSchema = TableSchema.create(
   "__dbIndexes",
-  column("indexName", ColumnTypes.string()).makeUnique(),
+  column("indexName", ColumnTypes.string()).unique(),
 )
-  .withColumn(column("heapPageId", ColumnTypes.uint64()))
+  .with(column("heapPageId", ColumnTypes.uint64()))
 
 const dbSchemasTableSchema = TableSchema.create(
   "__dbSchemas",
   ulidIdColumn,
 )
-  .withColumn(column("tableId", ColumnTypes.string()))
-  .withColumn(column("version", ColumnTypes.uint32()))
+  .with(column("tableId", ColumnTypes.string()))
+  .with(column("version", ColumnTypes.uint32()))
   .withUniqueConstraint(
     "tableId_version",
     ColumnTypes.string(),
@@ -75,12 +75,12 @@ const dbTableColumnsTableSchema = TableSchema.create(
   "__dbTableColumns",
   ulidIdColumn,
 )
-  .withColumn(column("schemaId", ColumnTypes.string()).makeIndexed())
-  .withColumn(column("name", ColumnTypes.string()))
-  .withColumn(column("type", ColumnTypes.string()))
-  .withColumn(column("unique", ColumnTypes.boolean()))
-  .withColumn(column("indexed", ColumnTypes.boolean()))
-  .withColumn(column("computed", ColumnTypes.boolean()))
+  .with(column("schemaId", ColumnTypes.string()).index())
+  .with(column("name", ColumnTypes.string()))
+  .with(column("type", ColumnTypes.string()))
+  .with(column("unique", ColumnTypes.boolean()))
+  .with(column("indexed", ColumnTypes.boolean()))
+  .with(column("computed", ColumnTypes.boolean()))
   .withUniqueConstraint("schemaId_name", ColumnTypes.string(), [
     "schemaId",
     "name",
@@ -190,7 +190,7 @@ export class DbFile {
       await columnsTable.insert({
         schemaId: schemaRecord.id,
         name: column.name,
-        unique: column.unique,
+        unique: column.isUnique,
         indexed: Boolean(column.indexed),
         computed: false,
         type: column.type.name,
@@ -471,7 +471,7 @@ export class DbFile {
           // TODO: handle the default primary key column better
           continue
         }
-        schema = schema.withColumn(
+        schema = schema.with(
           new ColumnSchema(
             columnRecord.name,
             getColumnTypeFromString(columnRecord.type),

@@ -18,8 +18,8 @@ import { DbFile } from "../db/DbFile.ts"
 import { generateTestFilePath } from "../testing.ts"
 
 const peopleSchema = TableSchema.create("people")
-  .withColumn("name", ColumnTypes.any<string>())
-  .withColumn("age", ColumnTypes.positiveNumber())
+  .with("name", ColumnTypes.any<string>())
+  .with("age", ColumnTypes.positiveNumber())
 
 describe("Create, Read, and Delete", () => {
   it("lets you insert and retrieve records", async () => {
@@ -54,10 +54,8 @@ describe("Create, Read, and Delete", () => {
 describe("Insert Validation", () => {
   it("should not allow you to insert records with invalid schema", async () => {
     const people = new Table(
-      await InMemoryTableStorage.forSchema(peopleSchema.withColumn(
-        column("uuid", ColumnTypes.uuid()).withDefaultValue(() =>
-          crypto.randomUUID()
-        ),
+      await InMemoryTableStorage.forSchema(peopleSchema.with(
+        column("uuid", ColumnTypes.uuid()).defaultTo(() => crypto.randomUUID()),
       )),
     )
     await people.insert({ name: "Alice", age: 12 })
@@ -77,7 +75,7 @@ describe("Insert Validation", () => {
 
   it("Throws when inserting values that don't satisfy the column type", async () => {
     const schema = peopleSchema
-      .withColumn(
+      .with(
         "favoriteOdd",
         new ColumnType({
           name: "oddNumber",
@@ -102,7 +100,7 @@ const phoneNumberType = new ColumnType<string>({
 describe("Uniqueness Constraints", () => {
   it("enforces uniqueness constraints", async () => {
     const schema = peopleSchema
-      .withColumn("ssn", ColumnTypes.any<string>(), { unique: true })
+      .with("ssn", ColumnTypes.any<string>(), { unique: true })
     const people = new Table(await InMemoryTableStorage.forSchema(schema))
 
     await people.insert({ name: "Alice", age: 12, ssn: "123-45-6789" })
@@ -113,7 +111,7 @@ describe("Uniqueness Constraints", () => {
 
   it("utilizes column type to determine uniqueness", async () => {
     const schema = peopleSchema
-      .withColumn("phone", phoneNumberType, { unique: true })
+      .with("phone", phoneNumberType, { unique: true })
     const people = new Table(await InMemoryTableStorage.forSchema(schema))
     await people.insert({ name: "Alice", age: 12, phone: "123-867-5309" })
     expect(
@@ -163,10 +161,10 @@ describe("Querying", () => {
     })
 
     it("uses the underlying column type for equality testing", async () => {
-      const peopleSchema = TableSchema.create("people").withColumn(
+      const peopleSchema = TableSchema.create("people").with(
         "name",
         ColumnTypes.any<string>(),
-      ).withColumn("email", ColumnTypes.caseInsensitiveString())
+      ).with("email", ColumnTypes.caseInsensitiveString())
       const people = new Table(
         await InMemoryTableStorage.forSchema(peopleSchema),
       )
@@ -185,15 +183,15 @@ describe("Querying", () => {
 
   describe("Table.lookup()", () => {
     const indexedPeopleSchema = TableSchema.create("people")
-      .withColumn(column("name", ColumnTypes.any<string>()).makeIndexed())
-      .withColumn(column("phone", phoneNumberType))
-      .withColumn(column("age", ColumnTypes.positiveNumber()).makeIndexed())
+      .with(column("name", ColumnTypes.any<string>()).index())
+      .with(column("phone", phoneNumberType))
+      .with(column("age", ColumnTypes.positiveNumber()).index())
       .withComputedColumn(
         computedColumn(
           "lowerCaseName",
           ColumnTypes.string(),
           (input: { name: string }) => input.name.toLowerCase(),
-        ).makeIndexed(),
+        ).index(),
       )
     let people: TableInfer<
       typeof indexedPeopleSchema,
@@ -263,11 +261,11 @@ Deno.test("HeapFileTableStorage", async (t) => {
   using tempFile = generateTestFilePath("people.data")
 
   const schema = TableSchema.create("people")
-    .withColumn("id", ColumnTypes.string(), { unique: true })
-    .withColumn("firstName", ColumnTypes.string())
-    .withColumn("lastName", ColumnTypes.string())
-    .withColumn("age", ColumnTypes.uint32())
-    .withColumn("likesIceCream", ColumnTypes.boolean())
+    .with("id", ColumnTypes.string(), { unique: true })
+    .with("firstName", ColumnTypes.string())
+    .with("lastName", ColumnTypes.string())
+    .with("age", ColumnTypes.uint32())
+    .with("likesIceCream", ColumnTypes.boolean())
 
   async function useTableResources(
     filePath: string,
