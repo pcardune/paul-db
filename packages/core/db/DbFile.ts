@@ -15,7 +15,7 @@ import {
 } from "../tables/TableStorage.ts"
 import { ReadonlyDataView } from "../binary/dataview.ts"
 import { debugLog } from "../logging.ts"
-import { column, ColumnSchema } from "../schema/ColumnSchema.ts"
+import { column } from "../schema/ColumnSchema.ts"
 
 const SYSTEM_DB = "system"
 
@@ -460,16 +460,19 @@ export class DbFile {
           // TODO: handle the default primary key column better
           continue
         }
-        schema = schema.with(
-          new ColumnSchema(
-            columnRecord.name,
-            getColumnTypeFromString(columnRecord.type),
-            columnRecord.unique,
-            columnRecord.indexed
-              ? { shouldIndex: true, order: 2 }
-              : { shouldIndex: false },
-          ),
-        )
+        schema = schema.with({
+          kind: "stored",
+          name: columnRecord.name,
+          type: getColumnTypeFromString(columnRecord.type),
+          isUnique: columnRecord.unique,
+          indexed: columnRecord.indexed
+            ? {
+              shouldIndex: true,
+              order: 2,
+            }
+            : { shouldIndex: false },
+          defaultValueFactory: undefined,
+        })
       }
 
       return { schema, columnRecords, schemaRecord }

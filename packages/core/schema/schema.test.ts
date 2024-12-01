@@ -10,10 +10,10 @@ import { ColumnTypes } from "./ColumnType.ts"
 import { dumpUint8Buffer } from "../binary/util.ts"
 import { WriteableDataView } from "../binary/dataview.ts"
 import {
+  Column,
   column,
   computedColumn,
-  RecordForColumnSchema,
-  ValueForColumnSchema,
+  StoredRecordForColumnSchemas,
 } from "./ColumnSchema.ts"
 
 function assertType<T>(_value: T) {}
@@ -40,24 +40,29 @@ describe("ColumnSchemas", () => {
 
     assertType<"name">(nameColumn.name)
     assertType<false>(nameColumn.isUnique)
-    assertTrue<TypeEquals<string, ValueForColumnSchema<typeof nameColumn>>>()
+    assertTrue<TypeEquals<string, Column.GetValue<typeof nameColumn>>>()
   })
 
   it("exposes the types of the column to typescript", () => {
-    assertTrue<TypeEquals<string, ValueForColumnSchema<typeof nameColumn>>>()
+    assertTrue<TypeEquals<string, Column.GetValue<typeof nameColumn>>>()
 
     // @ts-expect-error: Can't insert a number into a string column
-    assertTrue<TypeEquals<number, ValueForColumnSchema<typeof nameColumn>>>()
+    assertTrue<TypeEquals<number, Column.GetValue<typeof nameColumn>>>()
 
     const ageColumn = column(
       "age",
       ColumnTypes.positiveNumber(),
     )
-    assertTrue<TypeEquals<number, ValueForColumnSchema<typeof ageColumn>>>()
+    const nameColumn = column(
+      "name",
+      ColumnTypes.string(),
+    )
+    assertTrue<TypeEquals<number, Column.GetValue<typeof ageColumn>>>()
 
-    assertTrue<
-      TypeEquals<{ age: number }, RecordForColumnSchema<typeof ageColumn>>
-    >()
+    type StoredRecord = StoredRecordForColumnSchemas<
+      [typeof ageColumn, typeof nameColumn]
+    >
+    assertTrue<TypeEquals<{ age: number; name: string }, StoredRecord>>()
   })
 
   it("lets you make a column unique", () => {
@@ -100,10 +105,7 @@ describe("Computed column schemas", () => {
       (input: { firstName: string; lastName: string }) =>
         `${input.firstName} ${input.lastName}`,
     )
-    assertTrue<TypeEquals<never, ValueForColumnSchema<typeof nameColumn>>>()
-    assertTrue<
-      TypeEquals<{ name?: never }, RecordForColumnSchema<typeof nameColumn>>
-    >()
+    assertTrue<TypeEquals<never, Column.GetValue<typeof nameColumn>>>()
   })
 })
 

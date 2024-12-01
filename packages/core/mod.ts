@@ -7,7 +7,7 @@ export { DbFile } from "./db/DbFile.ts"
 export { Table } from "./tables/Table.ts"
 export { TableSchema } from "./schema/schema.ts"
 
-export { column, ColumnSchema, computedColumn } from "./schema/ColumnSchema.ts"
+export { column, computedColumn } from "./schema/ColumnSchema.ts"
 
 export {
   ColumnType,

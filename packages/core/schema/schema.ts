@@ -1,27 +1,21 @@
 import { IStruct, Struct } from "../binary/Struct.ts"
 import { PushTuple } from "../typetools.ts"
 import {
-  column,
-  ColumnSchema,
-  ColumnSchemaWithDefaultValue,
+  Column,
   computedColumn,
-  ComputedColumnSchema,
   Index,
-  SomeColumnSchema,
-  SomeComputedColumnSchema,
   StoredRecordForColumnSchemas,
-  ValueForColumnSchema,
 } from "./ColumnSchema.ts"
 import { ColumnType } from "./ColumnType.ts"
 
-type InsertRecordForColumnSchemas<CS extends SomeColumnSchema[]> =
+type InsertRecordForColumnSchemas<CS extends Column.Any[]> =
   & {
-    [K in Extract<CS[number], { defaultValueFactory?: undefined }>["name"]]:
-      ValueForColumnSchema<Extract<CS[number], { name: K }>>
+    [K in Extract<CS[number], { defaultValueFactory: undefined }>["name"]]:
+      Column.GetValue<Extract<CS[number], { name: K }>>
   }
   & {
-    [K in Extract<CS[number], ColumnSchemaWithDefaultValue>["name"]]?:
-      ValueForColumnSchema<Extract<CS[number], { name: K }>>
+    [K in Extract<CS[number], Column.WithDefaultValue>["name"]]?:
+      Column.GetValue<Extract<CS[number], { name: K }>>
   }
 
 export type InsertRecordForTableSchema<TS extends SomeTableSchema> =
@@ -31,14 +25,14 @@ export type StoredRecordForTableSchema<TS extends SomeTableSchema> =
 
 export type SomeTableSchema = TableSchema<
   string,
-  SomeColumnSchema[],
-  SomeComputedColumnSchema[]
+  Column.Any[],
+  Column.Computed.Any[]
 >
 
 export class TableSchema<
   TableName extends string,
-  ColumnSchemasT extends SomeColumnSchema[],
-  ComputedColumnsT extends SomeComputedColumnSchema[],
+  ColumnSchemasT extends Column.Any[],
+  ComputedColumnsT extends Column.Computed.Any[],
 > {
   private constructor(
     public readonly name: TableName,
@@ -90,7 +84,7 @@ export class TableSchema<
     CIndexed extends Index.Config,
     COutput,
   >(
-    column: ComputedColumnSchema<
+    column: Column.Computed.Any<
       CName,
       CUnique,
       CIndexed,
@@ -102,7 +96,7 @@ export class TableSchema<
     ColumnSchemasT,
     PushTuple<
       ComputedColumnsT,
-      ComputedColumnSchema<
+      Column.Computed.Any<
         CName,
         CUnique,
         CIndexed,
@@ -142,29 +136,10 @@ export class TableSchema<
     ])
   }
 
-  with<
-    CName extends string,
-    CValue,
-    CUnique extends boolean,
-    CIndexed extends Index.Config,
-    CDefaultValueFactory extends undefined | (() => CValue),
-  >(
-    nameOrColumn: ColumnSchema<
-      CName,
-      CValue,
-      CUnique,
-      CIndexed,
-      CDefaultValueFactory
-    >,
-  ): TableSchema<
-    TableName,
-    PushTuple<
-      ColumnSchemasT,
-      ColumnSchema<CName, CValue, CUnique, CIndexed, CDefaultValueFactory>
-    >,
-    ComputedColumnsT
-  > {
-    const columnName = nameOrColumn.name
+  with<C extends Column.Any>(
+    column: C,
+  ): TableSchema<TableName, PushTuple<ColumnSchemasT, C>, ComputedColumnsT> {
+    const columnName = column.name
     if (
       this.columns.some((c) => c.name === columnName) ||
       this.computedColumns.some((c) => c.name === columnName)
@@ -173,7 +148,7 @@ export class TableSchema<
     }
     return new TableSchema(this.name, [
       ...this.columns,
-      nameOrColumn,
+      column,
     ], this.computedColumns)
   }
 }

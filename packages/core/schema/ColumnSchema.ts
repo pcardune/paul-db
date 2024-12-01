@@ -1,7 +1,7 @@
+// deno-lint-ignore-file no-namespace
 import { ColumnType } from "./ColumnType.ts"
 import { OverrideProperties } from "npm:type-fest"
 
-// deno-lint-ignore no-namespace
 export namespace Index {
   export type ShouldIndex = {
     shouldIndex: true
@@ -22,8 +22,31 @@ export const DEFAULT_INDEX_CONFIG: Index.ShouldIndex = {
 
 type DefaultValueConfig<ValueT = unknown> = (() => ValueT) | undefined
 
-// deno-lint-ignore no-namespace
 export namespace Column {
+  export namespace Computed {
+    export type Any<
+      Name extends string = string,
+      UniqueT extends boolean = boolean,
+      IndexedT extends Index.Config = Index.Config,
+      InputT = any,
+      OutputT = any,
+    > = {
+      kind: "computed"
+      name: Name
+      type: ColumnType<OutputT>
+      isUnique: UniqueT
+      indexed: IndexedT
+      compute: (input: InputT) => OutputT
+    }
+
+    export type GetOutput<C> = C extends
+      Column.Computed.Any<string, boolean, Index.Config, any, infer O> ? O
+      : never
+
+    export type GetInput<C> = C extends
+      Column.Computed.Any<string, boolean, Index.Config, infer I> ? I : never
+  }
+
   export type Any<
     Name extends string = string,
     ValueT = any,
@@ -34,6 +57,7 @@ export namespace Column {
         ValueT
       >,
   > = {
+    kind: "stored"
     name: Name
     type: ColumnType<ValueT>
     isUnique: UniqueT
@@ -51,13 +75,15 @@ export namespace Column {
   >
   export type Unique = OverrideProperties<Any, { isUnique: true }>
   export type Indexed = OverrideProperties<Any, { indexed: Index.ShouldIndex }>
-  export type WithDefaultValue<ValueT> = OverrideProperties<
+  export type WithDefaultValue<ValueT = any> = OverrideProperties<
     Any,
     { defaultValueFactory: () => ValueT }
   >
+
+  export type GetValue<C> = C extends Any<string, infer V> ? V : never
 }
 
-export class ColumnSchema<
+class ColumnBuilder<
   Name extends string = string,
   ValueT = any,
   UniqueT extends boolean = boolean,
@@ -66,16 +92,17 @@ export class ColumnSchema<
     ValueT
   >,
 > {
+  readonly kind: "stored" = "stored"
   constructor(
     readonly name: Name,
     readonly type: ColumnType<ValueT>,
     readonly isUnique: UniqueT,
     readonly indexed: IndexedT,
-    readonly defaultValueFactory?: DefaultValueFactoryT,
+    readonly defaultValueFactory: DefaultValueFactoryT,
   ) {}
 
   named<NewName extends string>(name: NewName) {
-    return new ColumnSchema<
+    return new ColumnBuilder<
       NewName,
       ValueT,
       UniqueT,
@@ -86,13 +113,14 @@ export class ColumnSchema<
       this.type,
       this.isUnique,
       this.indexed,
+      this.defaultValueFactory,
     )
   }
 
   unique(
     indexConfig: Index.Config = DEFAULT_INDEX_CONFIG,
-  ): ColumnSchema<Name, ValueT, true, Index.Config, DefaultValueFactoryT> {
-    return new ColumnSchema(
+  ): ColumnBuilder<Name, ValueT, true, Index.Config, DefaultValueFactoryT> {
+    return new ColumnBuilder(
       this.name,
       this.type,
       true,
@@ -101,14 +129,14 @@ export class ColumnSchema<
     )
   }
 
-  index(): ColumnSchema<
+  index(): ColumnBuilder<
     Name,
     ValueT,
     UniqueT,
     Index.Config,
     DefaultValueFactoryT
   > {
-    return new ColumnSchema(
+    return new ColumnBuilder(
       this.name,
       this.type,
       this.isUnique,
@@ -119,8 +147,8 @@ export class ColumnSchema<
 
   defaultTo(
     defaultValueFactory: () => ValueT,
-  ): ColumnSchema<Name, ValueT, UniqueT, IndexedT, () => ValueT> {
-    return new ColumnSchema(
+  ): ColumnBuilder<Name, ValueT, UniqueT, IndexedT, () => ValueT> {
+    return new ColumnBuilder(
       this.name,
       this.type,
       this.isUnique,
@@ -133,17 +161,18 @@ export class ColumnSchema<
 export function column<Name extends string, ValueT>(
   name: Name,
   type: ColumnType<ValueT>,
-): ColumnSchema<Name, ValueT, false, Index.ShouldNotIndex, undefined> {
-  return new ColumnSchema(name, type, false, { shouldIndex: false })
+): ColumnBuilder<Name, ValueT, false, Index.ShouldNotIndex, undefined> {
+  return new ColumnBuilder(name, type, false, { shouldIndex: false }, undefined)
 }
 
-export class ComputedColumnSchema<
+class ComputedColumnBuilder<
   Name extends string = string,
   UniqueT extends boolean = boolean,
   IndexedT extends Index.Config = Index.Config,
   InputT = any,
   OutputT = any,
 > {
+  readonly kind: "computed" = "computed"
   constructor(
     readonly name: Name,
     readonly type: ColumnType<OutputT>,
@@ -155,8 +184,8 @@ export class ComputedColumnSchema<
 
   unique(
     indexConfig = DEFAULT_INDEX_CONFIG,
-  ): ComputedColumnSchema<Name, true, Index.Config, InputT, OutputT> {
-    return new ComputedColumnSchema(
+  ): ComputedColumnBuilder<Name, true, Index.Config, InputT, OutputT> {
+    return new ComputedColumnBuilder(
       this.name,
       this.type,
       true,
@@ -167,8 +196,8 @@ export class ComputedColumnSchema<
 
   index(
     indexConfig = DEFAULT_INDEX_CONFIG,
-  ): ComputedColumnSchema<Name, UniqueT, Index.Config, InputT, OutputT> {
-    return new ComputedColumnSchema(
+  ): ComputedColumnBuilder<Name, UniqueT, Index.Config, InputT, OutputT> {
+    return new ComputedColumnBuilder(
       this.name,
       this.type,
       this.isUnique,
@@ -187,7 +216,7 @@ export function computedColumn<
   type: ColumnType<OutputT>,
   compute: (input: InputT) => OutputT,
 ) {
-  return new ComputedColumnSchema(
+  return new ComputedColumnBuilder(
     name,
     type,
     false,
@@ -196,54 +225,6 @@ export function computedColumn<
   )
 }
 
-export type ValueForColumnSchema<C> = C extends ColumnSchema<string, infer V>
-  ? V
-  : never
-
-export type InputForComputedColumnSchema<C> = C extends
-  ComputedColumnSchema<string, boolean, Index.Config, infer I> ? I : never
-export type OutputForComputedColumnSchema<C> = C extends
-  ComputedColumnSchema<string, boolean, Index.Config, any, infer O> ? O
-  : never
-
-export type SomeColumnSchema = ColumnSchema
-
-export type ColumnSchemaWithDefaultValue = ColumnSchema<
-  string,
-  any,
-  boolean,
-  Index.Config,
-  () => any
->
-
-export type SomeComputedColumnSchema = ComputedColumnSchema<
-  string,
-  boolean,
-  Index.Config,
-  any,
-  any
->
-
-export type RecordForColumnSchema<
-  CS extends SomeColumnSchema | SomeComputedColumnSchema,
-  DefaultOptional extends boolean = false,
-> = CS extends ComputedColumnSchema<string, boolean, Index.Config, any, any> ? {
-    [K in CS["name"]]?: never
-  }
-  : DefaultOptional extends true ? CS extends ColumnSchemaWithDefaultValue ? {
-        [K in CS["name"]]?: ValueForColumnSchema<CS>
-      }
-    : {
-      [K in CS["name"]]: ValueForColumnSchema<CS>
-    }
-  : {
-    [K in CS["name"]]: ValueForColumnSchema<CS>
-  }
-
-export type StoredRecordForColumnSchemas<
-  CS extends (SomeColumnSchema)[],
-> = {
-  [K in CS[number]["name"]]: ValueForColumnSchema<
-    Extract<CS[number], { name: K }>
-  >
+export type StoredRecordForColumnSchemas<CS extends Column.Any[]> = {
+  [K in CS[number]["name"]]: Column.GetValue<Extract<CS[number], { name: K }>>
 }

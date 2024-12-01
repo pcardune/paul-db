@@ -9,14 +9,7 @@ import { ITableStorage } from "./TableStorage.ts"
 import { FilterTuple } from "../typetools.ts"
 import { INodeId } from "../indexes/BTreeNode.ts"
 import { AsyncIterableWrapper } from "../async.ts"
-import {
-  Index as CIndex,
-  InputForComputedColumnSchema,
-  OutputForComputedColumnSchema,
-  SomeColumnSchema,
-  SomeComputedColumnSchema,
-  ValueForColumnSchema,
-} from "../schema/ColumnSchema.ts"
+import { Column, Index as CIndex } from "../schema/ColumnSchema.ts"
 
 /**
  * A helper type that lets you declare a table type from a given
@@ -39,8 +32,8 @@ export type TableInfer<SchemaT, StorageT> = SchemaT extends
 export class Table<
   RowIdT,
   TName extends string,
-  ColumnSchemasT extends SomeColumnSchema[],
-  ComputedColumnSchemasT extends SomeComputedColumnSchema[],
+  ColumnSchemasT extends Column.Any[],
+  ComputedColumnSchemasT extends Column.Computed.Any[],
   SchemaT extends TableSchema<TName, ColumnSchemasT, ComputedColumnSchemasT>,
   StorageT extends ITableStorage<RowIdT, StoredRecordForTableSchema<SchemaT>>,
 > {
@@ -163,7 +156,7 @@ export class Table<
       SchemaT["columns"],
       { indexed: CIndex.Config }
     >["name"],
-    ValueT extends ValueForColumnSchema<
+    ValueT extends Column.GetValue<
       FilterTuple<SchemaT["columns"], { name: IName }>
     >,
   >(
@@ -192,13 +185,13 @@ export class Table<
       { isUnique: true }
     >["name"],
     ValueT extends
-      | ValueForColumnSchema<
+      | Column.GetValue<
         FilterTuple<
           SchemaT["columns"],
           { name: IName }
         >
       >
-      | InputForComputedColumnSchema<
+      | Column.Computed.GetInput<
         FilterTuple<SchemaT["computedColumns"], { name: IName }>
       >,
   >(
@@ -219,13 +212,13 @@ export class Table<
       { isUnique: true }
     >["name"],
     ValueT extends
-      | ValueForColumnSchema<
+      | Column.GetValue<
         FilterTuple<
           SchemaT["columns"],
           { name: IName }
         >
       >
-      | InputForComputedColumnSchema<
+      | Column.Computed.GetInput<
         FilterTuple<SchemaT["computedColumns"], { name: IName }>
       >,
   >(
@@ -255,7 +248,7 @@ export class Table<
       SchemaT["columns"],
       { indexed: CIndex.Config }
     >["name"],
-    ValueT extends ValueForColumnSchema<
+    ValueT extends Column.GetValue<
       FilterTuple<SchemaT["columns"], { name: IName }>
     >,
   >(
@@ -284,7 +277,7 @@ export class Table<
       SchemaT["computedColumns"],
       { indexed: CIndex.Config }
     >["name"],
-    ValueT extends OutputForComputedColumnSchema<
+    ValueT extends Column.Computed.GetOutput<
       FilterTuple<SchemaT["computedColumns"], { name: IName }>
     >,
   >(indexName: IName, value: ValueT) {
