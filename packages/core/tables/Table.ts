@@ -213,6 +213,29 @@ export class Table<
     indexName: IName,
     value: ValueT,
   ): Promise<Readonly<StoredRecordForTableSchema<SchemaT>> | undefined> {
+    const rowIds = await this.lookupInIndex(indexName, value)
+    if (rowIds.length === 0) {
+      return
+    }
+    return this.data.get(rowIds[0])
+  }
+
+  /**
+   * @param indexName Index to look in
+   * @param value indexed value to lookup
+   * @returns list of physical row ids that match the value
+   */
+  async lookupInIndex<
+    IName extends Column.FindIndexed<SchemaT["columns"]>["name"],
+    ValueT extends
+      | Column.GetValue<Column.FindWithName<SchemaT["columns"], IName>>
+      | Column.Computed.GetInput<
+        Column.FindWithName<SchemaT["computedColumns"], IName>
+      >,
+  >(
+    indexName: IName,
+    value: ValueT,
+  ): Promise<readonly RowIdT[]> {
     const index = this._allIndexes.get(indexName)
     if (!index) {
       throw new Error(`Index ${indexName} does not exist`)
@@ -224,11 +247,7 @@ export class Table<
     if (computedColumn != null) {
       valueToLookup = computedColumn.compute(value)
     }
-    const rowIds = await index.get(valueToLookup)
-    if (rowIds.length === 0) {
-      return
-    }
-    return this.data.get(rowIds[0])
+    return await index.get(valueToLookup)
   }
 
   async lookup<
@@ -240,18 +259,7 @@ export class Table<
     indexName: IName,
     value: ValueT,
   ): Promise<Readonly<StoredRecordForTableSchema<SchemaT>>[]> {
-    const index = this._allIndexes.get(indexName)
-    if (!index) {
-      throw new Error(`Index ${indexName} does not exist`)
-    }
-    const computedColumn = this.schema.computedColumns.find((c) =>
-      c.name === indexName
-    )
-    let valueToLookup = value
-    if (computedColumn != null) {
-      valueToLookup = computedColumn.compute(value)
-    }
-    const ids = await index.get(valueToLookup)
+    const ids = await this.lookupInIndex(indexName, value)
     return Promise.all(ids.map((id) => this.data.get(id))) as Promise<
       StoredRecordForTableSchema<SchemaT>[]
     >
