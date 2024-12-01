@@ -149,7 +149,7 @@ export class TableSchema<
     CIndexed extends Index.Config,
     CDefaultValueFactory extends undefined | (() => CValue),
   >(
-    column: ColumnSchema<
+    nameOrColumn: ColumnSchema<
       CName,
       CValue,
       CUnique,
@@ -163,88 +163,13 @@ export class TableSchema<
       ColumnSchema<CName, CValue, CUnique, CIndexed, CDefaultValueFactory>
     >,
     ComputedColumnsT
-  >
-  with<CName extends string, CValue>(
-    name: CName,
-    type: ColumnType<CValue>,
-  ): TableSchema<
-    TableName,
-    PushTuple<
-      ColumnSchemasT,
-      ColumnSchema<CName, CValue, false, Index.ShouldNotIndex, undefined>
-    >,
-    ComputedColumnsT
-  >
-  with<CName extends string, CValue>(
-    name: CName,
-    type: ColumnType<CValue>,
-    options: {
-      unique: true
-    },
-  ): TableSchema<
-    TableName,
-    PushTuple<
-      ColumnSchemasT,
-      ColumnSchema<CName, CValue, true, Index.Config, undefined>
-    >,
-    ComputedColumnsT
-  >
-  with<
-    CName extends string,
-    CValue,
-    CUnique extends boolean,
-    CIndexed extends Index.Config,
-  >(
-    nameOrColumn:
-      | CName
-      | ColumnSchema<CName, CValue, CUnique, CIndexed, undefined>,
-    type?: ColumnType<CValue>,
-    options?: { unique: true },
-  ): TableSchema<
-    TableName,
-    PushTuple<
-      ColumnSchemasT,
-      ColumnSchema<CName, CValue, CUnique, CIndexed, undefined | (() => CValue)>
-    >,
-    ComputedColumnsT
   > {
-    const columnName = typeof nameOrColumn === "string"
-      ? nameOrColumn
-      : nameOrColumn.name
+    const columnName = nameOrColumn.name
     if (
       this.columns.some((c) => c.name === columnName) ||
       this.computedColumns.some((c) => c.name === columnName)
     ) {
       throw new Error(`Column '${columnName}' already exists`)
-    }
-    if (typeof nameOrColumn === "string") {
-      if (type) {
-        if (options) {
-          return new TableSchema(this.name, [
-            ...this.columns,
-            column(nameOrColumn, type)
-              .unique() as ColumnSchema<
-                CName,
-                CValue,
-                CUnique,
-                CIndexed,
-                undefined
-              >,
-          ], this.computedColumns)
-        }
-        return new TableSchema(this.name, [
-          ...this.columns,
-          column(nameOrColumn, type) as ColumnSchema<
-            CName,
-            CValue,
-            CUnique,
-            CIndexed,
-            undefined
-          >,
-        ], this.computedColumns)
-      } else {
-        throw new Error("Type and options are required")
-      }
     }
     return new TableSchema(this.name, [
       ...this.columns,

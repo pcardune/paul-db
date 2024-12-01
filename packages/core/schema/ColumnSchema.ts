@@ -1,4 +1,5 @@
 import { ColumnType } from "./ColumnType.ts"
+import { OverrideProperties } from "npm:type-fest"
 
 // deno-lint-ignore no-namespace
 export namespace Index {
@@ -20,6 +21,41 @@ export const DEFAULT_INDEX_CONFIG: Index.ShouldIndex = {
 }
 
 type DefaultValueConfig<ValueT = unknown> = (() => ValueT) | undefined
+
+// deno-lint-ignore no-namespace
+export namespace Column {
+  export type Any<
+    Name extends string = string,
+    ValueT = any,
+    UniqueT extends boolean = boolean,
+    IndexedT extends Index.Config = Index.Config,
+    DefaultValueFactoryT extends DefaultValueConfig<ValueT> =
+      DefaultValueConfig<
+        ValueT
+      >,
+  > = {
+    name: Name
+    type: ColumnType<ValueT>
+    isUnique: UniqueT
+    indexed: IndexedT
+    defaultValueFactory: DefaultValueFactoryT
+  }
+
+  export type WithName<Name extends string> = OverrideProperties<
+    Any,
+    { name: Name }
+  >
+  export type WithValue<ValueT> = OverrideProperties<
+    Any,
+    { type: ColumnType<ValueT> }
+  >
+  export type Unique = OverrideProperties<Any, { isUnique: true }>
+  export type Indexed = OverrideProperties<Any, { indexed: Index.ShouldIndex }>
+  export type WithDefaultValue<ValueT> = OverrideProperties<
+    Any,
+    { defaultValueFactory: () => ValueT }
+  >
+}
 
 export class ColumnSchema<
   Name extends string = string,
@@ -171,12 +207,6 @@ export type OutputForComputedColumnSchema<C> = C extends
   : never
 
 export type SomeColumnSchema = ColumnSchema
-export type IndexedColumnSchema = ColumnSchema<
-  string,
-  any,
-  boolean,
-  Exclude<Index.Config, false>
->
 
 export type ColumnSchemaWithDefaultValue = ColumnSchema<
   string,

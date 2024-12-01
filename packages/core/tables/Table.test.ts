@@ -14,8 +14,8 @@ import { generateTestFilePath } from "../testing.ts"
 import { column, computedColumn } from "../schema/ColumnSchema.ts"
 
 const peopleSchema = TableSchema.create("people")
-  .with("name", ColumnTypes.any<string>())
-  .with("age", ColumnTypes.positiveNumber())
+  .with(column("name", ColumnTypes.any<string>()))
+  .with(column("age", ColumnTypes.positiveNumber()))
 
 describe("Create, Read, and Delete", () => {
   it("lets you insert and retrieve records", async () => {
@@ -72,11 +72,13 @@ describe("Insert Validation", () => {
   it("Throws when inserting values that don't satisfy the column type", async () => {
     const schema = peopleSchema
       .with(
-        "favoriteOdd",
-        new ColumnType({
-          name: "oddNumber",
-          isValid: (value: number) => value % 2 === 1,
-        }),
+        column(
+          "favoriteOdd",
+          new ColumnType({
+            name: "oddNumber",
+            isValid: (value: number) => value % 2 === 1,
+          }),
+        ),
       )
     const oddPeople = new Table(await InMemoryTableStorage.forSchema(schema))
 
@@ -96,7 +98,7 @@ const phoneNumberType = new ColumnType<string>({
 describe("Uniqueness Constraints", () => {
   it("enforces uniqueness constraints", async () => {
     const schema = peopleSchema
-      .with("ssn", ColumnTypes.any<string>(), { unique: true })
+      .with(column("ssn", ColumnTypes.any<string>()).unique())
     const people = new Table(await InMemoryTableStorage.forSchema(schema))
 
     await people.insert({ name: "Alice", age: 12, ssn: "123-45-6789" })
@@ -107,7 +109,7 @@ describe("Uniqueness Constraints", () => {
 
   it("utilizes column type to determine uniqueness", async () => {
     const schema = peopleSchema
-      .with("phone", phoneNumberType, { unique: true })
+      .with(column("phone", phoneNumberType).unique())
     const people = new Table(await InMemoryTableStorage.forSchema(schema))
     await people.insert({ name: "Alice", age: 12, phone: "123-867-5309" })
     expect(
@@ -158,9 +160,8 @@ describe("Querying", () => {
 
     it("uses the underlying column type for equality testing", async () => {
       const peopleSchema = TableSchema.create("people").with(
-        "name",
-        ColumnTypes.any<string>(),
-      ).with("email", ColumnTypes.caseInsensitiveString())
+        column("name", ColumnTypes.any<string>()),
+      ).with(column("email", ColumnTypes.caseInsensitiveString()))
       const people = new Table(
         await InMemoryTableStorage.forSchema(peopleSchema),
       )
@@ -257,11 +258,11 @@ Deno.test("HeapFileTableStorage", async (t) => {
   using tempFile = generateTestFilePath("people.data")
 
   const schema = TableSchema.create("people")
-    .with("id", ColumnTypes.string(), { unique: true })
-    .with("firstName", ColumnTypes.string())
-    .with("lastName", ColumnTypes.string())
-    .with("age", ColumnTypes.uint32())
-    .with("likesIceCream", ColumnTypes.boolean())
+    .with(column("id", ColumnTypes.string()).unique())
+    .with(column("firstName", ColumnTypes.string()))
+    .with(column("lastName", ColumnTypes.string()))
+    .with(column("age", ColumnTypes.uint32()))
+    .with(column("likesIceCream", ColumnTypes.boolean()))
 
   async function useTableResources(
     filePath: string,

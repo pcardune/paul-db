@@ -110,15 +110,8 @@ describe("Computed column schemas", () => {
 describe("Schemas", () => {
   it("can be built iteratively", () => {
     const peopleSchema = TableSchema.create("people")
-      .with(
-        "name",
-        ColumnTypes.any<string>(),
-      )
-      .with("age", ColumnTypes.positiveNumber())
-
-    // @ts-expect-error: If specifying a column by name, you must
-    // also provide a type
-    expect(() => peopleSchema.with("bar")).toThrow()
+      .with(column("name", ColumnTypes.any<string>()))
+      .with(column("age", ColumnTypes.positiveNumber()))
 
     expect(peopleSchema.columns).toHaveLength(2)
     expect(peopleSchema.isValidInsertRecord({ name: "Alice", age: 25 }).valid)
@@ -145,8 +138,8 @@ describe("Schemas", () => {
 
   it("Uses the underlying column type for validation", () => {
     const peopleSchema = TableSchema.create("people")
-      .with("name", ColumnTypes.any<string>())
-      .with("age", ColumnTypes.positiveNumber())
+      .with(column("name", ColumnTypes.any<string>()))
+      .with(column("age", ColumnTypes.positiveNumber()))
 
     expect(peopleSchema.isValidInsertRecord({ name: "Alice", age: 25 }).valid)
       .toBe(
@@ -160,11 +153,8 @@ describe("Schemas", () => {
 
   it("Exposes the types of records that are stored in the table", () => {
     const peopleSchema = TableSchema.create("people")
-      .with(
-        "name",
-        ColumnTypes.any<string>(),
-      )
-      .with("age", ColumnTypes.positiveNumber())
+      .with(column("name", ColumnTypes.any<string>()))
+      .with(column("age", ColumnTypes.positiveNumber()))
     assertTrue<
       TypeEquals<
         { id: string; name: string; age: number },
@@ -185,8 +175,8 @@ describe("Schemas", () => {
   describe("Computed columns", () => {
     it("can be added using withComputedColumn()", () => {
       const peopleSchema = TableSchema.create("people")
-        .with("firstName", ColumnTypes.any<string>())
-        .with("lastName", ColumnTypes.any<string>())
+        .with(column("firstName", ColumnTypes.any<string>()))
+        .with(column("lastName", ColumnTypes.any<string>()))
         .withComputedColumn(
           computedColumn(
             "name",
@@ -213,7 +203,7 @@ describe("Schemas", () => {
 
     it("can only use the record type up to the current point", () => {
       const peopleSchema = TableSchema.create("people")
-        .with("firstName", ColumnTypes.any<string>())
+        .with(column("firstName", ColumnTypes.any<string>()))
 
       const nameColumn = computedColumn(
         "name",
@@ -228,7 +218,7 @@ describe("Schemas", () => {
           nameColumn,
         )
 
-      peopleSchema.with("lastName", ColumnTypes.any<string>())
+      peopleSchema.with(column("lastName", ColumnTypes.any<string>()))
         .withComputedColumn(nameColumn)
 
       // Inference will also work
@@ -251,9 +241,9 @@ describe("Schemas", () => {
 describe("Serializing and deserializing records", () => {
   it("can serialize and deserialize records", () => {
     const peopleSchema = TableSchema.create("people")
-      .with("age", ColumnTypes.uint32())
-      .with("likesIceCream", ColumnTypes.boolean())
-      .with("name", ColumnTypes.string())
+      .with(column("age", ColumnTypes.uint32()))
+      .with(column("likesIceCream", ColumnTypes.boolean()))
+      .with(column("name", ColumnTypes.string()))
 
     const serializer = makeTableSchemaSerializer(peopleSchema)!
     expect(serializer).toBeDefined()
