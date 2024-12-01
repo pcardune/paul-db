@@ -70,6 +70,7 @@ const dbTableColumnsTableSchema = TableSchema.create("__dbTableColumns")
   .with(column("unique", ColumnTypes.boolean()))
   .with(column("indexed", ColumnTypes.boolean()))
   .with(column("computed", ColumnTypes.boolean()))
+  .with(column("order", ColumnTypes.uint16()))
   .withUniqueConstraint("schemaId_name", ColumnTypes.string(), [
     "schemaId",
     "name",
@@ -175,16 +176,11 @@ export class DbFile {
       tableId: table.id,
       version: 0,
     })
-    for (const column of schema.columns) {
-      await columnsTable.insert({
-        schemaId: schemaRecord.id,
-        name: column.name,
-        unique: column.isUnique,
-        indexed: column.indexed.shouldIndex,
-        computed: false,
-        type: column.type.name,
-      })
-    }
+    const records = getColumnRecordsForSchema(schema)
+    await columnsTable.insertMany(records.map((record) => ({
+      ...record,
+      schemaId: schemaRecord.id,
+    })))
   }
 
   async getSchemasTable() {
@@ -229,6 +225,47 @@ export class DbFile {
         schemaTables.schemaTable,
         schemaTables.columnsTable,
       )
+    } else {
+      const existingSchemas = await this.getSchemas(db, schema.name)
+      if (existingSchemas.length === 0) {
+        throw new Error(`No schema found for ${db}.${schema.name}`)
+      }
+      const existingColumns = existingSchemas[0].columnRecords
+      const newColumns = getColumnRecordsForSchema(schema)
+      for (const [i, existingColumn] of existingColumns.entries()) {
+        const column = newColumns[i]
+        if (column == null) {
+          throw new Error("Column mismatch")
+        }
+        if (column.name !== existingColumn.name) {
+          throw new Error(
+            `Column name mismatch: ${column.name} !== ${existingColumn.name}`,
+          )
+        }
+        if (column.type !== existingColumn.type) {
+          throw new Error(
+            `Column type mismatch: ${column.type} !== ${existingColumn.type}`,
+          )
+        }
+        if (column.unique !== existingColumn.unique) {
+          throw new Error(
+            `Column isUnique mismatch: ${column.unique} !== ${existingColumn.unique}`,
+          )
+        }
+        if (column.indexed !== existingColumn.indexed) {
+          throw new Error(
+            `Column indexed mismatch: ${column.indexed} !== ${existingColumn.indexed}`,
+          )
+        }
+      }
+      if (newColumns.length > existingColumns.length) {
+        throw new Error(
+          `Column length mismatch. Found new column(s) ${
+            newColumns.slice(existingColumns.length).map((c) => `"${c.name}"`)
+              .join(", ")
+          }`,
+        )
+      }
     }
     return storage
   }
@@ -451,6 +488,7 @@ export class DbFile {
         "schemaId",
         schemaRecord.id,
       )
+      columnRecords.sort((a, b) => a.order - b.order)
 
       let schema: SomeTableSchema = TableSchema.create(tableName)
       for (const columnRecord of columnRecords) {
@@ -478,4 +516,17 @@ export class DbFile {
       return { schema, columnRecords, schemaRecord }
     }))
   }
+}
+
+function getColumnRecordsForSchema<SchemaT extends SomeTableSchema>(
+  schema: SchemaT,
+) {
+  return schema.columns.map((column, i) => ({
+    name: column.name,
+    unique: column.isUnique,
+    indexed: column.indexed.shouldIndex,
+    computed: false,
+    type: column.type.name,
+    order: i,
+  }))
 }

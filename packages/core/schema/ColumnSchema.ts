@@ -1,7 +1,7 @@
 // deno-lint-ignore-file no-namespace
 import { FilterTuple } from "../typetools.ts"
 import { ColumnType } from "./ColumnType.ts"
-import { OverrideProperties } from "npm:type-fest"
+import { OverrideProperties, Simplify } from "npm:type-fest"
 
 export namespace Index {
   export type ShouldIndex = {
@@ -87,7 +87,7 @@ export namespace Column {
   export type GetValue<C> = C extends Stored<string, infer V> ? V : never
 }
 
-class ColumnBuilder<
+export class ColumnBuilder<
   Name extends string = string,
   ValueT = any,
   UniqueT extends boolean = boolean,
@@ -104,6 +104,23 @@ class ColumnBuilder<
     readonly indexed: IndexedT,
     readonly defaultValueFactory: DefaultValueFactoryT,
   ) {}
+
+  finalize(): Column.Stored<
+    Name,
+    ValueT,
+    UniqueT,
+    IndexedT,
+    DefaultValueFactoryT
+  > {
+    return {
+      kind: "stored",
+      name: this.name,
+      type: this.type,
+      isUnique: this.isUnique,
+      indexed: this.indexed,
+      defaultValueFactory: this.defaultValueFactory,
+    }
+  }
 
   named<NewName extends string>(name: NewName) {
     return new ColumnBuilder<
@@ -229,6 +246,8 @@ export function computedColumn<
   )
 }
 
-export type StoredRecordForColumnSchemas<CS extends Column.Stored[]> = {
-  [K in CS[number]["name"]]: Column.GetValue<Column.FindWithName<CS, K>>
-}
+export type StoredRecordForColumnSchemas<CS extends Column.Stored[]> = Simplify<
+  {
+    [K in CS[number]["name"]]: Column.GetValue<Column.FindWithName<CS, K>>
+  }
+>

@@ -1,5 +1,5 @@
 import { expect } from "jsr:@std/expect"
-import { DbFile } from "../mod.ts"
+import { ColumnTypes, DbFile, s } from "../mod.ts"
 import { generateTestFilePath } from "../testing.ts"
 
 Deno.test("DbFile initialization", async (t) => {
@@ -121,5 +121,43 @@ Deno.test("DbFile initialization", async (t) => {
     const newState = await dumpState(db)
     expect(newState).toEqual(initialState)
     await getColumns(db)
+  })
+})
+
+Deno.test("DbFile.createTable() and schema changes", async (t) => {
+  using tempFile = generateTestFilePath("DbFile.db")
+
+  async function init() {
+    const db = await DbFile.open(tempFile.filePath, {
+      create: true,
+      truncate: true,
+    })
+
+    const usersSchema = s.table("users")
+      .with(s.column("id", ColumnTypes.uint32()).unique())
+      .with(s.column("name", ColumnTypes.string()))
+
+    const table = await db.createTable(usersSchema)
+    await table.insert({ id: 1, name: "Mr. Blue" })
+    return {
+      db,
+      table,
+      usersSchema,
+      [Symbol.dispose]: db[Symbol.dispose].bind(db),
+    }
+  }
+
+  await t.step("Adding a column", async () => {
+    using t = await init()
+    expect(await t.table.lookupUniqueOrThrow("id", 1)).toEqual({
+      id: 1,
+      name: "Mr. Blue",
+    })
+    const updatedSchema = t.usersSchema.with(
+      s.column("age", ColumnTypes.uint16()),
+    )
+    await expect(t.db.createTable(updatedSchema)).rejects.toThrow(
+      'Column length mismatch. Found new column(s) "age"',
+    )
   })
 })

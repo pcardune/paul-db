@@ -10,7 +10,6 @@ import { FilterTuple } from "../typetools.ts"
 import { INodeId } from "../indexes/BTreeNode.ts"
 import { AsyncIterableWrapper } from "../async.ts"
 import { Column, Index as CIndex } from "../schema/ColumnSchema.ts"
-import { TupleToUnion } from "npm:type-fest"
 
 /**
  * A helper type that lets you declare a table type from a given

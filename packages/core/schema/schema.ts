@@ -2,6 +2,7 @@ import { IStruct, Struct } from "../binary/Struct.ts"
 import { PushTuple } from "../typetools.ts"
 import {
   Column,
+  ColumnBuilder,
   computedColumn,
   Index,
   StoredRecordForColumnSchemas,
@@ -139,6 +140,9 @@ export class TableSchema<
   with<C extends Column.Stored>(
     column: C,
   ): TableSchema<TableName, PushTuple<ColumnSchemasT, C>, ComputedColumnsT> {
+    if (column instanceof ColumnBuilder) {
+      column = column.finalize() as C
+    }
     const columnName = column.name
     if (
       this.columns.some((c) => c.name === columnName) ||

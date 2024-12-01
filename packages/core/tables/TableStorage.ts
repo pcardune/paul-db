@@ -16,6 +16,7 @@ import {
   StoredRecordForTableSchema,
 } from "../schema/schema.ts"
 import { TableInfer } from "./Table.ts"
+import { Simplify } from "npm:type-fest"
 
 export interface ITableStorage<RowId, RowData> {
   get(id: RowId): Promise<RowData | undefined>
@@ -376,11 +377,13 @@ export class HeapFileTableStorage<RowData>
     bufferPool: IBufferPool,
     schema: SchemaT,
     heapPageId: PageId,
-  ): Promise<{
-    data: HeapFileTableStorage<StoredRecordForTableSchema<SchemaT>>
-    schema: SchemaT
-    indexes: Map<string, Index<unknown, HeapFileRowId, INodeId>>
-  }> {
+  ): Promise<
+    Simplify<{
+      data: HeapFileTableStorage<StoredRecordForTableSchema<SchemaT>>
+      schema: SchemaT
+      indexes: Map<string, Index<unknown, HeapFileRowId, INodeId>>
+    }>
+  > {
     if (makeTableSchemaSerializer(schema) == null) {
       throw new Error("Schema is not serializable")
     }
