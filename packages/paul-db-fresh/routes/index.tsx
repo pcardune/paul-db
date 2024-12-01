@@ -53,10 +53,11 @@ export default function Home({ data }: PageProps<PageData>) {
         <h1 class="text-4xl font-bold mb-6">Paul's To-Dos</h1>
         <form
           method="post"
-          class="p-4 rounded-lg w-1/2 bg-zinc-800 mb-4 flex items-center gap-4"
+          class="p-6 rounded-lg w-1/2 bg-zinc-800 mb-4 flex items-center gap-4"
         >
           <input type="hidden" name="action" value="add" />
           <input
+            autoFocus
             class="grow rounded opacity-50 hover:opacity-70 focus:opacity-100 bg-zinc-600 px-2 py-1 placeholder:text-zinc-300 focus:outline-none ring-inset focus:ring"
             type="text"
             name="title"
@@ -70,25 +71,27 @@ export default function Home({ data }: PageProps<PageData>) {
             Add Todo
           </button>
         </form>
-        <ol class="px-4 py-1 rounded-lg bg-zinc-800 w-1/2">
-          {data.todos.map((todo) => (
-            <li class="border-b last:border-0 border-zinc-600 py-4 px-2 flex justify items-center">
-              <span>
-                {todo.title}
-              </span>
-              <form method="post" class="ml-auto">
-                <input type="hidden" name="action" value="delete" />
-                <input type="hidden" name="id" value={todo.id} />
-                <button
-                  class="bg-zinc-600 rounded px-3 py-1 font-bold opacity-50 hover:opacity-100 focus:opacity-100 focus:outline-none ring-inset focus:ring"
-                  type="submit"
-                >
-                  Delete
-                </button>
-              </form>
-            </li>
-          ))}
-        </ol>
+        {data.todos.length > 0 && (
+          <ol class="px-4 py-1 rounded-lg bg-zinc-800 w-1/2">
+            {data.todos.map((todo) => (
+              <li class="border-b last:border-0 border-zinc-600 py-4 px-2 flex justify items-center">
+                <span>
+                  {todo.title}
+                </span>
+                <form method="post" class="ml-auto">
+                  <input type="hidden" name="action" value="delete" />
+                  <input type="hidden" name="id" value={todo.id} />
+                  <button
+                    class="bg-zinc-600 rounded px-3 py-1 font-bold opacity-50 hover:opacity-100 focus:opacity-100 focus:outline-none ring-inset focus:ring"
+                    type="submit"
+                  >
+                    Delete
+                  </button>
+                </form>
+              </li>
+            ))}
+          </ol>
+        )}
       </div>
     </div>
   )
