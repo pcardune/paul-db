@@ -8,7 +8,7 @@ import {
 } from "./ColumnSchema.ts"
 import { ColumnType } from "./ColumnType.ts"
 
-type InsertRecordForColumnSchemas<CS extends Column.Any[]> =
+type InsertRecordForColumnSchemas<CS extends Column.Stored[]> =
   & {
     [K in Extract<CS[number], { defaultValueFactory: undefined }>["name"]]:
       Column.GetValue<Extract<CS[number], { name: K }>>
@@ -25,13 +25,13 @@ export type StoredRecordForTableSchema<TS extends SomeTableSchema> =
 
 export type SomeTableSchema = TableSchema<
   string,
-  Column.Any[],
+  Column.Stored[],
   Column.Computed.Any[]
 >
 
 export class TableSchema<
   TableName extends string,
-  ColumnSchemasT extends Column.Any[],
+  ColumnSchemasT extends Column.Stored[],
   ComputedColumnsT extends Column.Computed.Any[],
 > {
   private constructor(
@@ -136,7 +136,7 @@ export class TableSchema<
     ])
   }
 
-  with<C extends Column.Any>(
+  with<C extends Column.Stored>(
     column: C,
   ): TableSchema<TableName, PushTuple<ColumnSchemasT, C>, ComputedColumnsT> {
     const columnName = column.name

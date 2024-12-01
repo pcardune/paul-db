@@ -1,4 +1,5 @@
 // deno-lint-ignore-file no-namespace
+import { FilterTuple } from "../typetools.ts"
 import { ColumnType } from "./ColumnType.ts"
 import { OverrideProperties } from "npm:type-fest"
 
@@ -47,7 +48,7 @@ export namespace Column {
       Column.Computed.Any<string, boolean, Index.Config, infer I> ? I : never
   }
 
-  export type Any<
+  export type Stored<
     Name extends string = string,
     ValueT = any,
     UniqueT extends boolean = boolean,
@@ -65,22 +66,25 @@ export namespace Column {
     defaultValueFactory: DefaultValueFactoryT
   }
 
-  export type WithName<Name extends string> = OverrideProperties<
-    Any,
+  export type Any = Stored | Computed.Any
+
+  export type FindWithName<CS extends Any[], Name extends string> = FilterTuple<
+    CS,
     { name: Name }
   >
-  export type WithValue<ValueT> = OverrideProperties<
-    Any,
-    { type: ColumnType<ValueT> }
+
+  export type FindUnique<CS extends Any[]> = FilterTuple<CS, { isUnique: true }>
+  export type FindIndexed<CS extends Any[]> = Exclude<
+    CS[number],
+    { indexed: { shouldIndex: false } }
   >
-  export type Unique = OverrideProperties<Any, { isUnique: true }>
-  export type Indexed = OverrideProperties<Any, { indexed: Index.ShouldIndex }>
+
   export type WithDefaultValue<ValueT = any> = OverrideProperties<
-    Any,
+    Stored,
     { defaultValueFactory: () => ValueT }
   >
 
-  export type GetValue<C> = C extends Any<string, infer V> ? V : never
+  export type GetValue<C> = C extends Stored<string, infer V> ? V : never
 }
 
 class ColumnBuilder<
@@ -225,6 +229,6 @@ export function computedColumn<
   )
 }
 
-export type StoredRecordForColumnSchemas<CS extends Column.Any[]> = {
-  [K in CS[number]["name"]]: Column.GetValue<Extract<CS[number], { name: K }>>
+export type StoredRecordForColumnSchemas<CS extends Column.Stored[]> = {
+  [K in CS[number]["name"]]: Column.GetValue<Column.FindWithName<CS, K>>
 }

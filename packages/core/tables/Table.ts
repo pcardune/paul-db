@@ -10,6 +10,7 @@ import { FilterTuple } from "../typetools.ts"
 import { INodeId } from "../indexes/BTreeNode.ts"
 import { AsyncIterableWrapper } from "../async.ts"
 import { Column, Index as CIndex } from "../schema/ColumnSchema.ts"
+import { TupleToUnion } from "npm:type-fest"
 
 /**
  * A helper type that lets you declare a table type from a given
@@ -32,7 +33,7 @@ export type TableInfer<SchemaT, StorageT> = SchemaT extends
 export class Table<
   RowIdT,
   TName extends string,
-  ColumnSchemasT extends Column.Any[],
+  ColumnSchemasT extends Column.Stored[],
   ComputedColumnSchemasT extends Column.Computed.Any[],
   SchemaT extends TableSchema<TName, ColumnSchemasT, ComputedColumnSchemasT>,
   StorageT extends ITableStorage<RowIdT, StoredRecordForTableSchema<SchemaT>>,
@@ -180,19 +181,13 @@ export class Table<
   }
 
   async lookupUniqueOrThrow<
-    IName extends FilterTuple<
-      SchemaT["columns"] | SchemaT["computedColumns"],
-      { isUnique: true }
+    IName extends Column.FindUnique<
+      SchemaT["columns"] | SchemaT["computedColumns"]
     >["name"],
     ValueT extends
-      | Column.GetValue<
-        FilterTuple<
-          SchemaT["columns"],
-          { name: IName }
-        >
-      >
+      | Column.GetValue<Column.FindWithName<SchemaT["columns"], IName>>
       | Column.Computed.GetInput<
-        FilterTuple<SchemaT["computedColumns"], { name: IName }>
+        Column.FindWithName<SchemaT["computedColumns"], IName>
       >,
   >(
     indexName: IName,
@@ -207,19 +202,13 @@ export class Table<
   }
 
   async lookupUnique<
-    IName extends FilterTuple<
-      SchemaT["columns"] | SchemaT["computedColumns"],
-      { isUnique: true }
+    IName extends Column.FindUnique<
+      SchemaT["columns"] | SchemaT["computedColumns"]
     >["name"],
     ValueT extends
-      | Column.GetValue<
-        FilterTuple<
-          SchemaT["columns"],
-          { name: IName }
-        >
-      >
+      | Column.GetValue<Column.FindWithName<SchemaT["columns"], IName>>
       | Column.Computed.GetInput<
-        FilterTuple<SchemaT["computedColumns"], { name: IName }>
+        Column.FindWithName<SchemaT["computedColumns"], IName>
       >,
   >(
     indexName: IName,
@@ -244,12 +233,9 @@ export class Table<
   }
 
   async lookup<
-    IName extends FilterTuple<
-      SchemaT["columns"],
-      { indexed: CIndex.Config }
-    >["name"],
+    IName extends Column.FindIndexed<SchemaT["columns"]>["name"],
     ValueT extends Column.GetValue<
-      FilterTuple<SchemaT["columns"], { name: IName }>
+      Column.FindWithName<SchemaT["columns"], IName>
     >,
   >(
     indexName: IName,
@@ -273,12 +259,9 @@ export class Table<
   }
 
   async lookupComputed<
-    IName extends FilterTuple<
-      SchemaT["computedColumns"],
-      { indexed: CIndex.Config }
-    >["name"],
+    IName extends Column.FindIndexed<SchemaT["computedColumns"]>["name"],
     ValueT extends Column.Computed.GetOutput<
-      FilterTuple<SchemaT["computedColumns"], { name: IName }>
+      Column.FindWithName<SchemaT["computedColumns"], IName>
     >,
   >(indexName: IName, value: ValueT) {
     const index = this._allIndexes.get(indexName)
@@ -296,9 +279,7 @@ export class Table<
     )
   }
 
-  iterate(): AsyncIterableWrapper<
-    StoredRecordForTableSchema<SchemaT>
-  > {
+  iterate(): AsyncIterableWrapper<StoredRecordForTableSchema<SchemaT>> {
     return this.data.iterate().map(([_rowId, record]) =>
       record
     ) as AsyncIterableWrapper<StoredRecordForTableSchema<SchemaT>>
