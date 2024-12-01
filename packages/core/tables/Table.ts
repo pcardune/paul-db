@@ -1,20 +1,22 @@
 // deno-lint-ignore-file no-explicit-any
 import { Index } from "../indexes/Index.ts"
 import {
-  ColumnIndexConfig,
-  InputForComputedColumnSchema,
   InsertRecordForTableSchema,
-  OutputForComputedColumnSchema,
-  SomeColumnSchema,
-  SomeComputedColumnSchema,
   StoredRecordForTableSchema,
   TableSchema,
-  ValueForColumnSchema,
 } from "../schema/schema.ts"
 import { ITableStorage } from "./TableStorage.ts"
 import { FilterTuple } from "../typetools.ts"
 import { INodeId } from "../indexes/BTreeNode.ts"
 import { AsyncIterableWrapper } from "../async.ts"
+import {
+  Index as CIndex,
+  InputForComputedColumnSchema,
+  OutputForComputedColumnSchema,
+  SomeColumnSchema,
+  SomeComputedColumnSchema,
+  ValueForColumnSchema,
+} from "../schema/ColumnSchema.ts"
 
 /**
  * A helper type that lets you declare a table type from a given
@@ -136,7 +138,7 @@ export class Table<
       const index = this._allIndexes.get(column.name)
       if (index) {
         await index.insert((record as any)[column.name], id)
-      } else if (column.indexed) {
+      } else if (column.indexed.shouldIndex) {
         throw new Error(`Column ${column.name} is not indexed`)
       }
     }
@@ -144,7 +146,7 @@ export class Table<
       const index = this._allIndexes.get(column.name)
       if (index) {
         await index.insert(column.compute(record), id)
-      } else if (column.indexed) {
+      } else if (column.indexed.shouldIndex) {
         throw new Error(`Column ${column.name} is not indexed`)
       }
     }
@@ -159,7 +161,7 @@ export class Table<
   async removeWhere<
     IName extends FilterTuple<
       SchemaT["columns"],
-      { indexed: ColumnIndexConfig }
+      { indexed: CIndex.Config }
     >["name"],
     ValueT extends ValueForColumnSchema<
       FilterTuple<SchemaT["columns"], { name: IName }>
@@ -251,7 +253,7 @@ export class Table<
   async lookup<
     IName extends FilterTuple<
       SchemaT["columns"],
-      { indexed: ColumnIndexConfig }
+      { indexed: CIndex.Config }
     >["name"],
     ValueT extends ValueForColumnSchema<
       FilterTuple<SchemaT["columns"], { name: IName }>
@@ -280,7 +282,7 @@ export class Table<
   async lookupComputed<
     IName extends FilterTuple<
       SchemaT["computedColumns"],
-      { indexed: ColumnIndexConfig }
+      { indexed: CIndex.Config }
     >["name"],
     ValueT extends OutputForComputedColumnSchema<
       FilterTuple<SchemaT["computedColumns"], { name: IName }>

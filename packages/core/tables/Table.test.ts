@@ -2,12 +2,7 @@ import { beforeAll, describe, it } from "jsr:@std/testing/bdd"
 import { expect } from "jsr:@std/expect"
 import { assertSnapshot } from "jsr:@std/testing/snapshot"
 import { Table, TableInfer } from "./Table.ts"
-import {
-  column,
-  computedColumn,
-  StoredRecordForTableSchema,
-  TableSchema,
-} from "../schema/schema.ts"
+import { StoredRecordForTableSchema, TableSchema } from "../schema/schema.ts"
 import {
   HeapFileRowId,
   InMemoryTableStorage,
@@ -16,6 +11,7 @@ import {
 import { ColumnType, ColumnTypes } from "../schema/ColumnType.ts"
 import { DbFile } from "../db/DbFile.ts"
 import { generateTestFilePath } from "../testing.ts"
+import { column, computedColumn } from "../schema/ColumnSchema.ts"
 
 const peopleSchema = TableSchema.create("people")
   .with("name", ColumnTypes.any<string>())

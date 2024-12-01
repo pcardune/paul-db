@@ -4,8 +4,6 @@ import { readBytesAt, writeBytesAt } from "../io.ts"
 import { FileBackedBufferPool, PageId } from "../pages/BufferPool.ts"
 import { ColumnTypes, getColumnTypeFromString } from "../schema/ColumnType.ts"
 import {
-  column,
-  ColumnSchema,
   SomeTableSchema,
   StoredRecordForTableSchema,
   TableSchema,
@@ -17,6 +15,7 @@ import {
 } from "../tables/TableStorage.ts"
 import { ReadonlyDataView } from "../binary/dataview.ts"
 import { debugLog } from "../logging.ts"
+import { column, ColumnSchema } from "../schema/ColumnSchema.ts"
 
 const SYSTEM_DB = "system"
 
@@ -191,7 +190,7 @@ export class DbFile {
         schemaId: schemaRecord.id,
         name: column.name,
         unique: column.isUnique,
-        indexed: Boolean(column.indexed),
+        indexed: column.indexed.shouldIndex,
         computed: false,
         type: column.type.name,
       })
@@ -476,12 +475,14 @@ export class DbFile {
             columnRecord.name,
             getColumnTypeFromString(columnRecord.type),
             columnRecord.unique,
-            columnRecord.indexed ? { order: 2 } : false,
+            columnRecord.indexed
+              ? { shouldIndex: true, order: 2 }
+              : { shouldIndex: false },
           ),
         )
       }
 
-      return { schema, columnRecords, schemaRecord: schemaRecord }
+      return { schema, columnRecords, schemaRecord }
     }))
   }
 }

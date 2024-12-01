@@ -1,18 +1,20 @@
 import { describe, it } from "jsr:@std/testing/bdd"
 import { expect } from "jsr:@std/expect"
 import {
-  column,
-  computedColumn,
   InsertRecordForTableSchema,
   makeTableSchemaSerializer,
-  RecordForColumnSchema,
   TableSchema,
-  ValueForColumnSchema,
 } from "./schema.ts"
 import { StoredRecordForTableSchema } from "./schema.ts"
 import { ColumnTypes } from "./ColumnType.ts"
 import { dumpUint8Buffer } from "../binary/util.ts"
 import { WriteableDataView } from "../binary/dataview.ts"
+import {
+  column,
+  computedColumn,
+  RecordForColumnSchema,
+  ValueForColumnSchema,
+} from "./ColumnSchema.ts"
 
 function assertType<T>(_value: T) {}
 type TypeEquals<Actual, Expected> = Actual extends Expected ? true

@@ -2,10 +2,10 @@ import { IStruct, Struct } from "../binary/Struct.ts"
 import { Comparator, EqualityChecker, Json } from "../types.ts"
 import * as uuid from "jsr:@std/uuid"
 
-export function getColumnTypeFromString(type: string): ColumnType<any> {
+export function getColumnTypeFromString(type: string): ColumnType<unknown> {
   const t = type.toLowerCase()
   if (t in ColumnTypes) {
-    return (ColumnTypes as Record<string, () => ColumnType<any>>)[t]()
+    return (ColumnTypes as Record<string, () => ColumnType<unknown>>)[t]()
   }
   throw new Error(`Unknown type: ${type}`)
 }

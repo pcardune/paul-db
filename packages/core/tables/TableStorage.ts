@@ -67,7 +67,7 @@ export class JsonFileTableStorage<RowData>
   }> {
     const indexes = new Map<string, Index<unknown, number, INodeId>>()
     for (const column of [...schema.columns, ...schema.computedColumns]) {
-      if (column.indexed) {
+      if (column.indexed.shouldIndex) {
         indexes.set(
           column.name,
           await Index.inMemory({
@@ -162,7 +162,7 @@ export class InMemoryTableStorage<RowId, RowData>
   }> {
     const indexes = new Map<string, Index<unknown, number, INodeId>>()
     for (const column of [...schema.columns, ...schema.computedColumns]) {
-      if (column.indexed) {
+      if (column.indexed.shouldIndex) {
         indexes.set(
           column.name,
           await Index.inMemory({
@@ -335,7 +335,7 @@ export class HeapFileTableStorage<RowData>
 
     const indexes = new Map<string, Index<unknown, HeapFileRowId, INodeId>>()
     for (const column of [...schema.columns, ...schema.computedColumns]) {
-      if (column.indexed) {
+      if (column.indexed.shouldIndex) {
         if (!column.type.serializer) {
           throw new Error("Type must have a serializer")
         }
@@ -388,7 +388,7 @@ export class HeapFileTableStorage<RowData>
     const indexPageIds: Record<string, PageId> = {}
 
     for (const column of [...schema.columns, ...schema.computedColumns]) {
-      if (column.indexed) {
+      if (column.indexed.shouldIndex) {
         if (!column.type.serializer) {
           throw new Error("Type must have a serializer")
         }
