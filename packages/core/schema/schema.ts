@@ -1,4 +1,3 @@
-// deno-lint-ignore-file no-explicit-any
 import { IStruct, Struct } from "../binary/Struct.ts"
 import { PushTuple } from "../typetools.ts"
 import {
@@ -51,41 +50,8 @@ export class TableSchema<
     return this.columns
   }
 
-  static create<Name extends string>(
-    name: Name,
-  ): TableSchema<
-    Name,
-    [],
-    []
-  >
-  static create<
-    Name extends string,
-    PKColumn extends ColumnSchema<
-      string,
-      any,
-      true,
-      Index.Config,
-      undefined | (() => any)
-    >,
-  >(
-    name: Name,
-    primaryKeyColumn: PKColumn,
-  ): TableSchema<Name, [PKColumn], []>
-  static create(
-    name: string,
-    primaryKeyColumn?: ColumnSchema<
-      string,
-      any,
-      true,
-      Index.Config,
-      undefined | (() => any)
-    >,
-  ): TableSchema<
-    string,
-    SomeColumnSchema[],
-    []
-  > {
-    return new TableSchema(name, primaryKeyColumn ? [primaryKeyColumn] : [], [])
+  static create(name: string): TableSchema<string, [], []> {
+    return new TableSchema(name, [], [])
   }
 
   isValidInsertRecord(

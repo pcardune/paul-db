@@ -28,19 +28,15 @@ const headerStruct = Struct.record({
   dbIndexesIndexPageId: [5, Struct.bigUint64],
 })
 
-const dbPageIdsTableSchema = TableSchema.create(
-  "__dbPageIds",
-  column("pageType", ColumnTypes.string()).unique(),
-)
+const dbPageIdsTableSchema = TableSchema.create("__dbPageIds")
+  .with(column("pageType", ColumnTypes.string()).unique())
   .with(column("pageId", ColumnTypes.uint64()))
 
 const ulidIdColumn = column("id", ColumnTypes.string()).unique()
   .defaultTo(() => ulid())
 
-const dbTablesTableSchema = TableSchema.create(
-  "__dbTables",
-  ulidIdColumn,
-)
+const dbTablesTableSchema = TableSchema.create("__dbTables")
+  .with(ulidIdColumn)
   .with(column("db", ColumnTypes.string()))
   .with(column("name", ColumnTypes.string()))
   .with(column("heapPageId", ColumnTypes.uint64()))
@@ -51,16 +47,12 @@ const dbTablesTableSchema = TableSchema.create(
     (input: { db: string; name: string }) => `${input.db}.${input.name}`,
   )
 
-const dbIndexesTableSchema = TableSchema.create(
-  "__dbIndexes",
-  column("indexName", ColumnTypes.string()).unique(),
-)
+const dbIndexesTableSchema = TableSchema.create("__dbIndexes")
+  .with(column("indexName", ColumnTypes.string()).unique())
   .with(column("heapPageId", ColumnTypes.uint64()))
 
-const dbSchemasTableSchema = TableSchema.create(
-  "__dbSchemas",
-  ulidIdColumn,
-)
+const dbSchemasTableSchema = TableSchema.create("__dbSchemas")
+  .with(ulidIdColumn)
   .with(column("tableId", ColumnTypes.string()))
   .with(column("version", ColumnTypes.uint32()))
   .withUniqueConstraint(
@@ -70,10 +62,8 @@ const dbSchemasTableSchema = TableSchema.create(
     (input) => `${input.tableId}@${input.version}`,
   )
 
-const dbTableColumnsTableSchema = TableSchema.create(
-  "__dbTableColumns",
-  ulidIdColumn,
-)
+const dbTableColumnsTableSchema = TableSchema.create("__dbTableColumns")
+  .with(ulidIdColumn)
   .with(column("schemaId", ColumnTypes.string()).index())
   .with(column("name", ColumnTypes.string()))
   .with(column("type", ColumnTypes.string()))

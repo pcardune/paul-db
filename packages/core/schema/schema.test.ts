@@ -108,20 +108,6 @@ describe("Computed column schemas", () => {
 })
 
 describe("Schemas", () => {
-  it("lets you specify a primary key column", () => {
-    TableSchema.create(
-      "people",
-      // @ts-expect-error: column must be unique
-      column("ssn", ColumnTypes.string()),
-    )
-
-    const schema = TableSchema.create(
-      "people",
-      column("ssn", ColumnTypes.string()).unique(),
-    )
-    expect(schema.columns).toHaveLength(1)
-  })
-
   it("can be built iteratively", () => {
     const peopleSchema = TableSchema.create("people")
       .with(
