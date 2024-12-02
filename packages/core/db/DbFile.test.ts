@@ -137,7 +137,7 @@ Deno.test("DbFile.createTable() and schema changes", async (t) => {
       .with(s.column("id", ColumnTypes.uint32()).unique())
       .with(s.column("name", ColumnTypes.string()))
 
-    const table = await db.createTable(usersSchema)
+    const table = await db.getOrCreateTable(usersSchema)
     await table.insert({ id: 1, name: "Mr. Blue" })
     return {
       db,
@@ -156,7 +156,7 @@ Deno.test("DbFile.createTable() and schema changes", async (t) => {
     const updatedSchema = t.usersSchema.with(
       s.column("age", ColumnTypes.uint16()),
     )
-    await expect(t.db.createTable(updatedSchema)).rejects.toThrow(
+    await expect(t.db.getOrCreateTable(updatedSchema)).rejects.toThrow(
       'Column length mismatch. Found new column(s) "age"',
     )
   })

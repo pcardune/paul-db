@@ -1,23 +1,17 @@
-import { ulid } from "jsr:@std/ulid"
 import { Struct } from "../binary/Struct.ts"
 import { readBytesAt, writeBytesAt } from "../io.ts"
 import { FileBackedBufferPool, PageId } from "../pages/BufferPool.ts"
-import { ColumnTypes, getColumnTypeFromString } from "../schema/ColumnType.ts"
-import {
-  SomeTableSchema,
-  StoredRecordForTableSchema,
-  TableSchema,
-} from "../schema/schema.ts"
-import { Table, TableInfer } from "../tables/Table.ts"
+import { getColumnTypeFromString } from "../schema/ColumnType.ts"
+import { SomeTableSchema, TableSchema } from "../schema/schema.ts"
+import { Table } from "../tables/Table.ts"
 import {
   HeapFileTableInfer,
   HeapFileTableStorage,
 } from "../tables/TableStorage.ts"
 import { ReadonlyDataView } from "../binary/dataview.ts"
 import { debugLog } from "../logging.ts"
-import { column } from "../schema/ColumnSchema.ts"
 import { DBFileSerialIdGenerator } from "../serial.ts"
-
+import { schemas } from "./metadataSchemas.ts"
 const SYSTEM_DB = "system"
 
 const headerStruct = Struct.record({
@@ -29,76 +23,13 @@ const headerStruct = Struct.record({
   dbIndexesIndexPageId: [5, Struct.bigUint64],
 })
 
-const dbPageIdsTableSchema = TableSchema.create("__dbPageIds")
-  .with(column("pageType", ColumnTypes.string()).unique())
-  .with(column("pageId", ColumnTypes.uint64()))
-
-const ulidIdColumn = column("id", ColumnTypes.string()).unique()
-  .defaultTo(() => ulid())
-
-const dbTablesTableSchema = TableSchema.create("__dbTables")
-  .with(ulidIdColumn)
-  .with(column("db", ColumnTypes.string()))
-  .with(column("name", ColumnTypes.string()))
-  .with(column("heapPageId", ColumnTypes.uint64()))
-  .withUniqueConstraint(
-    "_db_name",
-    ColumnTypes.string(),
-    ["db", "name"],
-    (input: { db: string; name: string }) => `${input.db}.${input.name}`,
-  )
-
-const dbIndexesTableSchema = TableSchema.create("__dbIndexes")
-  .with(column("indexName", ColumnTypes.string()).unique())
-  .with(column("heapPageId", ColumnTypes.uint64()))
-
-const dbSchemasTableSchema = TableSchema.create("__dbSchemas")
-  .with(column("id", ColumnTypes.uint32()).unique())
-  .with(column("tableId", ColumnTypes.string()))
-  .with(column("version", ColumnTypes.uint32()))
-  .withUniqueConstraint(
-    "tableId_version",
-    ColumnTypes.string(),
-    ["tableId", "version"],
-    (input) => `${input.tableId}@${input.version}`,
-  )
-
-const dbTableColumnsTableSchema = TableSchema.create("__dbTableColumns")
-  .with(ulidIdColumn)
-  .with(column("schemaId", ColumnTypes.uint32()).index())
-  .with(column("name", ColumnTypes.string()))
-  .with(column("type", ColumnTypes.string()))
-  .with(column("unique", ColumnTypes.boolean()))
-  .with(column("indexed", ColumnTypes.boolean()))
-  .with(column("computed", ColumnTypes.boolean()))
-  .with(column("order", ColumnTypes.uint16()))
-  .withUniqueConstraint("schemaId_name", ColumnTypes.string(), [
-    "schemaId",
-    "name",
-  ], (input) => `${input.schemaId}.${input.name}`)
-
 export class DbFile {
   private constructor(
     private file: Deno.FsFile,
     readonly bufferPool: FileBackedBufferPool,
-    readonly dbPageIdsTable: TableInfer<
-      typeof dbPageIdsTableSchema,
-      HeapFileTableStorage<
-        StoredRecordForTableSchema<typeof dbPageIdsTableSchema>
-      >
-    >,
-    readonly indexesTable: TableInfer<
-      typeof dbIndexesTableSchema,
-      HeapFileTableStorage<
-        StoredRecordForTableSchema<typeof dbIndexesTableSchema>
-      >
-    >,
-    readonly tablesTable: TableInfer<
-      typeof dbTablesTableSchema,
-      HeapFileTableStorage<
-        StoredRecordForTableSchema<typeof dbTablesTableSchema>
-      >
-    >,
+    readonly dbPageIdsTable: HeapFileTableInfer<typeof schemas.dbPageIds>,
+    readonly indexesTable: HeapFileTableInfer<typeof schemas.dbIndexes>,
+    readonly tablesTable: HeapFileTableInfer<typeof schemas.dbTables>,
   ) {}
 
   async getIndexStorage(
@@ -166,8 +97,8 @@ export class DbFile {
   private async writeSchemaMetadata<SchemaT extends SomeTableSchema>(
     db: string,
     schema: SchemaT,
-    schemaTable: HeapFileTableInfer<typeof dbSchemasTableSchema>,
-    columnsTable: HeapFileTableInfer<typeof dbTableColumnsTableSchema>,
+    schemaTable: HeapFileTableInfer<typeof schemas.dbSchemas>,
+    columnsTable: HeapFileTableInfer<typeof schemas.dbTableColumns>,
   ) {
     const table = await this.tablesTable.lookupUnique("_db_name", {
       db,
@@ -197,13 +128,13 @@ export class DbFile {
 
   async getSchemasTable() {
     const schemaTableStorage = await this._getTableStorage(
-      dbSchemasTableSchema,
+      schemas.dbSchemas,
       SYSTEM_DB,
       0,
     )
     const schemaTable = new Table(schemaTableStorage.storage)
     const columnsTableStorage = await this._getTableStorage(
-      dbTableColumnsTableSchema,
+      schemas.dbTableColumns,
       SYSTEM_DB,
       0,
     )
@@ -211,13 +142,13 @@ export class DbFile {
     if (schemaTableStorage.created) {
       await this.writeSchemaMetadata(
         SYSTEM_DB,
-        dbSchemasTableSchema,
+        schemas.dbSchemas,
         schemaTable,
         columnsTable,
       )
       await this.writeSchemaMetadata(
         SYSTEM_DB,
-        dbTableColumnsTableSchema,
+        schemas.dbTableColumns,
         schemaTable,
         columnsTable,
       )
@@ -225,9 +156,9 @@ export class DbFile {
     return { schemaTable, columnsTable }
   }
 
-  async getTableStorage<SchemaT extends SomeTableSchema>(
+  private async getTableStorage<SchemaT extends SomeTableSchema>(
+    db: string,
     schema: SchemaT,
-    db: string = "default",
   ) {
     const { created, storage } = await this._getTableStorage(
       schema,
@@ -308,8 +239,8 @@ export class DbFile {
         continue
       }
       const storage = await this.getTableStorage(
-        schemas[0].schema,
         tableRecord.db,
+        schemas[0].schema,
       )
       for await (const [_rowId, record] of storage.data.iterate()) {
         const json = storage.data.recordStruct.toJSON(record)
@@ -410,7 +341,7 @@ export class DbFile {
     const dbPageIdsTable = new Table(
       await HeapFileTableStorage.__openWithIndexPageIds(
         bufferPool,
-        dbPageIdsTableSchema,
+        schemas.dbPageIds,
         headerPageId,
         { pageType: pageTypeIndexPageId },
         0,
@@ -429,7 +360,7 @@ export class DbFile {
     const dbIndexesTable = new Table(
       await HeapFileTableStorage.__openWithIndexPageIds(
         bufferPool,
-        dbIndexesTableSchema,
+        schemas.dbIndexes,
         await getOrCreatePageIdForPageType("indexesTable"),
         { indexName: dbIndexesIndexPageId },
         0,
@@ -438,7 +369,7 @@ export class DbFile {
     const dbTablesTable = new Table(
       await HeapFileTableStorage.__openWithIndexPageIds(
         bufferPool,
-        dbTablesTableSchema,
+        schemas.dbTables,
         await getOrCreatePageIdForPageType("tablesTable"),
         { id: dbTables_id_IndexPageId, _db_name: dbTables_db_name_IndexPageId },
         0,
@@ -486,11 +417,11 @@ export class DbFile {
     this.close()
   }
 
-  async createTable<SchemaT extends SomeTableSchema>(
+  async getOrCreateTable<SchemaT extends SomeTableSchema>(
     schema: SchemaT,
-    db: string = "default",
+    { db = "default" }: { db?: string } = {},
   ) {
-    const storage = await this.getTableStorage(schema, db)
+    const storage = await this.getTableStorage(db, schema)
     return new Table(storage)
   }
 

@@ -1,4 +1,4 @@
-import { column, ColumnTypes, PaulDB, Table, TableSchema } from "@paul-db/core"
+import { column, ColumnTypes, PaulDB, TableSchema } from "@paul-db/core"
 import { HeapFileTableInfer } from "../../core/tables/TableStorage.ts"
 
 const todoSchema = TableSchema.create("todos")
@@ -14,6 +14,6 @@ export type Model = {
 
 export async function getModel(db: PaulDB): Promise<Model> {
   return {
-    todos: new Table(await db.dbFile.getTableStorage(todoSchema)),
+    todos: await db.dbFile.getOrCreateTable(todoSchema),
   }
 }

@@ -38,9 +38,9 @@ export class DBFileSerialIdGenerator implements SerialIdGenerator {
   >()
 
   async next(columnName: string): Promise<number> {
-    const sequenceTable = await this.dbFile.createTable(
+    const sequenceTable = await this.dbFile.getOrCreateTable(
       dbSequenceTableSchema,
-      "system",
+      { db: "system" },
     )
 
     const cached = this._cache.get(columnName)

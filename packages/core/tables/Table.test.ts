@@ -268,7 +268,7 @@ Deno.test("HeapFileTableStorage", async (t) => {
     { truncate = false } = {},
   ) {
     const dbFile = await DbFile.open(filePath, { create: true, truncate })
-    const table = new Table(await dbFile.getTableStorage(schema))
+    const table = await dbFile.getOrCreateTable(schema)
     return { table, dbFile, [Symbol.dispose]: () => dbFile.close() }
   }
 

@@ -1,4 +1,4 @@
-import { column, type DbFile, Table, TableSchema } from "@paul-db/core"
+import { column, type DbFile, TableSchema } from "@paul-db/core"
 import SQLParser, { Column } from "node-sql-parser"
 import { Create } from "node-sql-parser/types"
 import { SomeTableSchema } from "../core/schema/schema.ts"
@@ -100,8 +100,9 @@ export class SQLExecutor {
     if (schemas.length === 0) {
       throw new TableNotFoundError(`Table ${db}.${tableName} not found`)
     }
-    const tableInstance = new Table(
-      await this.dbFile.getTableStorage(schemas[0].schema, db),
+    const tableInstance = await this.dbFile.getOrCreateTable(
+      schemas[0].schema,
+      { db },
     )
     const astColumns = ast.columns as Column[]
     if (astColumns.length != 1) {
@@ -149,8 +150,9 @@ export class SQLExecutor {
       throw new TableNotFoundError(`Table ${db}.${tableName} not found`)
     }
     // TODO: support correct schema version
-    const tableInstance = new Table(
-      await this.dbFile.getTableStorage(schemas[0].schema, db),
+    const tableInstance = await this.dbFile.getOrCreateTable(
+      schemas[0].schema,
+      { db },
     )
 
     if (!Array.isArray(ast.values)) {
@@ -231,6 +233,8 @@ export class SQLExecutor {
       }
     }
 
-    await this.dbFile.createTable(schema, table.db ? table.db : "default")
+    await this.dbFile.getOrCreateTable(schema, {
+      db: table.db ? table.db : "default",
+    })
   }
 }

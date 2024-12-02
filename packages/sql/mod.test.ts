@@ -1,4 +1,4 @@
-import { DbFile, Table } from "@paul-db/core"
+import { DbFile } from "@paul-db/core"
 import { SQLExecutor } from "./mod.ts"
 import { expect } from "jsr:@std/expect"
 import { omit, pick } from "jsr:@std/collections"
@@ -45,7 +45,7 @@ async function getPointsTable() {
   const e = await getExecutor()
   await e.sql.execute("CREATE TABLE points (x float, y float, color TEXT)")
   const schemas = await e.dbFile.getSchemasOrThrow("default", "points")
-  const table = new Table(await e.dbFile.getTableStorage(schemas[0].schema))
+  const table = await e.dbFile.getOrCreateTable(schemas[0].schema)
   return { ...e, table }
 }
 
