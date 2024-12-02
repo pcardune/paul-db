@@ -127,6 +127,7 @@ export class TableSchema<
         CInputNames[number]
       >,
     ) => COutput,
+    indexConfig: Partial<Index.ShouldIndex> = {},
   ) {
     return new TableSchema(this.name, this.columns, [
       ...this.computedColumns,
@@ -134,7 +135,7 @@ export class TableSchema<
         name,
         type,
         compute,
-      ).unique(),
+      ).unique(indexConfig),
     ])
   }
 

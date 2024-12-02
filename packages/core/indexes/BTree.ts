@@ -403,6 +403,12 @@ export class BTree<
     await this.nodes.deleteNode(oldNode.nodeId)
   }
 
+  async insertMany(keyvals: Iterable<[K, V]>): Promise<void> {
+    for (const [key, value] of keyvals) {
+      await this.insert(key, value)
+    }
+  }
+
   async insert(key: K, value: V) {
     debugLog(
       () => `\n\nBTree.insert(${debugJson(key)}, ${debugJson(value)})`,

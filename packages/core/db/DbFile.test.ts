@@ -32,11 +32,11 @@ Deno.test("DbFile initialization", async (t) => {
     expect(pages).toEqual(
       [
         {
-          pageId: 28724n,
+          pageId: 4116n,
           pageType: "indexesTable",
         },
         {
-          pageId: 45108n,
+          pageId: 12308n,
           pageType: "tablesTable",
         },
       ],
@@ -44,57 +44,24 @@ Deno.test("DbFile initialization", async (t) => {
     expect(tables).toEqual([
       {
         db: "system",
-        heapPageId: 52n,
+        heapPageId: 20n,
         id: "system.__dbPageIds",
         name: "__dbPageIds",
       },
       {
         db: "system",
-        heapPageId: 16436n,
-        id: "system.__dbIndexes",
-        name: "__dbIndexes",
-      },
-      {
-        db: "system",
-        heapPageId: 8244n,
-        id: "system.__dbTables",
-        name: "__dbTables",
-      },
-      {
-        db: "system",
-        heapPageId: 69684n,
+        heapPageId: 20500n,
         id: "system.__dbSchemas",
         name: "__dbSchemas",
       },
       {
         db: "system",
-        heapPageId: 102452n,
+        heapPageId: 24596n,
         id: "system.__dbTableColumns",
         name: "__dbTableColumns",
       },
     ])
-    expect(indexes).toEqual([
-      {
-        heapPageId: 73780n,
-        indexName: "__dbSchemas_id",
-      },
-      {
-        heapPageId: 81972n,
-        indexName: "__dbSchemas_tableId_version",
-      },
-      {
-        heapPageId: 106548n,
-        indexName: "__dbTableColumns_id",
-      },
-      {
-        heapPageId: 110644n,
-        indexName: "__dbTableColumns_schemaId",
-      },
-      {
-        heapPageId: 114740n,
-        indexName: "__dbTableColumns_schemaId_name",
-      },
-    ])
+    expect(indexes).toEqual([])
 
     expect(schemas).toEqual(
       [

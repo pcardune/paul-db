@@ -17,10 +17,6 @@ const SYSTEM_DB = "system"
 const headerStruct = Struct.record({
   pageSize: [0, Struct.uint32],
   headerPageId: [1, Struct.bigUint64],
-  pageTypeIndexPageId: [2, Struct.bigUint64],
-  dbTables_id_IndexPageId: [3, Struct.bigUint64],
-  dbTables_db_name_IndexPageId: [4, Struct.bigUint64],
-  dbIndexesIndexPageId: [5, Struct.bigUint64],
 })
 
 export class DbFile {
@@ -265,10 +261,6 @@ export class DbFile {
 
     let bufferPool: FileBackedBufferPool
     let headerPageId: PageId
-    let pageTypeIndexPageId: PageId
-    let dbTables_id_IndexPageId: PageId
-    let dbTables_db_name_IndexPageId: PageId
-    let dbIndexesIndexPageId: PageId
 
     /** Where the buffer pool starts in the file */
     const bufferPoolOffset = headerStruct.size
@@ -289,10 +281,6 @@ export class DbFile {
         headerStruct.toUint8Array({
           pageSize: pageSize,
           headerPageId: 0n,
-          pageTypeIndexPageId: 0n,
-          dbTables_id_IndexPageId: 0n,
-          dbTables_db_name_IndexPageId: 0n,
-          dbIndexesIndexPageId: 0n,
         }),
       )
 
@@ -302,10 +290,6 @@ export class DbFile {
         bufferPoolOffset,
       )
       headerPageId = await bufferPool.allocatePage()
-      pageTypeIndexPageId = await bufferPool.allocatePage()
-      dbTables_id_IndexPageId = await bufferPool.allocatePage()
-      dbTables_db_name_IndexPageId = await bufferPool.allocatePage()
-      dbIndexesIndexPageId = await bufferPool.allocatePage()
       await bufferPool.commit()
       await writeBytesAt(
         file,
@@ -313,10 +297,6 @@ export class DbFile {
         headerStruct.toUint8Array({
           pageSize: pageSize,
           headerPageId: headerPageId,
-          pageTypeIndexPageId: pageTypeIndexPageId,
-          dbTables_id_IndexPageId: dbTables_id_IndexPageId,
-          dbTables_db_name_IndexPageId: dbTables_db_name_IndexPageId,
-          dbIndexesIndexPageId: dbIndexesIndexPageId,
         }),
       )
     } else {
@@ -327,10 +307,6 @@ export class DbFile {
       const header = headerStruct.readAt(view, 0)
       const { pageSize: pageSize } = header
       headerPageId = header.headerPageId
-      pageTypeIndexPageId = header.pageTypeIndexPageId
-      dbTables_id_IndexPageId = header.dbTables_id_IndexPageId
-      dbTables_db_name_IndexPageId = header.dbTables_db_name_IndexPageId
-      dbIndexesIndexPageId = header.dbIndexesIndexPageId
       bufferPool = await FileBackedBufferPool.create(
         file,
         pageSize,
@@ -343,7 +319,7 @@ export class DbFile {
         bufferPool,
         schemas.dbPageIds,
         headerPageId,
-        { pageType: pageTypeIndexPageId },
+        {},
         0,
       ),
     )
@@ -362,7 +338,7 @@ export class DbFile {
         bufferPool,
         schemas.dbIndexes,
         await getOrCreatePageIdForPageType("indexesTable"),
-        { indexName: dbIndexesIndexPageId },
+        {},
         0,
       ),
     )
@@ -371,7 +347,7 @@ export class DbFile {
         bufferPool,
         schemas.dbTables,
         await getOrCreatePageIdForPageType("tablesTable"),
-        { id: dbTables_id_IndexPageId, _db_name: dbTables_db_name_IndexPageId },
+        {},
         0,
       ),
     )
@@ -389,18 +365,6 @@ export class DbFile {
           db: SYSTEM_DB,
           name: "__dbPageIds",
           heapPageId: headerPageId,
-        },
-        {
-          id: `${SYSTEM_DB}.__dbIndexes`,
-          db: SYSTEM_DB,
-          name: "__dbIndexes",
-          heapPageId: dbIndexesIndexPageId,
-        },
-        {
-          id: `${SYSTEM_DB}.__dbTables`,
-          db: SYSTEM_DB,
-          name: "__dbTables",
-          heapPageId: dbTables_id_IndexPageId,
         },
       ])
       await dbFile.getSchemasTable()
@@ -464,6 +428,7 @@ export class DbFile {
             ? {
               shouldIndex: true,
               order: 2,
+              storage: columnRecord.indexInMemory ? "memory" : "disk",
             }
             : { shouldIndex: false },
           defaultValueFactory: undefined,
@@ -482,6 +447,7 @@ function getColumnRecordsForSchema<SchemaT extends SomeTableSchema>(
     name: column.name,
     unique: column.isUnique,
     indexed: column.indexed.shouldIndex,
+    indexInMemory: column.indexed.shouldIndex && column.indexed.inMemory,
     computed: false,
     type: column.type.name,
     order: i,

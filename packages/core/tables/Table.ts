@@ -139,7 +139,7 @@ export class Table<
       const value = column.compute(record as any)
       if (await index.has(value)) {
         throw new Error(
-          `Record with given ${column.name} value already exists`,
+          `Record with given ${column.name} value of ${value} already exists in ${this.schema.name}`,
         )
       }
     }

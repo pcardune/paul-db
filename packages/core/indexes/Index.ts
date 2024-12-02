@@ -46,6 +46,10 @@ export class Index<K, V, NodeId extends INodeId> {
     )
   }
 
+  async insertMany(entries: Iterable<[K, V]>): Promise<void> {
+    await this.data.insertMany(entries)
+  }
+
   async insert(key: K, value: V): Promise<void> {
     await this.data.insert(key, value)
   }

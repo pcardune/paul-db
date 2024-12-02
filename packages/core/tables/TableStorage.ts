@@ -17,7 +17,7 @@ import {
 } from "../schema/schema.ts"
 import { SerialIdGenerator } from "../serial.ts"
 import { TableInfer } from "./Table.ts"
-import { Promisable, Simplify } from "npm:type-fest"
+import { Promisable, Simplify, UnknownRecord } from "npm:type-fest"
 
 export interface ITableStorage<RowId, RowData> {
   get(id: RowId): Promisable<RowData | undefined>
@@ -435,40 +435,65 @@ export class HeapFileTableStorage<RowData>
       ReadonlyVariableLengthRecordPage.allocator,
     )
 
+    const data = new HeapFileTableStorage<StoredRecordForTableSchema<SchemaT>>(
+      bufferPool,
+      heapPageFile,
+      serializer,
+      schemaId,
+    )
+
     const indexes = new Map<string, Index<unknown, HeapFileRowId, INodeId>>()
     for (const column of [...schema.columns, ...schema.computedColumns]) {
       if (column.indexed.shouldIndex) {
-        if (!column.type.serializer) {
-          throw new Error("Type must have a serializer")
+        if (column.indexed.inMemory) {
+          const index = await Index.inMemory({
+            isEqual: column.type.isEqual,
+            compare: column.type.compare,
+            order: column.indexed.order,
+          })
+          // build the index
+          await index.insertMany(
+            await data.iterate().map(
+              ([rowId, record]): [unknown, HeapFileRowId] => {
+                if (column.kind === "computed") {
+                  return [column.compute(record), rowId]
+                } else {
+                  return [(record as UnknownRecord)[column.name], rowId]
+                }
+              },
+            ).toArray(),
+          )
+          indexes.set(column.name, index)
+        } else {
+          if (!column.type.serializer) {
+            throw new Error("Type must have a serializer")
+          }
+          const pageId = indexPageIds[column.name]
+          if (pageId == null) {
+            throw new Error(
+              `No page ID for "${column.name}" index in "${schema.name}"`,
+            )
+          }
+          indexes.set(
+            column.name,
+            await Index.inFile(
+              bufferPool,
+              pageId,
+              column.type.serializer!,
+              heapFileRowIdStruct,
+              {
+                isEqual: column.type.isEqual,
+                compare: column.type.compare,
+                order: column.indexed.order,
+              },
+            ),
+          )
         }
-        const pageId = indexPageIds[column.name]
-        if (pageId == null) {
-          throw new Error(`No page ID for index ${column.name}`)
-        }
-        indexes.set(
-          column.name,
-          await Index.inFile(
-            bufferPool,
-            pageId,
-            column.type.serializer!,
-            heapFileRowIdStruct,
-            {
-              isEqual: column.type.isEqual,
-              compare: column.type.compare,
-              order: column.indexed.order,
-            },
-          ),
-        )
       }
     }
 
     return {
-      data: new HeapFileTableStorage<StoredRecordForTableSchema<SchemaT>>(
-        bufferPool,
-        heapPageFile,
-        serializer,
-        schemaId,
-      ),
+      data,
       schema,
       indexes,
     }
@@ -494,10 +519,7 @@ export class HeapFileTableStorage<RowData>
     const indexPageIds: Record<string, PageId> = {}
 
     for (const column of [...schema.columns, ...schema.computedColumns]) {
-      if (column.indexed.shouldIndex) {
-        if (!column.type.serializer) {
-          throw new Error("Type must have a serializer")
-        }
+      if (column.indexed.shouldIndex && !column.indexed.inMemory) {
         const pageId: PageId = await dbFile.getIndexStorage(
           schema.name,
           column.name,

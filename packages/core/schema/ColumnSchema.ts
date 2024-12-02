@@ -7,6 +7,7 @@ export namespace Index {
   export type ShouldIndex = {
     shouldIndex: true
     order?: number
+    inMemory?: boolean
   }
 
   export type ShouldNotIndex = {
@@ -19,6 +20,7 @@ export namespace Index {
 export const DEFAULT_INDEX_CONFIG: Index.ShouldIndex = {
   shouldIndex: true,
   order: 2,
+  inMemory: false,
 }
 
 type DefaultValueConfig<ValueT = unknown> = (() => ValueT) | undefined
@@ -139,18 +141,18 @@ export class ColumnBuilder<
   }
 
   unique(
-    indexConfig: Index.Config = DEFAULT_INDEX_CONFIG,
+    indexConfig: Partial<Index.Config> = {},
   ): ColumnBuilder<Name, ValueT, true, Index.Config, DefaultValueFactoryT> {
     return new ColumnBuilder(
       this.name,
       this.type,
       true,
-      indexConfig,
+      { ...DEFAULT_INDEX_CONFIG, ...indexConfig },
       this.defaultValueFactory,
     )
   }
 
-  index(): ColumnBuilder<
+  index(indexConfig: Partial<Index.Config> = {}): ColumnBuilder<
     Name,
     ValueT,
     UniqueT,
@@ -161,7 +163,7 @@ export class ColumnBuilder<
       this.name,
       this.type,
       this.isUnique,
-      DEFAULT_INDEX_CONFIG,
+      { ...DEFAULT_INDEX_CONFIG, ...indexConfig },
       this.defaultValueFactory,
     )
   }
@@ -201,7 +203,7 @@ function column<Name extends string>(
       name,
       new SerialUInt32ColumnType(),
       true,
-      { shouldIndex: true },
+      DEFAULT_INDEX_CONFIG,
       () => -1, // This will be overridden by the database
     )
   }
@@ -228,25 +230,25 @@ class ComputedColumnBuilder<
   }
 
   unique(
-    indexConfig = DEFAULT_INDEX_CONFIG,
+    indexConfig: Partial<Index.ShouldIndex> = {},
   ): ComputedColumnBuilder<Name, true, Index.Config, InputT, OutputT> {
     return new ComputedColumnBuilder(
       this.name,
       this.type,
       true,
-      indexConfig,
+      { ...DEFAULT_INDEX_CONFIG, ...indexConfig },
       this.compute,
     )
   }
 
   index(
-    indexConfig = DEFAULT_INDEX_CONFIG,
+    indexConfig: Partial<Index.ShouldIndex> = {},
   ): ComputedColumnBuilder<Name, UniqueT, Index.Config, InputT, OutputT> {
     return new ComputedColumnBuilder(
       this.name,
       this.type,
       this.isUnique,
-      indexConfig,
+      { ...DEFAULT_INDEX_CONFIG, ...indexConfig },
       this.compute,
     )
   }
