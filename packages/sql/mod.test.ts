@@ -30,7 +30,7 @@ Deno.test("CREATE TABLE", async (t) => {
       expect(tables).toHaveLength(1)
       expect(tables[0].db).toEqual("default")
 
-      const schemas = await e.dbFile.getSchemas("default", "points")
+      const schemas = await e.dbFile.getSchemasOrThrow("default", "points")
       expect(schemas.length).toEqual(1)
       const colRecs = schemas[0].columnRecords.map((c) =>
         pick(c, ["name", "type"])
@@ -44,7 +44,7 @@ Deno.test("CREATE TABLE", async (t) => {
 async function getPointsTable() {
   const e = await getExecutor()
   await e.sql.execute("CREATE TABLE points (x float, y float, color TEXT)")
-  const schemas = await e.dbFile.getSchemas("default", "points")
+  const schemas = await e.dbFile.getSchemasOrThrow("default", "points")
   const table = new Table(await e.dbFile.getTableStorage(schemas[0].schema))
   return { ...e, table }
 }

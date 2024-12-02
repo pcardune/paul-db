@@ -96,7 +96,7 @@ export class SQLExecutor {
     }
     const tableName = astFrom.table
     const db = astFrom.db ? astFrom.db : "default"
-    const schemas = await this.dbFile.getSchemas(db, tableName)
+    const schemas = await this.dbFile.getSchemasOrThrow(db, tableName)
     if (schemas.length === 0) {
       throw new TableNotFoundError(`Table ${db}.${tableName} not found`)
     }
@@ -144,7 +144,7 @@ export class SQLExecutor {
     const db = astTable.db ? astTable.db : "default"
     const tableName = astTable.table
 
-    const schemas = await this.dbFile.getSchemas(db, tableName)
+    const schemas = await this.dbFile.getSchemasOrThrow(db, tableName)
     if (schemas.length === 0) {
       throw new TableNotFoundError(`Table ${db}.${tableName} not found`)
     }

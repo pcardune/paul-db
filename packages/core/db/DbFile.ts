@@ -53,7 +53,7 @@ const dbIndexesTableSchema = TableSchema.create("__dbIndexes")
   .with(column("heapPageId", ColumnTypes.uint64()))
 
 const dbSchemasTableSchema = TableSchema.create("__dbSchemas")
-  .with(ulidIdColumn)
+  .with(column("id", ColumnTypes.uint32()).unique())
   .with(column("tableId", ColumnTypes.string()))
   .with(column("version", ColumnTypes.uint32()))
   .withUniqueConstraint(
@@ -65,7 +65,7 @@ const dbSchemasTableSchema = TableSchema.create("__dbSchemas")
 
 const dbTableColumnsTableSchema = TableSchema.create("__dbTableColumns")
   .with(ulidIdColumn)
-  .with(column("schemaId", ColumnTypes.string()).index())
+  .with(column("schemaId", ColumnTypes.uint32()).index())
   .with(column("name", ColumnTypes.string()))
   .with(column("type", ColumnTypes.string()))
   .with(column("unique", ColumnTypes.boolean()))
@@ -178,8 +178,11 @@ export class DbFile {
       )
       throw new Error(`Table ${schema.name} not found`)
     }
+    const existingIds = await schemaTable.iterate().map((s) => s.id).toArray()
     const schemaRecord = await schemaTable.insertAndReturn({
-      id: `${table.id}@0`,
+      // TODO: make id generation sane, but can't use serial,
+      // because serial depends on this!
+      id: existingIds.length === 0 ? 0 : Math.max(...existingIds) + 1,
       tableId: table.id,
       version: 0,
     })
@@ -233,7 +236,7 @@ export class DbFile {
         schemaTables.columnsTable,
       )
     } else {
-      const existingSchemas = await this.getSchemas(db, schema.name)
+      const existingSchemas = await this.getSchemasOrThrow(db, schema.name)
       if (existingSchemas.length === 0) {
         throw new Error(`No schema found for ${db}.${schema.name}`)
       }
@@ -288,7 +291,10 @@ export class DbFile {
         continue
       }
       debugLog("  -> Exporting", tableRecord)
-      const schemas = await this.getSchemas(tableRecord.db, tableRecord.name)
+      const schemas = await this.getSchemasOrThrow(
+        tableRecord.db,
+        tableRecord.name,
+      )
       if (schemas.length === 0) {
         console.warn("No schema found for", tableRecord)
         continue
@@ -477,13 +483,21 @@ export class DbFile {
     return new Table(storage)
   }
 
+  async getSchemasOrThrow(db: string, tableName: string) {
+    const schemas = await this.getSchemas(db, tableName)
+    if (schemas == null) {
+      throw new Error(`Table ${db}.${tableName} not found`)
+    }
+    return schemas
+  }
+
   async getSchemas(db: string, tableName: string) {
     const tableRecord = await this.tablesTable.lookupUnique("_db_name", {
       db,
       name: tableName,
     })
     if (tableRecord == null) {
-      throw new Error(`No table found named ${tableName}`)
+      return null
     }
     const schemaTable = await this.getSchemasTable()
     const schemaRecords = await schemaTable.schemaTable.scan(

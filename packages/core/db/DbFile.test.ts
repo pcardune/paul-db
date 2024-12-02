@@ -99,12 +99,12 @@ Deno.test("DbFile initialization", async (t) => {
     expect(schemas).toEqual(
       [
         {
-          id: "system.__dbSchemas@0",
+          id: 0,
           tableId: "system.__dbSchemas",
           version: 0,
         },
         {
-          id: "system.__dbTableColumns@0",
+          id: 1,
           tableId: "system.__dbTableColumns",
           version: 0,
         },
