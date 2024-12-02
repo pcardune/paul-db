@@ -16,14 +16,14 @@ import {
   StoredRecordForTableSchema,
 } from "../schema/schema.ts"
 import { TableInfer } from "./Table.ts"
-import { Simplify } from "npm:type-fest"
+import { Promisable, Simplify } from "npm:type-fest"
 
 export interface ITableStorage<RowId, RowData> {
-  get(id: RowId): Promise<RowData | undefined>
-  set(id: RowId, data: RowData): Promise<void>
-  insert(data: RowData): Promise<RowId>
-  remove(id: RowId): Promise<void>
-  commit(): Promise<void>
+  get(id: RowId): Promisable<RowData | undefined>
+  set(id: RowId, data: RowData): Promisable<RowId>
+  insert(data: RowData): Promisable<RowId>
+  remove(id: RowId): Promisable<void>
+  commit(): Promisable<void>
   iterate(): AsyncIterableWrapper<[RowId, RowData]>
 }
 
@@ -87,28 +87,27 @@ export class JsonFileTableStorage<RowData>
     }
   }
 
-  get(id: number): Promise<RowData | undefined> {
+  get(id: number): RowData | undefined {
     if (this.deletedRecords.has(id)) {
-      return Promise.resolve(undefined)
+      return
     }
-    return Promise.resolve(this.data[id])
+    return this.data[id]
   }
-  set(id: number, data: RowData): Promise<void> {
+  set(id: number, data: RowData): number {
     this.dirtyRecords.set(id, data)
     this.deletedRecords.delete(id)
-    return Promise.resolve()
+    return id
   }
 
-  insert(data: RowData): Promise<number> {
+  insert(data: RowData): number {
     const id = Math.max(...Object.keys(this.data).map(Number), 0) + 1
     this.set(id, data)
-    return Promise.resolve(id)
+    return id
   }
 
-  remove(id: number): Promise<void> {
+  remove(id: number): void {
     this.dirtyRecords.delete(id)
     this.deletedRecords.add(id)
-    return Promise.resolve()
   }
 
   async commit(): Promise<void> {
@@ -182,32 +181,31 @@ export class InMemoryTableStorage<RowId, RowData>
     }
   }
 
-  get(id: RowId): Promise<RowData | undefined> {
+  get(id: RowId): RowData | undefined {
     if (this.deletedRecords.has(id)) {
-      return Promise.resolve(undefined)
+      return
     }
-    return Promise.resolve(this.dirtyRecords.get(id) ?? this.data.get(id))
+    return this.dirtyRecords.get(id) ?? this.data.get(id)
   }
 
-  set(id: RowId, data: RowData): Promise<void> {
+  set(id: RowId, data: RowData): RowId {
     this.dirtyRecords.set(id, data)
     this.deletedRecords.delete(id)
-    return Promise.resolve()
+    return id
   }
 
-  insert(data: RowData): Promise<RowId> {
+  insert(data: RowData): RowId {
     const id = this.getNextRowId()
     this.set(id, data)
-    return Promise.resolve(id)
+    return id
   }
 
-  remove(id: RowId): Promise<void> {
+  remove(id: RowId): void {
     this.dirtyRecords.delete(id)
     this.deletedRecords.add(id)
-    return Promise.resolve()
   }
 
-  commit(): Promise<void> {
+  commit(): void {
     for (const [id, data] of this.dirtyRecords) {
       this.data.set(id, data)
     }
@@ -215,23 +213,35 @@ export class InMemoryTableStorage<RowId, RowData>
     for (const id of this.deletedRecords) {
       this.data.delete(id)
     }
-    return Promise.resolve()
   }
 }
 
 export type HeapFileRowId = { pageId: PageId; slotIndex: number }
-
+type HeapFileEntry<RowData> = {
+  header: { rowId: HeapFileRowId; forward: boolean }
+  rowData: RowData
+}
 const heapFileRowIdStruct: IStruct<HeapFileRowId> = Struct.record({
   pageId: [0, Struct.bigUint64],
   slotIndex: [1, Struct.uint32],
 })
+const headerStruct = Struct.record({
+  forward: [0, Struct.boolean],
+  rowId: [1, heapFileRowIdStruct],
+})
 export class HeapFileTableStorage<RowData>
   implements ITableStorage<HeapFileRowId, RowData> {
+  entryStruct: IStruct<HeapFileEntry<RowData>>
+
   private constructor(
     private bufferPool: IBufferPool,
     private heapPageFile: HeapPageFile<VariableLengthRecordPageAllocInfo>,
-    readonly serializer: IStruct<RowData>,
+    readonly recordStruct: IStruct<RowData>,
   ) {
+    this.entryStruct = Struct.record({
+      header: [0, headerStruct],
+      rowData: [1, this.recordStruct],
+    })
   }
 
   iterate(): AsyncIterableWrapper<[HeapFileRowId, RowData]> {
@@ -272,27 +282,83 @@ export class HeapFileTableStorage<RowData>
     return view.slice(slot.offset, slot.length)
   }
 
+  private async getTerminalEntry(
+    id: HeapFileRowId,
+  ): Promise<
+    {
+      id: HeapFileRowId
+      entry: HeapFileEntry<RowData> | null
+      path: { id: HeapFileRowId; entry: HeapFileEntry<RowData> | null }[]
+    }
+  > {
+    let entry: HeapFileEntry<RowData> | null = null
+    const path: { id: HeapFileRowId; entry: HeapFileEntry<RowData> | null }[] =
+      []
+    while (entry == null || entry.header.forward) {
+      // follow the forward pointer
+      const view = await this.getRecordView(
+        entry == null ? id : entry.header.rowId,
+      )
+      if (view == null) return { id, entry, path } // this was deleted
+      entry = this.entryStruct.readAt(view, 0)
+      path.push({ id, entry })
+    }
+    return { id, entry, path }
+  }
+
   async get(id: HeapFileRowId): Promise<RowData | undefined> {
-    const view = await this.getRecordView(id)
-    if (view == null) return // this was deleted
-    return this.serializer.readAt(view, 0)
+    const terminal = await this.getTerminalEntry(id)
+    return terminal.entry?.rowData
   }
 
   async set(
-    id: HeapFileRowId,
-    _data: RowData,
-  ): Promise<void> {
-    const view = await this.bufferPool.getPageView(id.pageId)
+    initialId: HeapFileRowId,
+    data: RowData,
+  ): Promise<HeapFileRowId> {
+    const terminal = await this.getTerminalEntry(initialId)
+    if (terminal.entry == null) {
+      throw new Error("Cannot set a deleted record")
+    }
+
+    const view = await this.bufferPool.getPageView(terminal.id.pageId)
     const recordPage = new ReadonlyVariableLengthRecordPage(view)
-    const slot = recordPage.getSlotEntry(id.slotIndex)
+    const slot = recordPage.getSlotEntry(terminal.id.slotIndex)
     if (slot.length === 0) {
       throw new Error("Cannot set a deleted record")
     }
-    throw new Error("NOT IMPLEMENTED")
+
+    const newEntry = {
+      header: { forward: false, rowId: heapFileRowIdStruct.emptyValue() },
+      rowData: data,
+    }
+
+    if (this.entryStruct.sizeof(newEntry) <= slot.length) {
+      await this.bufferPool.writeToPage(terminal.id.pageId, (view) => {
+        this.entryStruct.writeAt(newEntry, view, slot.offset)
+      })
+      return terminal.id
+    }
+    const forwardId = await this.insert(data)
+    const forwardEntry = {
+      header: { forward: true, rowId: forwardId },
+      rowData: this.recordStruct.emptyValue(),
+    }
+    const forwardSize = this.entryStruct.sizeof(forwardEntry)
+    if (forwardSize > slot.length) {
+      throw new Error("Record too large")
+    }
+    await this.bufferPool.writeToPage(terminal.id.pageId, (view) => {
+      this.entryStruct.writeAt(forwardEntry, view, slot.offset)
+    })
+    return forwardId
   }
 
   async insert(data: RowData): Promise<HeapFileRowId> {
-    const numBytes = this.serializer.sizeof(data)
+    const entry = {
+      header: { forward: false, rowId: heapFileRowIdStruct.emptyValue() },
+      rowData: data,
+    }
+    const numBytes = this.entryStruct.sizeof(entry)
     // const serialized = this.serializer.serialize(data)
     const { pageId, allocInfo: { slot, slotIndex } } = await this.heapPageFile
       .allocateSpace(numBytes)
@@ -302,16 +368,22 @@ export class HeapFileTableStorage<RowData>
       throw new Error("Record too large")
     }
     await this.bufferPool.writeToPage(pageId, (view) => {
-      this.serializer.writeAt(data, view, slot.offset)
+      this.entryStruct.writeAt(entry, view, slot.offset)
     })
     return { pageId, slotIndex }
   }
 
   async remove(id: HeapFileRowId): Promise<void> {
-    await this.bufferPool.writeToPage(id.pageId, (view) => {
-      const recordPage = new WriteableVariableLengthRecordPage(view)
-      recordPage.freeSlot(id.slotIndex)
-    })
+    const terminal = await this.getTerminalEntry(id)
+    for (const { id, entry } of terminal.path) {
+      if (entry == null) {
+        continue
+      }
+      await this.bufferPool.writeToPage(id.pageId, (view) => {
+        const recordPage = new WriteableVariableLengthRecordPage(view)
+        recordPage.freeSlot(id.slotIndex)
+      })
+    }
   }
 
   async commit(): Promise<void> {

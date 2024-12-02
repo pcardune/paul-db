@@ -10,7 +10,7 @@ import { FilterTuple } from "../typetools.ts"
 import { INodeId } from "../indexes/BTreeNode.ts"
 import { AsyncIterableWrapper } from "../async.ts"
 import { Column, Index as CIndex } from "../schema/ColumnSchema.ts"
-
+import { Promisable } from "npm:type-fest"
 /**
  * A helper type that lets you declare a table type from a given
  * schema and storage type.
@@ -147,8 +147,17 @@ export class Table<
     return id
   }
 
-  get(id: RowIdT): Promise<StoredRecordForTableSchema<SchemaT> | undefined> {
+  get(id: RowIdT): Promisable<StoredRecordForTableSchema<SchemaT> | undefined> {
     return this.data.get(id)
+  }
+
+  async set(
+    id: RowIdT,
+    record: StoredRecordForTableSchema<SchemaT>,
+  ): Promise<RowIdT> {
+    const newRowId = await this.data.set(id, record)
+    await this.data.commit()
+    return newRowId
   }
 
   async removeWhere<

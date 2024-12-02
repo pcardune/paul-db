@@ -291,7 +291,7 @@ export class DbFile {
         tableRecord.db,
       )
       for await (const [_rowId, record] of storage.data.iterate()) {
-        const json = storage.data.serializer.toJSON(record)
+        const json = storage.data.recordStruct.toJSON(record)
         yield { table: tableRecord.name, db: tableRecord.db, record: json }
       }
     }
