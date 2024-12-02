@@ -11,6 +11,9 @@ import { INodeId } from "../indexes/BTreeNode.ts"
 import { AsyncIterableWrapper } from "../async.ts"
 import { Column, Index as CIndex } from "../schema/ColumnSchema.ts"
 import { Promisable } from "npm:type-fest"
+import { SerialIdGenerator } from "../serial.ts"
+import { SerialUInt32ColumnType } from "../schema/ColumnType.ts"
+
 /**
  * A helper type that lets you declare a table type from a given
  * schema and storage type.
@@ -40,14 +43,17 @@ export class Table<
   private schema: SchemaT
   private data: StorageT
   private _allIndexes: Map<string, Index<unknown, RowIdT, INodeId>>
+  private serialIdGenerator?: SerialIdGenerator
 
   constructor(init: {
     schema: SchemaT
     data: StorageT
     indexes: Map<string, Index<unknown, RowIdT, INodeId>>
+    serialIdGenerator?: SerialIdGenerator
   }) {
     this.schema = init.schema
     this.data = init.data
+    this.serialIdGenerator = init.serialIdGenerator
 
     this._allIndexes = init.indexes
   }
@@ -86,12 +92,24 @@ export class Table<
     }
 
     for (const column of this.schema.columns) {
-      if ((record as any)[column.name] == null && column.defaultValueFactory) {
-        const value = column.defaultValueFactory()
-        if (!column.type.isValid(value)) {
-          throw new Error(`Default value for ${column.name} is invalid`)
+      if ((record as any)[column.name] == null) {
+        if (column.type instanceof SerialUInt32ColumnType) {
+          if (this.serialIdGenerator) {
+            ;(record as any)[column.name] = await this.serialIdGenerator.next(
+              column.name,
+            )
+          } else {
+            throw new Error(
+              `No serial ID generator provided for column ${column.name}`,
+            )
+          }
+        } else if (column.defaultValueFactory) {
+          const value = column.defaultValueFactory()
+          if (!column.type.isValid(value)) {
+            throw new Error(`Default value for ${column.name} is invalid`)
+          }
+          ;(record as any)[column.name] = value
         }
-        ;(record as any)[column.name] = value
       }
     }
 

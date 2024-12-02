@@ -15,6 +15,7 @@ import {
   SomeTableSchema,
   StoredRecordForTableSchema,
 } from "../schema/schema.ts"
+import { SerialIdGenerator } from "../serial.ts"
 import { TableInfer } from "./Table.ts"
 import { Promisable, Simplify } from "npm:type-fest"
 
@@ -65,6 +66,7 @@ export class JsonFileTableStorage<RowData>
     data: JsonFileTableStorage<StoredRecordForTableSchema<SchemaT>>
     schema: SchemaT
     indexes: Map<string, Index<unknown, number, INodeId>>
+    serialIdGenerator: SerialIdGenerator
   }> {
     const indexes = new Map<string, Index<unknown, number, INodeId>>()
     for (const column of [...schema.columns, ...schema.computedColumns]) {
@@ -84,6 +86,11 @@ export class JsonFileTableStorage<RowData>
         filename,
       ),
       indexes,
+      serialIdGenerator: {
+        next(_name: string): number {
+          throw new Error("Not implemented")
+        },
+      },
     }
   }
 
@@ -159,6 +166,7 @@ export class InMemoryTableStorage<RowId, RowData>
     data: InMemoryTableStorage<number, StoredRecordForTableSchema<SchemaT>>
     schema: SchemaT
     indexes: Map<string, Index<unknown, number, INodeId>>
+    serialIdGenerator: SerialIdGenerator
   }> {
     const indexes = new Map<string, Index<unknown, number, INodeId>>()
     for (const column of [...schema.columns, ...schema.computedColumns]) {
@@ -174,10 +182,20 @@ export class InMemoryTableStorage<RowId, RowData>
     }
 
     let rowId = 0
+
+    const serialIds = new Map<string, number>()
+
     return {
       data: new InMemoryTableStorage(() => rowId++),
       schema,
       indexes,
+      serialIdGenerator: {
+        next(name: string) {
+          const nextId = (serialIds.get(name) ?? 0) + 1
+          serialIds.set(name, nextId)
+          return nextId
+        },
+      },
     }
   }
 

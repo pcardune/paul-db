@@ -7,6 +7,9 @@ export function getColumnTypeFromString(type: string): ColumnType<unknown> {
   if (t in ColumnTypes) {
     return (ColumnTypes as Record<string, () => ColumnType<unknown>>)[t]()
   }
+  if (t === "serial") {
+    return new SerialUInt32ColumnType() as ColumnType<unknown>
+  }
   throw new Error(`Unknown type: ${type}`)
 }
 
@@ -36,6 +39,8 @@ export function getColumnTypeFromSQLType(sqlType: string): ColumnType<any> {
       return ColumnTypes.date()
     case "TIMESTAMP":
       return ColumnTypes.timestamp()
+    case "SERIAL":
+      return new SerialUInt32ColumnType()
     default:
       throw new Error(`Unknown SQL type: ${sqlType}`)
   }
@@ -198,5 +203,15 @@ export class ColumnType<T> {
     this.isEqual = equals
     this.compare = compare
     this.serializer = serializer
+  }
+}
+
+export class SerialUInt32ColumnType extends ColumnType<number> {
+  constructor() {
+    super({
+      name: "serial",
+      isValid: (value) => value >= 0,
+      serializer: Struct.uint32,
+    })
   }
 }

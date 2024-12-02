@@ -63,6 +63,7 @@ describe("ColumnSchemas", () => {
       [typeof ageColumn, typeof nameColumn]
     >
     assertTrue<TypeEquals<{ age: number; name: string }, StoredRecord>>()
+    assertTrue<TypeEquals<undefined, typeof ageColumn["defaultValueFactory"]>>()
   })
 
   it("lets you make a column unique", () => {
@@ -77,6 +78,13 @@ describe("ColumnSchemas", () => {
     const lastNameColumn = nameColumn.named("lastName")
     expect(lastNameColumn.name).toBe("lastName")
     assertType<"lastName">(lastNameColumn.name)
+  })
+
+  it("Lets you create a serial type column", () => {
+    const idCol = column("id", "serial")
+    expect(idCol.isUnique).toBe(true)
+    expect(idCol.indexed.shouldIndex).toBe(true)
+    expect(idCol.defaultValueFactory).toBeDefined()
   })
 })
 

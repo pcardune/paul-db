@@ -1,6 +1,6 @@
 // deno-lint-ignore-file no-namespace
 import { FilterTuple } from "../typetools.ts"
-import { ColumnType } from "./ColumnType.ts"
+import { ColumnType, SerialUInt32ColumnType } from "./ColumnType.ts"
 import { OverrideProperties, Simplify } from "npm:type-fest"
 
 export namespace Index {
@@ -178,13 +178,37 @@ export class ColumnBuilder<
     )
   }
 }
-
-export function column<Name extends string, ValueT>(
+function column<Name extends string, ValueT>(
+  name: Name,
+  type: "serial",
+): ColumnBuilder<Name, number, true, Index.ShouldIndex, () => number>
+function column<Name extends string, ValueT>(
   name: Name,
   type: ColumnType<ValueT>,
-): ColumnBuilder<Name, ValueT, false, Index.ShouldNotIndex, undefined> {
+): ColumnBuilder<Name, ValueT, false, Index.ShouldNotIndex, undefined>
+function column<Name extends string>(
+  name: Name,
+  type: ColumnType<any> | "serial",
+): ColumnBuilder<
+  Name,
+  any,
+  boolean,
+  Index.Config,
+  DefaultValueConfig<any>
+> {
+  if (type === "serial") {
+    return new ColumnBuilder(
+      name,
+      new SerialUInt32ColumnType(),
+      true,
+      { shouldIndex: true },
+      () => -1, // This will be overridden by the database
+    )
+  }
   return new ColumnBuilder(name, type, false, { shouldIndex: false }, undefined)
 }
+
+export { column }
 
 class ComputedColumnBuilder<
   Name extends string = string,

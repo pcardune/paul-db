@@ -16,6 +16,7 @@ import {
 import { ReadonlyDataView } from "../binary/dataview.ts"
 import { debugLog } from "../logging.ts"
 import { column } from "../schema/ColumnSchema.ts"
+import { DBFileSerialIdGenerator } from "../serial.ts"
 
 const SYSTEM_DB = "system"
 
@@ -145,12 +146,18 @@ export class DbFile {
     return {
       tableRecord,
       created,
-      storage: await HeapFileTableStorage.open(
-        this,
-        this.bufferPool,
-        schema,
-        tableRecord.heapPageId,
-      ),
+      storage: {
+        ...await HeapFileTableStorage.open(
+          this,
+          this.bufferPool,
+          schema,
+          tableRecord.heapPageId,
+        ),
+        serialIdGenerator: new DBFileSerialIdGenerator(
+          this,
+          `${db}.${schema.name}`,
+        ),
+      },
     }
   }
 
@@ -492,12 +499,6 @@ export class DbFile {
 
       let schema: SomeTableSchema = TableSchema.create(tableName)
       for (const columnRecord of columnRecords) {
-        if (columnRecord.name === "id") {
-          // THIS IS A HACK.
-          // the schema comes with a default primary key column
-          // TODO: handle the default primary key column better
-          continue
-        }
         schema = schema.with({
           kind: "stored",
           name: columnRecord.name,

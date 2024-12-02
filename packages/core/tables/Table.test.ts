@@ -258,12 +258,11 @@ Deno.test("HeapFileTableStorage", async (t) => {
   using tempFile = generateTestFilePath("people.data")
 
   const schema = TableSchema.create("people")
-    .with(column("id", ColumnTypes.string()).unique())
+    .with(column("id", "serial"))
     .with(column("firstName", ColumnTypes.string()))
     .with(column("lastName", ColumnTypes.string()))
     .with(column("age", ColumnTypes.uint32()))
     .with(column("likesIceCream", ColumnTypes.boolean()))
-
   async function useTableResources(
     filePath: string,
     { truncate = false } = {},
@@ -282,15 +281,13 @@ Deno.test("HeapFileTableStorage", async (t) => {
 
   await t.step(".insert()", async () => {
     aliceRowId = await people.insert({
-      id: "1",
       firstName: "Alice",
       lastName: "Jones",
       age: 25,
       likesIceCream: true,
     })
-    for (let i = 2; i <= 100; i++) {
+    for (let i = 2; i <= 1000; i++) {
       const rowId = await people.insert({
-        id: i.toString(),
         firstName: `Person ${i}`,
         lastName: `Lastname ${i}`,
         age: i,
@@ -307,8 +304,8 @@ Deno.test("HeapFileTableStorage", async (t) => {
     // the row id should stay the same because the record fits into
     // the existing slot
     expect(newRowId).toEqual(aliceRowId)
-    expect(await people.lookupUnique("id", "1")).toEqual({
-      id: "1",
+    expect(await people.lookupUnique("id", 1)).toEqual({
+      id: 1,
       firstName: "Alice",
       lastName: "Jones",
       age: 26,
@@ -324,17 +321,17 @@ Deno.test("HeapFileTableStorage", async (t) => {
     })
     expect(newRowId).not.toMatchObject(aliceRowId)
     expect(await people.get(aliceRowId), "old row id will still work").toEqual({
-      id: "1",
+      id: 1,
       firstName: "Alice",
       lastName: "from the books about wonderland",
       age: 27,
       likesIceCream: true,
     })
     expect(
-      await people.lookupUnique("id", "1"),
+      await people.lookupUnique("id", 1),
       "looking up from an index will work",
     ).toEqual({
-      id: "1",
+      id: 1,
       firstName: "Alice",
       lastName: "from the books about wonderland",
       age: 27,
@@ -343,9 +340,9 @@ Deno.test("HeapFileTableStorage", async (t) => {
 
     // we can still find the next record that was inserted
     expect(await people.get(otherRowIds[0])).toEqual({
+      id: 2,
       age: 2,
       firstName: "Person 2",
-      id: "2",
       lastName: "Lastname 2",
       likesIceCream: true,
     })
@@ -362,7 +359,7 @@ Deno.test("HeapFileTableStorage", async (t) => {
         "Table.get()",
         async () => {
           expect(await people.get(aliceRowId)).toEqual({
-            id: "1",
+            id: 1,
             firstName: "Alice",
             lastName: "from the books about wonderland",
             age: 27,
@@ -374,8 +371,8 @@ Deno.test("HeapFileTableStorage", async (t) => {
       await t.step(
         "Table.lookupUnique()",
         async () => {
-          expect(await people.lookupUnique("id", "1")).toEqual({
-            id: "1",
+          expect(await people.lookupUnique("id", 1)).toEqual({
+            id: 1,
             firstName: "Alice",
             lastName: "from the books about wonderland",
             age: 27,

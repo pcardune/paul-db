@@ -8,6 +8,7 @@ import {
   StoredRecordForColumnSchemas,
 } from "./ColumnSchema.ts"
 import { ColumnType } from "./ColumnType.ts"
+import { Simplify } from "npm:type-fest"
 
 type InsertRecordForColumnSchemas<CS extends Column.Stored[]> =
   & {
@@ -50,7 +51,7 @@ export class TableSchema<
   }
 
   isValidInsertRecord(
-    record: InsertRecordForColumnSchemas<ColumnSchemasT>,
+    record: Simplify<InsertRecordForColumnSchemas<ColumnSchemasT>>,
   ): { valid: true } | { valid: false; reason: string } {
     for (const column of this.columns) {
       const value = record[column.name as keyof typeof record]
@@ -68,7 +69,7 @@ export class TableSchema<
   }
 
   isValidStoredRecord(
-    record: StoredRecordForColumnSchemas<ColumnSchemasT>,
+    record: Simplify<StoredRecordForColumnSchemas<ColumnSchemasT>>,
   ): boolean {
     for (const column of this.columns) {
       const value = record[column.name as keyof typeof record]

@@ -10,7 +10,9 @@ async function readBytesInto(file: Deno.FsFile, into: Uint8Array) {
   while (bytesRead < into.length) {
     const n = await file.read(into.subarray(bytesRead))
     if (n === null) {
-      throw new EOFError("Failed to read")
+      throw new EOFError(
+        `Failed to read more than ${bytesRead} bytes. ${into.length} wanted.`,
+      )
     }
     bytesRead += n
   }
@@ -33,6 +35,15 @@ async function readBytes(file: Deno.FsFile, numBytes: number) {
 
 const readMutexes = new Map<Deno.FsFile, Mutex>()
 
+const getMutex = (file: Deno.FsFile) => {
+  let mutex = readMutexes.get(file)
+  if (!mutex) {
+    mutex = new Mutex()
+    readMutexes.set(file, mutex)
+  }
+  return mutex
+}
+
 /**
  * Read the given number of bytes from the file at the given offset.
  */
@@ -41,19 +52,17 @@ export async function readBytesAt(
   offset: bigint | number,
   numBytes: number,
 ) {
-  let mutex = readMutexes.get(file)
-  if (!mutex) {
-    mutex = new Mutex()
-    readMutexes.set(file, mutex)
-  }
+  const mutex = getMutex(file)
   await mutex.acquire()
   await file.seek(offset, Deno.SeekMode.Start)
-  return readBytes(file, numBytes).finally(() => {
+  try {
+    return await readBytes(file, numBytes)
+  } finally {
     mutex.release()
     if (!mutex.isLocked) {
       readMutexes.delete(file)
     }
-  })
+  }
 }
 
 export async function writeBytesAt(
@@ -61,14 +70,23 @@ export async function writeBytesAt(
   offset: bigint | number,
   data: Uint8Array,
 ) {
-  await file.seek(offset, Deno.SeekMode.Start)
-  let bytesWritten = 0
-  while (bytesWritten < data.length) {
-    const n = await file.write(data.subarray(bytesWritten))
-    if (n === null) {
-      throw new Error("Failed to write")
+  const mutex = getMutex(file)
+
+  try {
+    await file.seek(offset, Deno.SeekMode.Start)
+    let bytesWritten = 0
+    while (bytesWritten < data.length) {
+      const n = await file.write(data.subarray(bytesWritten))
+      if (n === null) {
+        throw new Error("Failed to write")
+      }
+      bytesWritten += n
     }
-    bytesWritten += n
+    return bytesWritten
+  } finally {
+    mutex.release()
+    if (!mutex.isLocked) {
+      readMutexes.delete(file)
+    }
   }
-  return bytesWritten
 }
