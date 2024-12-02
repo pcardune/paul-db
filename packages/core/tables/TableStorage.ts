@@ -236,16 +236,17 @@ export class InMemoryTableStorage<RowId, RowData>
 
 export type HeapFileRowId = { pageId: PageId; slotIndex: number }
 type HeapFileEntry<RowData> = {
-  header: { rowId: HeapFileRowId; forward: boolean }
+  header: { rowId: HeapFileRowId; forward: boolean; schemaId: number }
   rowData: RowData
 }
 const heapFileRowIdStruct: IStruct<HeapFileRowId> = Struct.record({
   pageId: [0, Struct.bigUint64],
   slotIndex: [1, Struct.uint32],
 })
-const headerStruct = Struct.record({
+const headerStruct: IStruct<HeapFileEntry<unknown>["header"]> = Struct.record({
   forward: [0, Struct.boolean],
   rowId: [1, heapFileRowIdStruct],
+  schemaId: [2, Struct.uint32],
 })
 export class HeapFileTableStorage<RowData>
   implements ITableStorage<HeapFileRowId, RowData> {
@@ -255,6 +256,7 @@ export class HeapFileTableStorage<RowData>
     private bufferPool: IBufferPool,
     private heapPageFile: HeapPageFile<VariableLengthRecordPageAllocInfo>,
     readonly recordStruct: IStruct<RowData>,
+    private schemaId: number,
   ) {
     this.entryStruct = Struct.record({
       header: [0, headerStruct],
@@ -346,7 +348,11 @@ export class HeapFileTableStorage<RowData>
     }
 
     const newEntry = {
-      header: { forward: false, rowId: heapFileRowIdStruct.emptyValue() },
+      header: {
+        forward: false,
+        rowId: heapFileRowIdStruct.emptyValue(),
+        schemaId: this.schemaId,
+      },
       rowData: data,
     }
 
@@ -358,7 +364,7 @@ export class HeapFileTableStorage<RowData>
     }
     const forwardId = await this.insert(data)
     const forwardEntry = {
-      header: { forward: true, rowId: forwardId },
+      header: { forward: true, rowId: forwardId, schemaId: this.schemaId },
       rowData: this.recordStruct.emptyValue(),
     }
     const forwardSize = this.entryStruct.sizeof(forwardEntry)
@@ -373,7 +379,11 @@ export class HeapFileTableStorage<RowData>
 
   async insert(data: RowData): Promise<HeapFileRowId> {
     const entry = {
-      header: { forward: false, rowId: heapFileRowIdStruct.emptyValue() },
+      header: {
+        forward: false,
+        rowId: heapFileRowIdStruct.emptyValue(),
+        schemaId: this.schemaId,
+      },
       rowData: data,
     }
     const numBytes = this.entryStruct.sizeof(entry)
@@ -413,6 +423,7 @@ export class HeapFileTableStorage<RowData>
     schema: SchemaT,
     heapPageId: PageId,
     indexPageIds: Record<string, PageId>,
+    schemaId: number,
   ) {
     const serializer = makeTableSchemaSerializer(schema)
     if (serializer == null) {
@@ -456,6 +467,7 @@ export class HeapFileTableStorage<RowData>
         bufferPool,
         heapPageFile,
         serializer,
+        schemaId,
       ),
       schema,
       indexes,
@@ -467,6 +479,7 @@ export class HeapFileTableStorage<RowData>
     bufferPool: IBufferPool,
     schema: SchemaT,
     heapPageId: PageId,
+    schemaId: number,
   ): Promise<
     Simplify<{
       data: HeapFileTableStorage<StoredRecordForTableSchema<SchemaT>>
@@ -497,6 +510,7 @@ export class HeapFileTableStorage<RowData>
       schema,
       heapPageId,
       indexPageIds,
+      schemaId,
     )
   }
 }

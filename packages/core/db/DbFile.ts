@@ -126,6 +126,7 @@ export class DbFile {
   private async _getTableStorage<SchemaT extends SomeTableSchema>(
     schema: SchemaT,
     db: string,
+    schemaId: number,
   ) {
     let tableRecord = await this.tablesTable.lookupUnique("_db_name", {
       db,
@@ -152,6 +153,7 @@ export class DbFile {
           this.bufferPool,
           schema,
           tableRecord.heapPageId,
+          schemaId,
         ),
         serialIdGenerator: new DBFileSerialIdGenerator(
           this,
@@ -197,11 +199,13 @@ export class DbFile {
     const schemaTableStorage = await this._getTableStorage(
       dbSchemasTableSchema,
       SYSTEM_DB,
+      0,
     )
     const schemaTable = new Table(schemaTableStorage.storage)
     const columnsTableStorage = await this._getTableStorage(
       dbTableColumnsTableSchema,
       SYSTEM_DB,
+      0,
     )
     const columnsTable = new Table(columnsTableStorage.storage)
     if (schemaTableStorage.created) {
@@ -225,7 +229,11 @@ export class DbFile {
     schema: SchemaT,
     db: string = "default",
   ) {
-    const { created, storage } = await this._getTableStorage(schema, db)
+    const { created, storage } = await this._getTableStorage(
+      schema,
+      db,
+      0,
+    )
     if (created) {
       // table was just created, lets add the schema metadata as well
       const schemaTables = await this.getSchemasTable()
@@ -405,6 +413,7 @@ export class DbFile {
         dbPageIdsTableSchema,
         headerPageId,
         { pageType: pageTypeIndexPageId },
+        0,
       ),
     )
     async function getOrCreatePageIdForPageType(pageType: string) {
@@ -423,6 +432,7 @@ export class DbFile {
         dbIndexesTableSchema,
         await getOrCreatePageIdForPageType("indexesTable"),
         { indexName: dbIndexesIndexPageId },
+        0,
       ),
     )
     const dbTablesTable = new Table(
@@ -431,6 +441,7 @@ export class DbFile {
         dbTablesTableSchema,
         await getOrCreatePageIdForPageType("tablesTable"),
         { id: dbTables_id_IndexPageId, _db_name: dbTables_db_name_IndexPageId },
+        0,
       ),
     )
     const dbFile = new DbFile(
