@@ -5,22 +5,23 @@ import {
   LeafBTreeNode,
   SerializedNode,
 } from "./BTreeNode.ts"
+import { Promisable } from "npm:type-fest"
 
 export interface INodeList<K, V, NodeId extends INodeId> {
-  get(nodeId: NodeId): Promise<BTreeNode<K, V, NodeId>>
+  get(nodeId: NodeId): Promisable<BTreeNode<K, V, NodeId>>
   markDirty(node: BTreeNode<K, V, NodeId>): void
-  deleteNode(nodeId: NodeId): Promise<void>
+  deleteNode(nodeId: NodeId): Promisable<void>
   createLeafNode(
     state: {
       keyvals: { key: K; vals: V[] }[]
       nextLeafNodeId: NodeId | null
       prevLeafNodeId: NodeId | null
     },
-  ): Promise<LeafBTreeNode<K, V, NodeId>>
+  ): Promisable<LeafBTreeNode<K, V, NodeId>>
   createInternalNode(
     state: { keys: K[]; childrenNodeIds: NodeId[] },
-  ): Promise<InternalBTreeNode<K, NodeId>>
-  commit(): Promise<void>
+  ): Promisable<InternalBTreeNode<K, NodeId>>
+  commit(): Promisable<void>
 }
 
 export class InMemoryNodeId implements INodeId {
@@ -58,10 +59,10 @@ export class InMemoryNodeList<K, V> implements INodeList<K, V, InMemoryNodeId> {
 
   private _nodeCache = new Map<number, BTreeNode<K, V, InMemoryNodeId>>()
 
-  get(nodeId: InMemoryNodeId): Promise<BTreeNode<K, V, InMemoryNodeId>> {
+  get(nodeId: InMemoryNodeId): BTreeNode<K, V, InMemoryNodeId> {
     const existingDirty = this.dirtyNodes.get(nodeId.index)
     if (existingDirty != null) {
-      return Promise.resolve(existingDirty)
+      return existingDirty
     }
     const existing = this._nodeCache.get(nodeId.index) as BTreeNode<
       K,
@@ -69,7 +70,7 @@ export class InMemoryNodeList<K, V> implements INodeList<K, V, InMemoryNodeId> {
       InMemoryNodeId
     >
     if (existing != null) {
-      return Promise.resolve(existing)
+      return existing
     }
     const serialized = this._nodes.get(nodeId.index)
     if (serialized == null) {
@@ -98,7 +99,7 @@ export class InMemoryNodeList<K, V> implements INodeList<K, V, InMemoryNodeId> {
       )
       // TODO this shouldn't be necessary
       this._nodeCache.set(nodeId.index, node)
-      return Promise.resolve(node)
+      return node
     }
     const node = new InternalBTreeNode(
       () => {
@@ -114,7 +115,7 @@ export class InMemoryNodeList<K, V> implements INodeList<K, V, InMemoryNodeId> {
     )
     // TODO this shouldn't be necessary
     this._nodeCache.set(nodeId.index, node)
-    return Promise.resolve(node)
+    return node
   }
 
   createLeafNode(
@@ -123,17 +124,17 @@ export class InMemoryNodeList<K, V> implements INodeList<K, V, InMemoryNodeId> {
       nextLeafNodeId: InMemoryNodeId | null
       prevLeafNodeId: InMemoryNodeId | null
     },
-  ): Promise<LeafBTreeNode<K, V, InMemoryNodeId>> {
+  ): LeafBTreeNode<K, V, InMemoryNodeId> {
     const nodeId = this.getNextNodeId()
     const node = new LeafBTreeNode(() => this.markDirty(node), nodeId, state)
     this._nodeCache.set(nodeId.index, node)
     this.markDirty(node)
-    return Promise.resolve(node)
+    return node
   }
 
   createInternalNode(
     state: { keys: K[]; childrenNodeIds: InMemoryNodeId[] },
-  ): Promise<InternalBTreeNode<K, InMemoryNodeId>> {
+  ): InternalBTreeNode<K, InMemoryNodeId> {
     const nodeId = this.getNextNodeId()
     const node = new InternalBTreeNode(
       () => this.markDirty(node),
@@ -142,22 +143,20 @@ export class InMemoryNodeList<K, V> implements INodeList<K, V, InMemoryNodeId> {
     )
     this._nodeCache.set(nodeId.index, node)
     this.markDirty(node)
-    return Promise.resolve(node)
+    return node
   }
 
-  commit(): Promise<void> {
+  commit(): void {
     for (const node of this.dirtyNodes.values()) {
       this._nodes.set(node.nodeId.index, node.serialize())
     }
     this.dirtyNodes.clear()
     this._nodeCache.clear()
-    return Promise.resolve()
   }
 
-  deleteNode(nodeId: InMemoryNodeId): Promise<void> {
+  deleteNode(nodeId: InMemoryNodeId): void {
     this._nodes.delete(nodeId.index)
     this.dirtyNodes.delete(nodeId.index)
     this._nodeCache.delete(nodeId.index)
-    return Promise.resolve()
   }
 }

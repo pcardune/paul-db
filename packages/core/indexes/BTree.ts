@@ -13,6 +13,7 @@ import { FileNodeId, fileNodeIdStruct } from "./Serializers.ts"
 import { IStruct, Struct } from "../binary/Struct.ts"
 import { FileBackedNodeList } from "./FileBackedNodeList.ts"
 import { debugJson, debugLog } from "../logging.ts"
+import { Promisable } from "npm:type-fest"
 
 type DumpedNode<K, V, NodeId> =
   | { type: "leaf"; nodeId: NodeId; keyvals: [K, readonly V[]][] }
@@ -206,7 +207,7 @@ export class BTree<
     await this.nodes.commit()
   }
 
-  getNodeWithId(nodeId: NodeId): Promise<BTreeNode<K, V, NodeId>> {
+  getNodeWithId(nodeId: NodeId): Promisable<BTreeNode<K, V, NodeId>> {
     return this.nodes.get(nodeId)
   }
 
