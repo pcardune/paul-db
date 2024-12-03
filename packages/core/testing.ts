@@ -1,5 +1,7 @@
 import { ensureDirSync } from "@std/fs"
 import * as path from "@std/path"
+import { spy } from "jsr:@std/testing/mock"
+import { IBufferPool } from "./pages/BufferPool.ts"
 
 const subdir = `${Date.now()}`
 
@@ -22,6 +24,28 @@ export function generateTestFilePath(
           throw e
         }
       }
+    },
+  }
+}
+
+export function spyOnBufferPool(bufferPool: IBufferPool) {
+  const allocatePage = spy(bufferPool, "allocatePage")
+  const freePages = spy(bufferPool, "freePages")
+  return {
+    allocatePage,
+    freePages,
+    async getAllocatedPages() {
+      const allocatedPageIds = await Promise.all(
+        allocatePage.calls.flatMap((c) =>
+          c.returned == null ? [] : [c.returned]
+        ),
+      )
+      return allocatedPageIds.sort((a, b) => Number(a - b))
+    },
+    getFreedPages() {
+      return freePages.calls.flatMap((c) => c.args[0]).sort((a, b) =>
+        Number(a - b)
+      )
     },
   }
 }

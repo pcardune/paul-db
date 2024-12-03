@@ -10,6 +10,7 @@ import {
 import { Struct } from "../binary/Struct.ts"
 import { FileBackedBufferPool } from "../pages/BufferPool.ts"
 import { generateTestFilePath } from "../testing.ts"
+import { FileBackedBTree } from "./FileBackedBTree.ts"
 
 // TODO: consider using expect.extend to make custom matchers for this
 // see https://jsr.io/@std/expect/doc/~/expect.extend
@@ -206,13 +207,13 @@ const makeInFileBTree = async (order = 2) => {
   const bufferPool = await FileBackedBufferPool.create(file, 4096)
   const btreePageId = await bufferPool.allocatePage()
   return {
-    btree: await BTree.inFile<number, string>(
+    btree: await FileBackedBTree.create<number, string>(
       bufferPool,
       btreePageId,
       Struct.uint32,
       Struct.unicodeStringStruct,
       { order, compare: (a, b) => a - b },
-    ),
+    ).then((fbbt) => fbbt.btree),
     [Symbol.dispose]: () => {
       file[Symbol.dispose]()
       tempFile[Symbol.dispose]()

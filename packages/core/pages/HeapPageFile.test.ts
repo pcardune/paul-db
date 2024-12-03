@@ -1,16 +1,8 @@
 import { expect } from "jsr:@std/expect"
 import { afterEach, beforeEach, describe, it } from "jsr:@std/testing/bdd"
-import { FileBackedBufferPool, IBufferPool } from "./BufferPool.ts"
+import { FileBackedBufferPool } from "./BufferPool.ts"
 import { HeapPageFile } from "./HeapPageFile.ts"
-import { generateTestFilePath } from "../testing.ts"
-import { spy } from "jsr:@std/testing/mock"
-
-function spyOnBufferPool(bufferPool: IBufferPool) {
-  return {
-    allocatePage: spy(bufferPool, "allocatePage"),
-    freePages: spy(bufferPool, "freePages"),
-  }
-}
+import { generateTestFilePath, spyOnBufferPool } from "../testing.ts"
 
 describe("HeapPageFile", () => {
   const tempFile = generateTestFilePath("HeapPageFile.data")

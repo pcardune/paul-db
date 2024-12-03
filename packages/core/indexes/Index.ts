@@ -5,22 +5,43 @@ import { InMemoryNodeId } from "./NodeList.ts"
 import { IBufferPool, PageId } from "../pages/BufferPool.ts"
 import { IStruct } from "../binary/Struct.ts"
 import { FileNodeId } from "./Serializers.ts"
+import { FileBackedBTree } from "./FileBackedBTree.ts"
+import { Promisable } from "npm:type-fest"
+import { Droppable, IDroppable } from "../droppable.ts"
 
-export class Index<K, V, NodeId extends INodeId> {
-  private data: BTree<K, V, NodeId>
-  constructor(data: BTree<K, V, NodeId>) {
-    this.data = data
-  }
+interface IIndex<K, V> extends IDroppable {
+  insertMany(entries: Iterable<[K, V]>): Promisable<void>
 
-  static async inMemory<K, V>(
+  insert(key: K, value: V): Promisable<void>
+
+  get(key: K): Promisable<readonly V[]>
+
+  has(key: K): Promisable<boolean>
+
+  remove(key: K, value: V): Promisable<void>
+
+  getRange(range: Range<K>): Promisable<{
+    key: K
+    vals: readonly V[]
+  }[]>
+}
+
+export class Index<K, V, NodeId extends INodeId> implements IIndex<K, V> {
+  private constructor(
+    private data: BTree<K, V, NodeId>,
+    private droppable: Droppable,
+  ) {}
+
+  static inMemory<K, V>(
     config: InMemoryBTreeConfig<K, V>,
-  ): Promise<Index<K, V, InMemoryNodeId>> {
+  ): Index<K, V, InMemoryNodeId> {
     return new Index(
-      await BTree.inMemory<K, V>({
+      BTree.inMemory<K, V>({
         compare: config.compare ?? ((a, b) => a < b ? -1 : a > b ? 1 : 0),
         isEqual: config.isEqual ?? ((a, b) => a === b),
         order: config.order,
       }),
+      new Droppable(() => {}),
     )
   }
 
@@ -31,38 +52,43 @@ export class Index<K, V, NodeId extends INodeId> {
     valStruct: IStruct<V>,
     config: InMemoryBTreeConfig<K, V>,
   ): Promise<Index<K, V, FileNodeId>> {
-    return new Index(
-      await BTree.inFile<K, V>(
-        bufferPool,
-        indexPageId,
-        keyStruct,
-        valStruct,
-        {
-          compare: config.compare ?? ((a, b) => a < b ? -1 : a > b ? 1 : 0),
-          isEqual: config.isEqual ?? ((a, b) => a === b),
-          order: config.order,
-        },
-      ),
+    const fbbt = await FileBackedBTree.create<K, V>(
+      bufferPool,
+      indexPageId,
+      keyStruct,
+      valStruct,
+      {
+        compare: config.compare ?? ((a, b) => a < b ? -1 : a > b ? 1 : 0),
+        isEqual: config.isEqual ?? ((a, b) => a === b),
+        order: config.order,
+      },
     )
+
+    return new Index(fbbt.btree, new Droppable(() => fbbt.drop()))
   }
 
   async insertMany(entries: Iterable<[K, V]>): Promise<void> {
+    this.droppable.assertNotDropped("Index has been dropped")
     await this.data.insertMany(entries)
   }
 
   async insert(key: K, value: V): Promise<void> {
+    this.droppable.assertNotDropped("Index has been dropped")
     await this.data.insert(key, value)
   }
 
   get(key: K): Promise<readonly V[]> {
+    this.droppable.assertNotDropped("Index has been dropped")
     return this.data.get(key)
   }
 
   has(key: K): Promise<boolean> {
+    this.droppable.assertNotDropped("Index has been dropped")
     return this.data.has(key)
   }
 
   async remove(key: K, value: V): Promise<void> {
+    this.droppable.assertNotDropped("Index has been dropped")
     await this.data.remove(key, value)
   }
 
@@ -70,6 +96,11 @@ export class Index<K, V, NodeId extends INodeId> {
     key: K
     vals: readonly V[]
   }[]> {
+    this.droppable.assertNotDropped("Index has been dropped")
     return await this.data.getRange(range)
+  }
+
+  async drop(): Promise<void> {
+    await this.droppable.drop()
   }
 }

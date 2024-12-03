@@ -1,8 +1,6 @@
 import { assert, assertEquals, assertNotStrictEquals } from "@std/assert"
 import { Struct } from "../binary/Struct.ts"
 import { FileBackedBufferPool } from "../pages/BufferPool.ts"
-import { HeapPageFile } from "../pages/HeapPageFile.ts"
-import { ReadonlyVariableLengthRecordPage } from "../pages/VariableLengthRecordPage.ts"
 import { FileBackedNodeList } from "./FileBackedNodeList.ts"
 import { assertStrictEquals } from "@std/assert/strict-equals"
 import { generateTestFilePath } from "../testing.ts"
@@ -20,14 +18,9 @@ async function makeNodeList() {
   )
   const bufferPool = await FileBackedBufferPool.create(file, 4096)
   const heapPageId = await bufferPool.allocatePage()
-  const heapPageFile = new HeapPageFile(
-    bufferPool,
-    heapPageId,
-    ReadonlyVariableLengthRecordPage.allocator,
-  )
   const nodelist = new FileBackedNodeList<number, string>(
     bufferPool,
-    heapPageFile,
+    heapPageId,
     Struct.uint32,
     Struct.unicodeStringStruct,
   )

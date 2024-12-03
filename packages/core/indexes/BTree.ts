@@ -6,12 +6,6 @@ import {
   InternalBTreeNode,
   LeafBTreeNode,
 } from "./BTreeNode.ts"
-import { IBufferPool, PageId } from "../pages/BufferPool.ts"
-import { HeapPageFile } from "../pages/HeapPageFile.ts"
-import { ReadonlyVariableLengthRecordPage } from "../pages/VariableLengthRecordPage.ts"
-import { FileNodeId, fileNodeIdStruct } from "./Serializers.ts"
-import { IStruct, Struct } from "../binary/Struct.ts"
-import { FileBackedNodeList } from "./FileBackedNodeList.ts"
 import { debugJson, debugLog } from "../logging.ts"
 import { Promisable } from "npm:type-fest"
 
@@ -90,86 +84,7 @@ export class BTree<
     >
   }
 
-  static async inFile<K, V>(
-    bufferPool: IBufferPool,
-    pageId: PageId,
-    keyStruct: IStruct<K>,
-    valStruct: IStruct<V>,
-    {
-      order = 2,
-      compare = (a, b) => a < b ? -1 : a > b ? 1 : 0,
-      isEqual = (a, b) => a === b,
-    }: InMemoryBTreeConfig<K, V> = {},
-  ) {
-    const indexInfoStruct = Struct.tuple(
-      Struct.bigUint64, // heapPageFile page id
-      fileNodeIdStruct, // root node id
-    )
-    let heapPageFilePageId: PageId = 0n
-    let rootNodeId: FileNodeId | null = null
-    const view = await bufferPool.getPageView(pageId)
-    ;[heapPageFilePageId, rootNodeId] = indexInfoStruct.readAt(view, 0)
-
-    if (heapPageFilePageId === 0n) {
-      // this is the first time this btree is being loaded.
-      // create the header page
-      heapPageFilePageId = await bufferPool.allocatePage()
-      await bufferPool.writeToPage(heapPageFilePageId, (view) => {
-        indexInfoStruct.writeAt([heapPageFilePageId, rootNodeId], view, 0)
-      })
-    }
-    const heapPageFile = new HeapPageFile(
-      bufferPool,
-      heapPageFilePageId,
-      ReadonlyVariableLengthRecordPage.allocator,
-    )
-    const nodes = new FileBackedNodeList<K, V>(
-      bufferPool,
-      heapPageFile,
-      keyStruct,
-      valStruct,
-    )
-    if (rootNodeId == null) {
-      // this is the first time this btree is being loaded.
-      // create the initial set of nodes
-      const childNode = await nodes.createLeafNode({
-        keyvals: [],
-        nextLeafNodeId: null,
-        prevLeafNodeId: null,
-      })
-      const rootNode = await nodes.createInternalNode({
-        keys: [],
-        childrenNodeIds: [childNode.nodeId],
-      })
-      await nodes.commit()
-      rootNodeId = rootNode.nodeId
-      await bufferPool.writeToPage(pageId, (view) => {
-        indexInfoStruct.writeAt([heapPageFilePageId, rootNodeId], view, 0)
-      })
-    }
-    await bufferPool.commit()
-    const btree = new BTree<K, V, FileNodeId, FileBackedNodeList<K, V>>(
-      {
-        order,
-        compare,
-        isEqual,
-        nodes: nodes,
-        rootNodeId,
-        onRootNodeChanged: async () => {
-          await bufferPool.writeToPage(pageId, (view) => {
-            indexInfoStruct.writeAt(
-              [heapPageFilePageId, btree.rootNodeId],
-              view,
-              0,
-            )
-          })
-        },
-      },
-    )
-    return btree
-  }
-
-  static async inMemory<K, V>(
+  static inMemory<K, V>(
     {
       order = 2,
       compare = (a, b) => a < b ? -1 : a > b ? 1 : 0,
@@ -177,16 +92,16 @@ export class BTree<
     }: InMemoryBTreeConfig<K, V> = {},
   ) {
     const nodes = new InMemoryNodeList<K, V>(new Map())
-    const childNode = await nodes.createLeafNode({
+    const childNode = nodes.createLeafNode({
       keyvals: [],
       nextLeafNodeId: null,
       prevLeafNodeId: null,
     })
-    const rootNode = await nodes.createInternalNode({
+    const rootNode = nodes.createInternalNode({
       keys: [],
       childrenNodeIds: [childNode.nodeId],
     })
-    await nodes.commit()
+    nodes.commit()
     return new BTree<K, V, InMemoryNodeId, InMemoryNodeList<K, V>>({
       order,
       compare,
@@ -227,7 +142,7 @@ export class BTree<
     return this._countNodes(this.rootNodeId)
   }
 
-  private constructor(
+  constructor(
     {
       order = 2,
       compare,

@@ -1,7 +1,8 @@
 import { ReadonlyDataView, WriteableDataView } from "../binary/dataview.ts"
 import { IStruct } from "../binary/Struct.ts"
+import { Droppable, IDroppable } from "../droppable.ts"
 import { debugJson, debugLog } from "../logging.ts"
-import { IBufferPool } from "../pages/BufferPool.ts"
+import { IBufferPool, PageId } from "../pages/BufferPool.ts"
 import { HeapPageFile } from "../pages/HeapPageFile.ts"
 import {
   ReadonlyVariableLengthRecordPage,
@@ -17,26 +18,40 @@ import {
   WrongNodeTypeError,
 } from "./Serializers.ts"
 
-export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
+export class FileBackedNodeList<K, V>
+  implements INodeList<K, V, FileNodeId>, IDroppable {
   private leafNodeSerializer: ReturnType<typeof leafBTreeNodeStruct<K, V>>
   private internalNodeSerializer: ReturnType<
     typeof internalBTreeNodeStruct<K>
   >
+  readonly heapPageFile: HeapPageFile<VariableLengthRecordPageAllocInfo>
+  private droppable: Droppable
 
   constructor(
-    private bufferPool: IBufferPool,
-    private heapPageFile: HeapPageFile<VariableLengthRecordPageAllocInfo>,
+    readonly bufferPool: IBufferPool,
+    pageId: PageId,
     keyStruct: IStruct<K>,
     valStruct: IStruct<V>,
   ) {
     this.leafNodeSerializer = leafBTreeNodeStruct(keyStruct, valStruct)
     this.internalNodeSerializer = internalBTreeNodeStruct(keyStruct)
+    this.heapPageFile = new HeapPageFile(
+      bufferPool,
+      pageId,
+      ReadonlyVariableLengthRecordPage.allocator,
+    )
+    this.droppable = new Droppable(() => this.heapPageFile.drop())
+  }
+
+  drop() {
+    return this.droppable.drop()
   }
 
   // this is only here for types safety
   private async getRecordView(
     id: FileNodeId,
   ): Promise<ReadonlyDataView | undefined> {
+    this.droppable.assertNotDropped("FileBackedNodeList has been dropped")
     const view = await this.bufferPool.getPageView(id.pageId)
     const recordPage = new ReadonlyVariableLengthRecordPage(view)
     const slot = recordPage.getSlotEntry(id.slotIndex)
@@ -48,6 +63,7 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
     id: FileNodeId,
     writer: (view: WriteableDataView) => void | Promise<void>,
   ): Promise<void> {
+    this.droppable.assertNotDropped("FileBackedNodeList has been dropped")
     await this.bufferPool.writeToPage(id.pageId, (view) => {
       const recordPage = new WriteableVariableLengthRecordPage(view)
       const slot = recordPage.getSlotEntry(id.slotIndex)
@@ -60,6 +76,7 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
 
   async get(nodeId: FileNodeId): Promise<BTreeNode<K, V, FileNodeId>> {
     debugLog(`INodelist.get(${nodeId})`)
+    this.droppable.assertNotDropped("FileBackedNodeList has been dropped")
     const existingDirty = this.dirtyNodes.get(this.cacheKey(nodeId))
     if (existingDirty != null) {
       debugLog(() => `  -> found in dirty nodes: ${existingDirty}`)
@@ -105,6 +122,7 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
   }
 
   markDirty(node: BTreeNode<K, V, FileNodeId>): void {
+    this.droppable.assertNotDropped("FileBackedNodeList has been dropped")
     this.dirtyNodes.set(this.cacheKey(node.nodeId), node)
     this.bufferPool.markDirty(node.nodeId.pageId)
   }
@@ -125,6 +143,7 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
             )
         })`,
     )
+    this.droppable.assertNotDropped("FileBackedNodeList has been dropped")
     const size = this.leafNodeSerializer.sizeof(data)
     const { pageId, allocInfo: { slot, slotIndex } } = await this.heapPageFile
       .allocateSpace(size)
@@ -150,6 +169,7 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
   async createInternalNode(
     data: { keys: K[]; childrenNodeIds: FileNodeId[] },
   ): Promise<InternalBTreeNode<K, FileNodeId>> {
+    this.droppable.assertNotDropped("FileBackedNodeList has been dropped")
     const size = this.internalNodeSerializer.sizeof(data)
     const { pageId, allocInfo: { slot, slotIndex } } = await this.heapPageFile
       .allocateSpace(size)
@@ -174,6 +194,7 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
 
   async commit(): Promise<void> {
     debugLog("INodeLIst.commit()")
+    this.droppable.assertNotDropped("FileBackedNodeList has been dropped")
     for (const node of this.dirtyNodes.values()) {
       await this.writeToRecord(node.nodeId, (view) => {
         if (node instanceof LeafBTreeNode) {
@@ -201,6 +222,7 @@ export class FileBackedNodeList<K, V> implements INodeList<K, V, FileNodeId> {
 
   async deleteNode(nodeId: FileNodeId): Promise<void> {
     debugLog(`deleteNode(${nodeId})`)
+    this.droppable.assertNotDropped("FileBackedNodeList has been dropped")
     await this.bufferPool.writeToPage(nodeId.pageId, (view) => {
       const recordPage = new WriteableVariableLengthRecordPage(view)
       recordPage.freeSlot(nodeId.slotIndex)
