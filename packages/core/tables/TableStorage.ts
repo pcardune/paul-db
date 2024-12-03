@@ -12,9 +12,10 @@ import {
 import {
   SomeTableSchema,
   StoredRecordForTableSchema,
+  TableSchema,
 } from "../schema/schema.ts"
 import { SerialIdGenerator } from "../serial.ts"
-import { TableInfer } from "./Table.ts"
+import { Table } from "./Table.ts"
 import { Promisable } from "npm:type-fest"
 
 export interface ITableStorage<RowId, RowData> {
@@ -253,7 +254,7 @@ export class HeapFileTableStorage<RowData>
   private heapPageFile: HeapPageFile<VariableLengthRecordPageAllocInfo>
 
   constructor(
-    private bufferPool: IBufferPool,
+    readonly bufferPool: IBufferPool,
     pageId: PageId,
     readonly recordStruct: IStruct<RowData>,
     private schemaId: number,
@@ -424,7 +425,15 @@ export class HeapFileTableStorage<RowData>
   }
 }
 
-export type HeapFileTableInfer<SchemaT extends SomeTableSchema> = TableInfer<
-  SchemaT,
-  HeapFileTableStorage<StoredRecordForTableSchema<SchemaT>>
->
+export type HeapFileTableInfer<SchemaT extends SomeTableSchema> =
+  SchemaT extends
+    TableSchema<infer TName, infer ColumnSchemasT, infer ComputedColumnSchemasT>
+    ? Table<
+      HeapFileRowId,
+      TName,
+      ColumnSchemasT,
+      ComputedColumnSchemasT,
+      SchemaT,
+      HeapFileTableStorage<StoredRecordForTableSchema<SchemaT>>
+    >
+    : never

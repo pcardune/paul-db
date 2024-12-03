@@ -19,19 +19,20 @@ import { SerialUInt32ColumnType } from "../schema/ColumnType.ts"
  * A helper type that lets you declare a table type from a given
  * schema and storage type.
  */
-export type TableInfer<SchemaT, StorageT> = SchemaT extends
-  TableSchema<infer TName, infer ColumnSchemasT, infer ComputedColumnSchemasT>
-  ? StorageT extends
-    ITableStorage<infer RowIdT, StoredRecordForTableSchema<SchemaT>> ? Table<
-      RowIdT,
-      TName,
-      ColumnSchemasT,
-      ComputedColumnSchemasT,
-      SchemaT,
-      ITableStorage<RowIdT, StoredRecordForTableSchema<SchemaT>>
-    >
-  : never
-  : never
+export type TableInfer<SchemaT extends SomeTableSchema, StorageT> =
+  SchemaT extends
+    TableSchema<infer TName, infer ColumnSchemasT, infer ComputedColumnSchemasT>
+    ? StorageT extends
+      ITableStorage<infer RowIdT, StoredRecordForTableSchema<SchemaT>> ? Table<
+        RowIdT,
+        TName,
+        ColumnSchemasT,
+        ComputedColumnSchemasT,
+        SchemaT,
+        ITableStorage<RowIdT, StoredRecordForTableSchema<SchemaT>>
+      >
+    : never
+    : never
 
 export type TableConfig<
   RowIdT,

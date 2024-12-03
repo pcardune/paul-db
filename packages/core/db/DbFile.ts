@@ -26,6 +26,7 @@ import { schemas } from "./metadataSchemas.ts"
 import { Index } from "../indexes/Index.ts"
 import { INodeId } from "../indexes/BTreeNode.ts"
 import { UnknownRecord } from "npm:type-fest"
+import { IndexManager } from "./IndexManager.ts"
 
 const SYSTEM_DB = "system"
 
@@ -39,27 +40,9 @@ export class DbFile {
     private file: Deno.FsFile,
     readonly bufferPool: FileBackedBufferPool,
     readonly dbPageIdsTable: HeapFileTableInfer<typeof schemas.dbPageIds>,
-    readonly indexesTable: HeapFileTableInfer<typeof schemas.dbIndexes>,
+    readonly indexManager: IndexManager,
     readonly tablesTable: HeapFileTableInfer<typeof schemas.dbTables>,
   ) {}
-
-  async getIndexStorage(
-    tableName: string,
-    columnName: string,
-  ): Promise<PageId> {
-    const indexName = `${tableName}_${columnName}`
-    const indexRecord = await this.indexesTable.lookupUnique(
-      "indexName",
-      indexName,
-    )
-    let pageId = indexRecord?.heapPageId
-    if (pageId == null) {
-      pageId = await this.bufferPool.allocatePage()
-      await this.bufferPool.commit()
-      await this.indexesTable.insert({ indexName, heapPageId: pageId })
-    }
-    return pageId
-  }
 
   /**
    * Gets table storage, while lazily creating the table if it doesn't exist.
@@ -94,11 +77,12 @@ export class DbFile {
 
     for (const column of [...schema.columns, ...schema.computedColumns]) {
       if (column.indexed.shouldIndex && !column.indexed.inMemory) {
-        const pageId: PageId = await this.getIndexStorage(
-          schema.name,
-          column.name,
-        )
-        indexPageIds[column.name] = pageId
+        indexPageIds[column.name] = await this.indexManager
+          .getOrAllocateIndexStoragePageId({
+            db,
+            table: schema.name,
+            column: column.name,
+          })
       }
     }
 
@@ -380,7 +364,7 @@ export class DbFile {
       file,
       bufferPool,
       dbPageIdsTable,
-      dbIndexesTable,
+      new IndexManager(dbIndexesTable),
       dbTablesTable,
     )
     if (needsCreation) {

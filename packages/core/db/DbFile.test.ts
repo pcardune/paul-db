@@ -11,7 +11,7 @@ Deno.test("DbFile initialization", async (t) => {
   async function dumpState(db: DbFile) {
     const pages = await db.dbPageIdsTable.iterate().toArray()
     const tables = await db.tablesTable.iterate().toArray()
-    const indexes = await db.indexesTable.iterate().toArray()
+    const indexes = await db.indexManager.indexesTable.iterate().toArray()
     const { schemaTable } = await db.getSchemasTable()
     const schemas = await schemaTable.iterate().toArray()
     return { pages, tables, indexes, schemas }
@@ -89,6 +89,29 @@ Deno.test("DbFile initialization", async (t) => {
     expect(newState).toEqual(initialState)
     await getColumns(db)
   })
+})
+
+Deno.test("DbFile.createTable()", async () => {
+  using tempFile = generateTestFilePath("DbFile.db")
+  using db = await DbFile.open(tempFile.filePath, {
+    create: true,
+    truncate: true,
+  })
+
+  const usersSchema = s.table("users")
+    .with(s.column("id", ColumnTypes.uint32()).unique())
+    .with(s.column("name", ColumnTypes.string()))
+
+  await db.getOrCreateTable(usersSchema)
+
+  expect(
+    await db.indexManager.getIndexStoragePageId({
+      db: "default",
+      table: "users",
+      column: "id",
+    }),
+    "An index page should have been allocated for the unique column",
+  ).not.toBeNull()
 })
 
 Deno.test("DbFile.createTable() and schema changes", async (t) => {
