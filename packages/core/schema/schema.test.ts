@@ -2,7 +2,7 @@ import { describe, it } from "jsr:@std/testing/bdd"
 import { expect } from "jsr:@std/expect"
 import {
   InsertRecordForTableSchema,
-  makeTableSchemaSerializer,
+  makeTableSchemaStruct,
   TableSchema,
 } from "./schema.ts"
 import { StoredRecordForTableSchema } from "./schema.ts"
@@ -255,7 +255,7 @@ describe("Serializing and deserializing records", () => {
       .with(column("likesIceCream", ColumnTypes.boolean()))
       .with(column("name", ColumnTypes.string()))
 
-    const serializer = makeTableSchemaSerializer(peopleSchema)!
+    const serializer = makeTableSchemaStruct(peopleSchema)!
     expect(serializer).toBeDefined()
 
     const recordToWrite = {

@@ -159,7 +159,7 @@ export class TableSchema<
   }
 }
 
-export function makeTableSchemaSerializer<SchemaT extends SomeTableSchema>(
+export function makeTableSchemaStruct<SchemaT extends SomeTableSchema>(
   schema: SchemaT,
 ): IStruct<StoredRecordForTableSchema<SchemaT>> | undefined {
   if (schema.columns.some((c) => c.type.serializer == null)) {

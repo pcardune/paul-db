@@ -2,6 +2,7 @@
 import { Index } from "../indexes/Index.ts"
 import {
   InsertRecordForTableSchema,
+  SomeTableSchema,
   StoredRecordForTableSchema,
   TableSchema,
 } from "../schema/schema.ts"
@@ -32,6 +33,17 @@ export type TableInfer<SchemaT, StorageT> = SchemaT extends
   : never
   : never
 
+export type TableConfig<
+  RowIdT,
+  SchemaT extends SomeTableSchema,
+  StorageT extends ITableStorage<RowIdT, StoredRecordForTableSchema<SchemaT>>,
+> = {
+  schema: SchemaT
+  data: StorageT
+  indexes: Map<string, Index<unknown, RowIdT, INodeId>>
+  serialIdGenerator?: SerialIdGenerator
+}
+
 export class Table<
   RowIdT,
   TName extends string,
@@ -40,21 +52,15 @@ export class Table<
   SchemaT extends TableSchema<TName, ColumnSchemasT, ComputedColumnSchemasT>,
   StorageT extends ITableStorage<RowIdT, StoredRecordForTableSchema<SchemaT>>,
 > {
-  private schema: SchemaT
-  private data: StorageT
+  readonly schema: SchemaT
+  readonly data: StorageT
   private _allIndexes: Map<string, Index<unknown, RowIdT, INodeId>>
   private serialIdGenerator?: SerialIdGenerator
 
-  constructor(init: {
-    schema: SchemaT
-    data: StorageT
-    indexes: Map<string, Index<unknown, RowIdT, INodeId>>
-    serialIdGenerator?: SerialIdGenerator
-  }) {
+  constructor(init: TableConfig<RowIdT, SchemaT, StorageT>) {
     this.schema = init.schema
     this.data = init.data
     this.serialIdGenerator = init.serialIdGenerator
-
     this._allIndexes = init.indexes
   }
 
