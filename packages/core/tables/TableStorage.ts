@@ -1,7 +1,6 @@
 import { AsyncIterableWrapper } from "../async.ts"
 import { IStruct, Struct } from "../binary/Struct.ts"
-import { INodeId } from "../indexes/BTreeNode.ts"
-import { Index } from "../indexes/Index.ts"
+import { InMemoryIndexProvider } from "../indexes/IndexProvider.ts"
 import { IBufferPool, PageId } from "../pages/BufferPool.ts"
 import { HeaderPageRef, HeapPageFile } from "../pages/HeapPageFile.ts"
 import {
@@ -14,8 +13,7 @@ import {
   StoredRecordForTableSchema,
   TableSchema,
 } from "../schema/schema.ts"
-import { SerialIdGenerator } from "../serial.ts"
-import { Table } from "./Table.ts"
+import { Table, TableConfig } from "./Table.ts"
 import { Promisable } from "npm:type-fest"
 
 export interface ITableStorage<RowId, RowData> {
@@ -56,35 +54,22 @@ export class JsonFileTableStorage<RowData>
     this.deletedRecords = new Set()
   }
 
-  static async forSchema<
+  static forSchema<
     SchemaT extends SomeTableSchema,
   >(
     schema: SchemaT,
     filename: string,
-  ): Promise<{
-    data: JsonFileTableStorage<StoredRecordForTableSchema<SchemaT>>
-    schema: SchemaT
-    indexes: Map<string, Index<unknown, number, INodeId>>
-    serialIdGenerator: SerialIdGenerator
-  }> {
-    const indexes = new Map<string, Index<unknown, number, INodeId>>()
-    for (const column of [...schema.columns, ...schema.computedColumns]) {
-      if (column.indexed.shouldIndex) {
-        indexes.set(
-          column.name,
-          await Index.inMemory({
-            isEqual: column.type.isEqual,
-            compare: column.type.compare,
-          }),
-        )
-      }
-    }
+  ): TableConfig<
+    number,
+    SchemaT,
+    JsonFileTableStorage<StoredRecordForTableSchema<SchemaT>>
+  > {
     return {
       schema,
       data: new JsonFileTableStorage<StoredRecordForTableSchema<SchemaT>>(
         filename,
       ),
-      indexes,
+      indexProvider: new InMemoryIndexProvider(schema),
       serialIdGenerator: {
         next(_name: string): number {
           throw new Error("Not implemented")
@@ -159,35 +144,19 @@ export class InMemoryTableStorage<RowId, RowData>
     })
   }
 
-  static async forSchema<SchemaT extends SomeTableSchema>(
+  static forSchema<SchemaT extends SomeTableSchema>(
     schema: SchemaT,
-  ): Promise<{
-    data: InMemoryTableStorage<number, StoredRecordForTableSchema<SchemaT>>
-    schema: SchemaT
-    indexes: Map<string, Index<unknown, number, INodeId>>
-    serialIdGenerator: SerialIdGenerator
-  }> {
-    const indexes = new Map<string, Index<unknown, number, INodeId>>()
-    for (const column of [...schema.columns, ...schema.computedColumns]) {
-      if (column.indexed.shouldIndex) {
-        indexes.set(
-          column.name,
-          await Index.inMemory({
-            isEqual: column.type.isEqual,
-            compare: column.type.compare,
-          }),
-        )
-      }
-    }
-
+  ): TableConfig<
+    number,
+    SchemaT,
+    InMemoryTableStorage<number, StoredRecordForTableSchema<SchemaT>>
+  > {
     let rowId = 0
-
     const serialIds = new Map<string, number>()
-
     return {
       data: new InMemoryTableStorage(() => rowId++),
       schema,
-      indexes,
+      indexProvider: new InMemoryIndexProvider(schema),
       serialIdGenerator: {
         next(name: string) {
           const nextId = (serialIds.get(name) ?? 0) + 1

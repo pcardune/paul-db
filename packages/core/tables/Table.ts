@@ -1,5 +1,4 @@
 // deno-lint-ignore-file no-explicit-any
-import { Index } from "../indexes/Index.ts"
 import {
   InsertRecordForTableSchema,
   SomeTableSchema,
@@ -8,12 +7,12 @@ import {
 } from "../schema/schema.ts"
 import { ITableStorage } from "./TableStorage.ts"
 import { FilterTuple } from "../typetools.ts"
-import { INodeId } from "../indexes/BTreeNode.ts"
 import { AsyncIterableWrapper } from "../async.ts"
 import { Column, Index as CIndex } from "../schema/ColumnSchema.ts"
 import { Promisable } from "npm:type-fest"
 import { SerialIdGenerator } from "../serial.ts"
 import { SerialUInt32ColumnType } from "../schema/ColumnType.ts"
+import { IndexProvider } from "../indexes/IndexProvider.ts"
 
 /**
  * A helper type that lets you declare a table type from a given
@@ -41,7 +40,7 @@ export type TableConfig<
 > = {
   schema: SchemaT
   data: StorageT
-  indexes: Map<string, Index<unknown, RowIdT, INodeId>>
+  indexProvider: IndexProvider<RowIdT>
   serialIdGenerator?: SerialIdGenerator
 }
 
@@ -55,14 +54,14 @@ export class Table<
 > {
   readonly schema: SchemaT
   readonly data: StorageT
-  private _allIndexes: Map<string, Index<unknown, RowIdT, INodeId>>
   private serialIdGenerator?: SerialIdGenerator
+  private indexProvider: IndexProvider<RowIdT>
 
   constructor(init: TableConfig<RowIdT, SchemaT, StorageT>) {
     this.schema = init.schema
     this.data = init.data
     this.serialIdGenerator = init.serialIdGenerator
-    this._allIndexes = init.indexes
+    this.indexProvider = init.indexProvider
   }
 
   async insertManyAndReturn(
@@ -122,7 +121,7 @@ export class Table<
 
     for (const column of this.schema.columns) {
       if (!column.isUnique) continue
-      const index = this._allIndexes.get(column.name)
+      const index = await this.indexProvider.getIndexForColumn(column.name)
       if (!index) {
         throw new Error(
           `Column ${column.name} is not indexed but is marked as unique`,
@@ -137,7 +136,7 @@ export class Table<
     }
     for (const column of this.schema.computedColumns) {
       if (!column.isUnique) continue
-      const index = this._allIndexes.get(column.name)
+      const index = await this.indexProvider.getIndexForColumn(column.name)
       if (!index) {
         throw new Error(
           `Column ${column.name} is not indexed but is marked as unique`,
@@ -153,7 +152,7 @@ export class Table<
 
     const id = await this.data.insert(record)
     for (const column of this.schema.columns) {
-      const index = this._allIndexes.get(column.name)
+      const index = await this.indexProvider.getIndexForColumn(column.name)
       if (index) {
         await index.insert((record as any)[column.name], id)
       } else if (column.indexed.shouldIndex) {
@@ -161,7 +160,7 @@ export class Table<
       }
     }
     for (const column of this.schema.computedColumns) {
-      const index = this._allIndexes.get(column.name)
+      const index = await this.indexProvider.getIndexForColumn(column.name)
       if (index) {
         await index.insert(column.compute(record), id)
       } else if (column.indexed.shouldIndex) {
@@ -197,7 +196,7 @@ export class Table<
     indexName: IName,
     value: ValueT,
   ): Promise<void> {
-    const index = this._allIndexes.get(indexName)
+    const index = await this.indexProvider.getIndexForColumn(indexName)
     if (!index) {
       throw new Error(`Index ${indexName} does not exist`)
     }
@@ -270,7 +269,7 @@ export class Table<
     indexName: IName,
     value: ValueT,
   ): Promise<readonly RowIdT[]> {
-    const index = this._allIndexes.get(indexName)
+    const index = await this.indexProvider.getIndexForColumn(indexName)
     if (!index) {
       throw new Error(`Index ${indexName} does not exist`)
     }
@@ -305,7 +304,7 @@ export class Table<
       Column.FindWithName<SchemaT["computedColumns"], IName>
     >,
   >(indexName: IName, value: ValueT) {
-    const index = this._allIndexes.get(indexName)
+    const index = await this.indexProvider.getIndexForColumn(indexName)
     if (!index) {
       throw new Error(`Index ${indexName} does not exist`)
     }

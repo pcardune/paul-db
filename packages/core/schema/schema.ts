@@ -36,14 +36,20 @@ export class TableSchema<
   ColumnSchemasT extends Column.Stored[],
   ComputedColumnsT extends Column.Computed.Any[],
 > {
+  private columnsByName: Record<string, Column.Any> = {}
+
   private constructor(
     public readonly name: TableName,
     public readonly columns: ColumnSchemasT,
     public readonly computedColumns: ComputedColumnsT,
-  ) {}
+  ) {
+    this.columnsByName = Object.fromEntries(
+      [...columns, ...computedColumns].map((c) => [c.name, c]),
+    )
+  }
 
-  getColumns(): ColumnSchemasT {
-    return this.columns
+  getColumnByName(name: string): Column.Any | null {
+    return this.columnsByName[name] ?? null
   }
 
   static create(name: string): TableSchema<string, [], []> {
