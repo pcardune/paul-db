@@ -2,6 +2,7 @@ import { ReadonlyDataView, WriteableDataView } from "../binary/dataview.ts"
 import { Struct } from "../binary/Struct.ts"
 import { EOFError, readBytesAt, writeBytesAt } from "../io.ts"
 import { debugLogger } from "../logging.ts"
+import { Promisable } from "npm:type-fest"
 
 const debugLog = debugLogger(false)
 
@@ -12,7 +13,8 @@ class WriteablePage extends WriteableDataView {}
 export interface IBufferPool {
   get pageSize(): number
   allocatePage(): Promise<PageId>
-  freePage(pageId: PageId): Promise<void> | void
+  freePage(pageId: PageId): Promisable<void>
+  freePages(pageIds: PageId[]): Promisable<void>
 
   /**
    * Get a DataView for the given page ID.
@@ -44,6 +46,11 @@ export class InMemoryBufferPool implements IBufferPool {
     return Promise.resolve(pageId)
   }
 
+  freePages(pageIds: PageId[]): void {
+    for (const pageId of pageIds) {
+      this.freePage(pageId)
+    }
+  }
   freePage(pageId: PageId): void {
     this.freeList.push(pageId)
   }
@@ -91,9 +98,13 @@ export class FileBackedBufferPool implements IBufferPool {
   private constructor(
     private file: Deno.FsFile,
     readonly pageSize: number,
-    private freePageId: PageId,
+    private _freePageId: PageId,
     private fileOffset: bigint,
   ) {}
+
+  get freePageId(): PageId {
+    return this._freePageId
+  }
 
   static async create(
     file: Deno.FsFile,
@@ -128,19 +139,19 @@ export class FileBackedBufferPool implements IBufferPool {
   }
 
   async allocatePage(): Promise<PageId> {
-    if (this.freePageId !== this.fileOffset) {
+    if (this._freePageId !== this.fileOffset) {
       // there is a free page we can reuse
-      const pageId = this.freePageId
+      const pageId = this._freePageId
       try {
         await this.writeToPage(pageId, (view) => {
-          this.freePageId = view.getBigUint64(0)
+          this._freePageId = view.getBigUint64(0)
           view.fill(0)
         })
       } catch (e) {
         if (e instanceof EOFError) {
           // we hit the end of the file, so let's just make some more space
           // by appending a new page
-          this.freePageId = pageId + BigInt(this.pageSize)
+          this._freePageId = pageId + BigInt(this.pageSize)
           this._pageCache.set(pageId, new Uint8Array(this.pageSize))
           this.markDirty(pageId)
         } else {
@@ -153,17 +164,22 @@ export class FileBackedBufferPool implements IBufferPool {
     // no free pages, so we need to allocate a new one
     const pageId = this.fileOffset + 8n +
       BigInt(this._pageCache.size * this.pageSize)
-    this.freePageId = pageId + BigInt(this.pageSize)
+    this._freePageId = pageId + BigInt(this.pageSize)
     this._pageCache.set(pageId, new Uint8Array(this.pageSize))
     this.markDirty(pageId)
     return pageId
   }
 
+  async freePages(pageIds: Iterable<PageId>): Promise<void> {
+    for (const pageId of pageIds) {
+      await this.writeToPage(pageId, (view) => {
+        view.setBigUint64(0, this._freePageId)
+      })
+      this._freePageId = pageId
+    }
+  }
   async freePage(pageId: PageId): Promise<void> {
-    await this.writeToPage(pageId, (view) => {
-      view.setBigUint64(0, this.freePageId)
-    })
-    this.freePageId = pageId
+    await this.freePages([pageId])
   }
 
   private async _getPageBuffer(pageId: PageId): Promise<Uint8Array> {
@@ -199,17 +215,17 @@ export class FileBackedBufferPool implements IBufferPool {
 
   get isDirty(): boolean {
     return this.dirtyPages.size > 0 ||
-      this.freePageId !== this.__lastWrittenFreePageId
+      this._freePageId !== this.__lastWrittenFreePageId
   }
 
   async commit(): Promise<void> {
-    if (this.freePageId !== this.__lastWrittenFreePageId) {
+    if (this._freePageId !== this.__lastWrittenFreePageId) {
       await writeBytesAt(
         this.file,
         this.fileOffset,
-        FileBackedBufferPool.headerStruct.toUint8Array(this.freePageId),
+        FileBackedBufferPool.headerStruct.toUint8Array(this._freePageId),
       )
-      this.__lastWrittenFreePageId = this.freePageId
+      this.__lastWrittenFreePageId = this._freePageId
     }
     debugLog(() =>
       `BufferPool.commit() Committing ${this.dirtyPages.size} pages: ${

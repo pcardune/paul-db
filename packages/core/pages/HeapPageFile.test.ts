@@ -1,14 +1,24 @@
 import { expect } from "jsr:@std/expect"
 import { afterEach, beforeEach, describe, it } from "jsr:@std/testing/bdd"
-import { FileBackedBufferPool } from "./BufferPool.ts"
+import { FileBackedBufferPool, IBufferPool } from "./BufferPool.ts"
 import { HeapPageFile } from "./HeapPageFile.ts"
 import { generateTestFilePath } from "../testing.ts"
+import { spy } from "jsr:@std/testing/mock"
+
+function spyOnBufferPool(bufferPool: IBufferPool) {
+  return {
+    allocatePage: spy(bufferPool, "allocatePage"),
+    freePages: spy(bufferPool, "freePages"),
+  }
+}
 
 describe("HeapPageFile", () => {
   const tempFile = generateTestFilePath("HeapPageFile.data")
   const pageSize = 100
   let bufferPool: FileBackedBufferPool
   let heapPageFile: HeapPageFile<{ freeSpace: number }>
+  let bufferPoolSpy: ReturnType<typeof spyOnBufferPool>
+
   beforeEach(async () => {
     bufferPool = await FileBackedBufferPool.create(
       await Deno.open(tempFile.filePath, {
@@ -19,6 +29,8 @@ describe("HeapPageFile", () => {
       }),
       pageSize,
     )
+    bufferPoolSpy = spyOnBufferPool(bufferPool)
+
     const heapPageId = await bufferPool.allocatePage()
     heapPageFile = new HeapPageFile(
       bufferPool,
@@ -37,7 +49,11 @@ describe("HeapPageFile", () => {
   })
   afterEach(() => {
     bufferPool.close()
-    Deno.removeSync(tempFile.filePath)
+    tempFile[Symbol.dispose]()
+  })
+
+  it("Initially allocates one page of space", () => {
+    expect(bufferPoolSpy.allocatePage.calls).toHaveLength(1)
   })
 
   describe("Allocating space", () => {
@@ -54,6 +70,11 @@ describe("HeapPageFile", () => {
       expect(alloc1.allocInfo.freeSpace).toBe(pageSize - 10 - 34)
       expect(alloc1.pageId).toBe(alloc0.pageId)
 
+      expect(bufferPoolSpy.allocatePage.calls).toHaveLength(2)
+
+      await heapPageFile.allocateSpace(10)
+      expect(bufferPoolSpy.allocatePage.calls).toHaveLength(2)
+
       // eventually we'll fill up the page and a new one will be allocated
       // for us
       while (true) {
@@ -63,6 +84,8 @@ describe("HeapPageFile", () => {
           break
         }
       }
+      // look, it allocated a new one
+      expect(bufferPoolSpy.allocatePage.calls).toHaveLength(3)
     })
 
     it("links headers pages together, allocating new ones as needed", async () => {
@@ -72,12 +95,10 @@ describe("HeapPageFile", () => {
       for (let i = 0; i < 100; i++) {
         await heapPageFile.allocateSpace(50)
       }
-      const pageList = [heapPageFile.headerPageRef.pageId]
-      let nextPage = await heapPageFile.headerPageRef.getNext()
-      while (nextPage !== null) {
-        pageList.push(nextPage.pageId)
-        nextPage = await nextPage.getNext()
-      }
+
+      const pageList = await heapPageFile.headerPageRefsIter().map(
+        (headerPageRef) => headerPageRef.pageId,
+      ).toArray()
       expect(pageList).toEqual([
         5708n,
         4908n,
@@ -88,6 +109,27 @@ describe("HeapPageFile", () => {
         908n,
         8n,
       ])
+    })
+
+    it("Frees space when dropped", async () => {
+      expect(bufferPoolSpy.freePages.calls).toHaveLength(0)
+      // let's allocate a bundle of pages
+      for (let i = 0; i < 20; i++) {
+        await heapPageFile.allocateSpace(50)
+      }
+      expect(bufferPoolSpy.allocatePage.calls).toHaveLength(12)
+      const sortPageIds = (a: bigint, b: bigint) => Number(a - b)
+      const allocatedPageIds = await Promise.all(
+        bufferPoolSpy.allocatePage.calls.flatMap((c) =>
+          c.returned == null ? [] : [c.returned]
+        ),
+      )
+      await heapPageFile.drop()
+      const freedPageIds = bufferPoolSpy.freePages.calls.flatMap(
+        (c) => c.args[0],
+      ).sort(sortPageIds)
+
+      expect(freedPageIds).toEqual(allocatedPageIds.sort(sortPageIds))
     })
   })
 })

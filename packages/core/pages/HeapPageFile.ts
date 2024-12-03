@@ -1,5 +1,7 @@
+import { AsyncIterableWrapper } from "../async.ts"
 import { WriteableDataView } from "../binary/dataview.ts"
 import { Struct } from "../binary/Struct.ts"
+import { Droppable, IDroppable } from "../droppable.ts"
 import { IBufferPool, PageId } from "./BufferPool.ts"
 
 type PageEntry = Readonly<{ pageId: PageId; freeSpace: number }>
@@ -96,8 +98,10 @@ export type { HeaderPageRef }
  * See https://cs186berkeley.net/notes/note3/#page-directory-implementation
  * for an overview.
  */
-export class HeapPageFile<AllocInfo extends { freeSpace: number }> {
+export class HeapPageFile<AllocInfo extends { freeSpace: number }>
+  implements IDroppable {
   private _headerPageRef: HeaderPageRef
+  private droppable: Droppable
 
   /**
    * Reference to the heap page file whose header page starts at the given
@@ -113,6 +117,19 @@ export class HeapPageFile<AllocInfo extends { freeSpace: number }> {
     private allocator: PageSpaceAllocator<AllocInfo>,
   ) {
     this._headerPageRef = new HeaderPageRef(bufferPool, pageId)
+    this.droppable = new Droppable(async () => {
+      for await (const current of this.headerPageRefsIter()) {
+        const { entries } = await current.get()
+        await this.bufferPool.freePages([
+          ...entries.map((e) => e.pageId),
+          current.pageId,
+        ])
+      }
+    })
+  }
+
+  async drop() {
+    await this.droppable.drop()
   }
 
   get pageId(): PageId {
@@ -128,6 +145,7 @@ export class HeapPageFile<AllocInfo extends { freeSpace: number }> {
    * head of the list.
    */
   private async pushNewHeaderPageRef(): Promise<HeaderPageRef> {
+    this.droppable.assertNotDropped("HeapPageFile has been dropped")
     const newHeaderPageId = await this.bufferPool.allocatePage()
     await this.bufferPool.writeToPage(newHeaderPageId, (dataView) => {
       headerPageStruct.writeAt(
@@ -143,9 +161,27 @@ export class HeapPageFile<AllocInfo extends { freeSpace: number }> {
     return this._headerPageRef
   }
 
+  /**
+   * Iterate over all the header pages in the linked list.
+   */
+  headerPageRefsIter(): AsyncIterableWrapper<HeaderPageRef> {
+    const head = this._headerPageRef
+    return new AsyncIterableWrapper(async function* () {
+      let current: HeaderPageRef | null = head
+      while (current != null) {
+        // get the next one before yielding in case we are yielding
+        // to something that is deleting the current one.
+        const next = await current.getNext()
+        yield current
+        current = next
+      }
+    })
+  }
+
   async allocateSpace(
     bytes: number,
   ): Promise<{ pageId: PageId; allocInfo: AllocInfo }> {
+    this.droppable.assertNotDropped("HeapPageFile has been dropped")
     let headerPage = await this.headerPageRef.get()
     for (const [i, entry] of headerPage.entries.entries()) {
       if (entry.freeSpace >= bytes) {
