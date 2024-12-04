@@ -10,8 +10,9 @@ import {
 } from "./TableStorage.ts"
 import { ColumnType, ColumnTypes } from "../schema/ColumnType.ts"
 import { DbFile } from "../db/DbFile.ts"
-import { generateTestFilePath } from "../testing.ts"
+import { generateTestFilePath, spyOnBufferPool } from "../testing.ts"
 import { column, computedColumn } from "../schema/ColumnSchema.ts"
+import { pick } from "jsr:@std/collections"
 
 const peopleSchema = TableSchema.create("people")
   .with(column("name", ColumnTypes.any<string>()))
@@ -254,23 +255,27 @@ Deno.test({
   },
 })
 
-Deno.test("HeapFileTableStorage", async (t) => {
-  using tempFile = generateTestFilePath("people.data")
-
+async function useTableResources(
+  filePath: string,
+  { truncate = false } = {},
+) {
   const schema = TableSchema.create("people")
     .with(column("id", "serial"))
     .with(column("firstName", ColumnTypes.string()))
     .with(column("lastName", ColumnTypes.string()))
     .with(column("age", ColumnTypes.uint32()))
     .with(column("likesIceCream", ColumnTypes.boolean()))
-  async function useTableResources(
-    filePath: string,
-    { truncate = false } = {},
-  ) {
-    const dbFile = await DbFile.open(filePath, { create: true, truncate })
-    const table = await dbFile.getOrCreateTable(schema)
-    return { table, dbFile, [Symbol.dispose]: () => dbFile.close() }
+  const dbFile = await DbFile.open(filePath, { create: true, truncate })
+  const table = await dbFile.getOrCreateTable(schema)
+  return {
+    table,
+    dbFile,
+    [Symbol.dispose]: () => dbFile.close(),
   }
+}
+
+Deno.test("HeapFileTableStorage", async (t) => {
+  using tempFile = generateTestFilePath("people.data")
 
   using resources = await useTableResources(tempFile.filePath, {
     truncate: true,
@@ -382,4 +387,80 @@ Deno.test("HeapFileTableStorage", async (t) => {
       )
     })
   }
+})
+
+Deno.test("HeapFileTableStorage - drop", async () => {
+  using tempFile = generateTestFilePath("people.data")
+
+  using r = await useTableResources(tempFile.filePath, {
+    truncate: true,
+  })
+  // TODO: make this not necessary
+  // the DBFileSerialIdGenerator lazily allocates it's own table
+  // which we don't currently delete after dropping a table that used it.
+  // So we'll insert into a previously created table to trigger the creation
+  // so the buffer pool spy starts from the right place.
+  await r.table.insert({
+    firstName: "Alice",
+    lastName: "Jones",
+    age: 25,
+    likesIceCream: true,
+  })
+
+  const bufferPoolSpy = spyOnBufferPool(r.dbFile.bufferPool)
+  const table = await r.dbFile.getOrCreateTable(
+    TableSchema.create("foo").with(column("bar", ColumnTypes.string()).index()),
+  )
+  await table.insertMany(Array.from({ length: 100 }, (_, i) => ({
+    bar: `Person ${i}`,
+  })))
+
+  // before we drop it, let's look at alllll the metadata that was created
+
+  async function dumpTableMetadata(tableName: string) {
+    const tablesRows = await r.dbFile.tableManager.tablesTable.iterate().filter(
+      (row) => row.name == tableName,
+    ).map(async (tableRow) => {
+      const schemas = await r.dbFile.getSchemas(tableRow.db, tableRow.name)
+      return {
+        tableRow,
+        schemas: schemas?.map((schema) =>
+          pick(schema, ["columnRecords", "schemaRecord"])
+        ),
+      }
+    }).toArray()
+    const indexes = await r.dbFile.indexManager.indexesTable.iterate().filter((
+      indexRow,
+    ) => indexRow.indexName.includes(tableName)).toArray()
+    return { tablesRows, indexes }
+  }
+  const beforeMetadata = await dumpTableMetadata("foo")
+  expect(beforeMetadata.indexes).toHaveLength(1)
+  expect(beforeMetadata.tablesRows).toHaveLength(1)
+  expect(beforeMetadata.tablesRows[0].schemas).toHaveLength(1)
+  expect(beforeMetadata.tablesRows[0].schemas![0].columnRecords).toHaveLength(1)
+
+  await table.drop()
+
+  const allocatedPages = await bufferPoolSpy.getAllocatedPages()
+  const freedPageIds = bufferPoolSpy.getFreedPages()
+  expect(freedPageIds).toEqual(allocatedPages)
+
+  // all the metadata got cleaned up too
+  const { schemaTable, columnsTable } = await r.dbFile.getSchemasTable()
+
+  const afterMetadata = await dumpTableMetadata("foo")
+  expect(afterMetadata.indexes).toHaveLength(0)
+  expect(afterMetadata.tablesRows).toHaveLength(0)
+  expect(
+    await schemaTable.iterate().filter((schema) =>
+      schema.tableId == beforeMetadata.tablesRows[0].tableRow.id
+    ).toArray(),
+  ).toHaveLength(0)
+  expect(
+    await columnsTable.iterate().filter((column) =>
+      column.schemaId ==
+        beforeMetadata.tablesRows[0].schemas![0].schemaRecord.id
+    ).toArray(),
+  ).toHaveLength(0)
 })

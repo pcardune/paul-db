@@ -13,6 +13,7 @@ import { Promisable } from "npm:type-fest"
 import { SerialIdGenerator } from "../serial.ts"
 import { SerialUInt32ColumnType } from "../schema/ColumnType.ts"
 import { IndexProvider } from "../indexes/IndexProvider.ts"
+import { Droppable, IDroppable } from "../droppable.ts"
 
 /**
  * A helper type that lets you declare a table type from a given
@@ -42,6 +43,7 @@ export type TableConfig<
   data: StorageT
   indexProvider: IndexProvider<RowIdT>
   serialIdGenerator?: SerialIdGenerator
+  droppable?: IDroppable
 }
 
 export class Table<
@@ -51,17 +53,25 @@ export class Table<
   ComputedColumnSchemasT extends Column.Computed.Any[],
   SchemaT extends TableSchema<TName, ColumnSchemasT, ComputedColumnSchemasT>,
   StorageT extends ITableStorage<RowIdT, StoredRecordForTableSchema<SchemaT>>,
-> {
+> implements IDroppable {
   readonly schema: SchemaT
   readonly data: StorageT
   private serialIdGenerator?: SerialIdGenerator
   private indexProvider: IndexProvider<RowIdT>
+  private droppable: Droppable
 
   constructor(init: TableConfig<RowIdT, SchemaT, StorageT>) {
     this.schema = init.schema
     this.data = init.data
     this.serialIdGenerator = init.serialIdGenerator
     this.indexProvider = init.indexProvider
+    this.droppable = new Droppable(async () => {
+      await init.droppable?.drop()
+    })
+  }
+
+  drop() {
+    return this.droppable.drop()
   }
 
   async insertManyAndReturn(

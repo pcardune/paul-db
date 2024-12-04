@@ -1,3 +1,4 @@
+import { Promisable } from "npm:type-fest"
 /**
  * Collects all items from an async iterable into an array.
  */
@@ -31,12 +32,12 @@ export function filterAsync<T>(
 
 export function mapAsync<T, U>(
   iterable: AsyncIterable<T>,
-  mapper: (item: T) => U,
+  mapper: (item: T) => Promisable<U>,
 ): AsyncIterable<U> {
   return {
     [Symbol.asyncIterator]: async function* () {
       for await (const item of iterable) {
-        yield mapper(item)
+        yield await mapper(item)
       }
     },
   }
@@ -70,7 +71,7 @@ export class AsyncIterableWrapper<T> {
     return new AsyncIterableWrapper(filterAsync(this.iterable, predicate))
   }
 
-  map<U>(mapper: (item: T) => U): AsyncIterableWrapper<U> {
+  map<U>(mapper: (item: T) => Promisable<U>): AsyncIterableWrapper<U> {
     return new AsyncIterableWrapper(mapAsync(this.iterable, mapper))
   }
 }

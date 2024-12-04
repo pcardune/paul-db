@@ -82,6 +82,19 @@ export class HeapFileBackedIndexProvider<
     super()
   }
 
+  override async drop(): Promise<void> {
+    if (this.indexManager) {
+      for (const column of this.indexes.keys()) {
+        await this.indexManager.freeIndexStoragePageId({
+          db: this.db,
+          table: this.schema.name,
+          column,
+        })
+      }
+    }
+    await super.drop()
+  }
+
   async getIndexForColumn(
     name: string,
   ): Promise<Index<unknown, HeapFileRowId, INodeId> | null> {

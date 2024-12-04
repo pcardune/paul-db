@@ -25,6 +25,10 @@ export class IndexManager {
     return record?.heapPageId ?? null
   }
 
+  async freeIndexStoragePageId(id: IndexId) {
+    await this.indexesTable.removeWhere("indexName", indexName(id))
+  }
+
   /**
    * Gets the page id of the index storage page for the given index id,
    * allocating a new page if necessary.

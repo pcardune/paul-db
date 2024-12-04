@@ -17,6 +17,7 @@ import { schemas, SYSTEM_DB } from "./metadataSchemas.ts"
 import { IndexManager } from "./IndexManager.ts"
 import { DBFileSerialIdGenerator } from "../serial.ts"
 import { HeapFileBackedIndexProvider } from "../indexes/IndexProvider.ts"
+import { Droppable } from "../droppable.ts"
 
 export class TableManager {
   private tables = new Map<
@@ -39,12 +40,12 @@ export class TableManager {
     this.tables = new Map()
   }
 
-  async hasTable(db: string, name: string) {
-    const tableRecord = await this.tablesTable.lookupUnique("_db_name", {
-      db,
-      name,
-    })
-    return tableRecord != null
+  getTableRecord(db: string, name: string) {
+    return this.tablesTable.lookupUnique("_db_name", { db, name })
+  }
+
+  async hasTableRecord(db: string, name: string) {
+    return (await this.getTableRecord(db, name)) != null
   }
 
   private async createTableRecord(db: string, name: string) {
@@ -62,7 +63,6 @@ export class TableManager {
   async getTableStorage<SchemaT extends SomeTableSchema>(
     db: string,
     schema: SchemaT,
-    schemaId: number,
   ) {
     const tableRecord = await this.tablesTable.lookupUnique("_db_name", {
       db,
@@ -81,7 +81,48 @@ export class TableManager {
           schema,
           tableRecord.heapPageId,
           this.indexManager,
-          schemaId,
+          new Droppable(async () => {
+            const tableRecord = await this.getTableRecord(db, schema.name)
+            if (tableRecord == null) return
+            const schemaTable = await this.getTable(
+              SYSTEM_DB,
+              schemas.dbSchemas,
+            )
+            const columnsTable = await this.getTable(
+              SYSTEM_DB,
+              schemas.dbTableColumns,
+            )
+            if (schemaTable == null || columnsTable == null) {
+              throw new Error(
+                "Schema tables not found. Perhaps you are trying to drop a system table? That's not allowed",
+              )
+            }
+
+            // delete metadata from schema tables
+            for (
+              const schemaRecord of await schemaTable.scan(
+                "tableId",
+                tableRecord.id,
+              )
+            ) {
+              for (
+                const column of await columnsTable.scan(
+                  "schemaId",
+                  schemaRecord.id,
+                )
+              ) {
+                if (column.indexed && !column.indexInMemory) {
+                  this.indexManager
+                }
+                await columnsTable.removeWhere("id", column.id)
+              }
+              await columnsTable.removeWhere("schemaId", schemaRecord.id)
+              await schemaTable.removeWhere("id", schemaRecord.id)
+            }
+
+            // delete the table record
+            await this.tablesTable.removeWhere("id", tableRecord.id)
+          }),
         ),
         serialIdGenerator: new DBFileSerialIdGenerator(
           this,
@@ -94,13 +135,12 @@ export class TableManager {
   async getOrCreateTableStorage<SchemaT extends SomeTableSchema>(
     db: string,
     schema: SchemaT,
-    schemaId: number,
   ) {
-    let storage = await this.getTableStorage(db, schema, schemaId)
+    let storage = await this.getTableStorage(db, schema)
     let created = false
     if (storage == null) {
       await this.createTableRecord(db, schema.name)
-      storage = (await this.getTableStorage(db, schema, schemaId))!
+      storage = (await this.getTableStorage(db, schema))!
       created = true
     }
     return { ...storage, created }
@@ -111,7 +151,7 @@ export class TableManager {
     schema: SchemaT,
   ) {
     const tableRecord = await this.createTableRecord(db, schema.name)
-    const { storage } = (await this.getTableStorage(db, schema, 0))!
+    const { storage } = (await this.getTableStorage(db, schema))!
     const table = new Table(storage)
     this.tables.set(`${db}.${schema.name}`, table)
 
@@ -144,7 +184,7 @@ export class TableManager {
   ): Promise<HeapFileTableInfer<SchemaT> | null> {
     const existing = this.tables.get(`${db}.${schema.name}`)
     if (existing != null) return existing as HeapFileTableInfer<SchemaT>
-    const storage = await this.getTableStorage(db, schema, 0)
+    const storage = await this.getTableStorage(db, schema)
     if (storage == null) return null
     const table = new Table(storage.storage)
     this.tables.set(`${db}.${schema.name}`, table)
@@ -159,6 +199,15 @@ export class TableManager {
     if (table != null) return table
     return this.createTable(db, schema)
   }
+
+  async dropTable(db: string, name: string) {
+    const table = this.tables.get(`${db}.${name}`)
+    if (table == null) {
+      throw new Error(``)
+    }
+    await table.drop()
+    this.tables.delete(`${db}.${name}`)
+  }
 }
 
 export function getTableConfig<SchemaT extends SomeTableSchema>(
@@ -167,7 +216,7 @@ export function getTableConfig<SchemaT extends SomeTableSchema>(
   schema: SchemaT,
   heapPageId: PageId,
   indexManager?: IndexManager,
-  schemaId: number = 0,
+  droppable?: Droppable,
 ): TableConfig<
   HeapFileRowId,
   SchemaT,
@@ -182,19 +231,26 @@ export function getTableConfig<SchemaT extends SomeTableSchema>(
     bufferPool,
     heapPageId,
     recordStruct,
-    schemaId,
+    /* schemaId = */ 0,
+  )
+
+  const indexProvider = new HeapFileBackedIndexProvider(
+    bufferPool,
+    db,
+    schema,
+    data,
+    indexManager,
   )
 
   return {
     data,
     schema,
-    indexProvider: new HeapFileBackedIndexProvider(
-      bufferPool,
-      db,
-      schema,
-      data,
-      indexManager,
-    ),
+    indexProvider,
+    droppable: new Droppable(async () => {
+      await data.drop()
+      await indexProvider.drop()
+      await droppable?.drop()
+    }),
   }
 }
 

@@ -1,5 +1,6 @@
 import { AsyncIterableWrapper } from "../async.ts"
 import { IStruct, Struct } from "../binary/Struct.ts"
+import { Droppable, IDroppable } from "../droppable.ts"
 import { InMemoryIndexProvider } from "../indexes/IndexProvider.ts"
 import { IBufferPool, PageId } from "../pages/BufferPool.ts"
 import { HeaderPageRef, HeapPageFile } from "../pages/HeapPageFile.ts"
@@ -16,7 +17,7 @@ import {
 import { Table, TableConfig } from "./Table.ts"
 import { Promisable } from "npm:type-fest"
 
-export interface ITableStorage<RowId, RowData> {
+export interface ITableStorage<RowId, RowData> extends IDroppable {
   get(id: RowId): Promisable<RowData | undefined>
   set(id: RowId, data: RowData): Promisable<RowId>
   insert(data: RowData): Promisable<RowId>
@@ -29,6 +30,7 @@ export class JsonFileTableStorage<RowData>
   implements ITableStorage<number, RowData> {
   private dirtyRecords: Map<number, RowData>
   private deletedRecords: Set<number>
+  private droppable: Droppable
 
   private _data: Record<number, RowData> | null = null
 
@@ -52,6 +54,13 @@ export class JsonFileTableStorage<RowData>
   constructor(private filename: string) {
     this.dirtyRecords = new Map()
     this.deletedRecords = new Set()
+    this.droppable = new Droppable(async () => {
+      await Deno.remove(this.filename)
+    })
+  }
+
+  drop() {
+    return this.droppable.drop()
   }
 
   static forSchema<
@@ -79,29 +88,34 @@ export class JsonFileTableStorage<RowData>
   }
 
   get(id: number): RowData | undefined {
+    this.droppable.assertNotDropped("TableStorage has been dropped")
     if (this.deletedRecords.has(id)) {
       return
     }
     return this.data[id]
   }
   set(id: number, data: RowData): number {
+    this.droppable.assertNotDropped("TableStorage has been dropped")
     this.dirtyRecords.set(id, data)
     this.deletedRecords.delete(id)
     return id
   }
 
   insert(data: RowData): number {
+    this.droppable.assertNotDropped("TableStorage has been dropped")
     const id = Math.max(...Object.keys(this.data).map(Number), 0) + 1
     this.set(id, data)
     return id
   }
 
   remove(id: number): void {
+    this.droppable.assertNotDropped("TableStorage has been dropped")
     this.dirtyRecords.delete(id)
     this.deletedRecords.add(id)
   }
 
   async commit(): Promise<void> {
+    this.droppable.assertNotDropped("TableStorage has been dropped")
     for (const [id, data] of this.dirtyRecords) {
       this.data[id] = data
     }
@@ -113,6 +127,7 @@ export class JsonFileTableStorage<RowData>
   }
 
   iterate(): AsyncIterableWrapper<[number, RowData]> {
+    this.droppable.assertNotDropped("TableStorage has been dropped")
     const rows = this.data
     return new AsyncIterableWrapper(async function* iter() {
       for (const [id, data] of Object.entries(rows)) {
@@ -126,6 +141,7 @@ export class InMemoryTableStorage<RowId, RowData>
   implements ITableStorage<RowId, RowData> {
   private dirtyRecords: Map<RowId, RowData>
   private deletedRecords: Set<RowId>
+  private droppable: Droppable
 
   constructor(
     private getNextRowId: () => RowId,
@@ -133,9 +149,17 @@ export class InMemoryTableStorage<RowId, RowData>
   ) {
     this.dirtyRecords = new Map()
     this.deletedRecords = new Set()
+    this.droppable = new Droppable(() => {
+      this.data.clear()
+    })
+  }
+
+  drop() {
+    return this.droppable.drop()
   }
 
   iterate(): AsyncIterableWrapper<[RowId, RowData]> {
+    this.droppable.assertNotDropped("TableStorage has been dropped")
     const rows = this.data
     return new AsyncIterableWrapper(async function* iter() {
       for (const [id, data] of rows.entries()) {
@@ -168,6 +192,7 @@ export class InMemoryTableStorage<RowId, RowData>
   }
 
   get(id: RowId): RowData | undefined {
+    this.droppable.assertNotDropped("TableStorage has been dropped")
     if (this.deletedRecords.has(id)) {
       return
     }
@@ -175,23 +200,27 @@ export class InMemoryTableStorage<RowId, RowData>
   }
 
   set(id: RowId, data: RowData): RowId {
+    this.droppable.assertNotDropped("TableStorage has been dropped")
     this.dirtyRecords.set(id, data)
     this.deletedRecords.delete(id)
     return id
   }
 
   insert(data: RowData): RowId {
+    this.droppable.assertNotDropped("TableStorage has been dropped")
     const id = this.getNextRowId()
     this.set(id, data)
     return id
   }
 
   remove(id: RowId): void {
+    this.droppable.assertNotDropped("TableStorage has been dropped")
     this.dirtyRecords.delete(id)
     this.deletedRecords.add(id)
   }
 
   commit(): void {
+    this.droppable.assertNotDropped("TableStorage has been dropped")
     for (const [id, data] of this.dirtyRecords) {
       this.data.set(id, data)
     }
@@ -221,6 +250,7 @@ export class HeapFileTableStorage<RowData>
   entryStruct: IStruct<HeapFileEntry<RowData>>
 
   private heapPageFile: HeapPageFile<VariableLengthRecordPageAllocInfo>
+  private droppable: Droppable
 
   constructor(
     readonly bufferPool: IBufferPool,
@@ -237,9 +267,17 @@ export class HeapFileTableStorage<RowData>
       pageId,
       ReadonlyVariableLengthRecordPage.allocator,
     )
+    this.droppable = new Droppable(async () => {
+      await this.heapPageFile.drop()
+    })
+  }
+
+  drop() {
+    return this.droppable.drop()
   }
 
   iterate(): AsyncIterableWrapper<[HeapFileRowId, RowData]> {
+    this.droppable.assertNotDropped("TableStorage has been dropped")
     const heapPageFile = this.heapPageFile
     const bufferPool = this.bufferPool
     const getRecord = this.get.bind(this)
@@ -302,6 +340,7 @@ export class HeapFileTableStorage<RowData>
   }
 
   async get(id: HeapFileRowId): Promise<RowData | undefined> {
+    this.droppable.assertNotDropped("TableStorage has been dropped")
     const terminal = await this.getTerminalEntry(id)
     return terminal.entry?.rowData
   }
@@ -310,6 +349,7 @@ export class HeapFileTableStorage<RowData>
     initialId: HeapFileRowId,
     data: RowData,
   ): Promise<HeapFileRowId> {
+    this.droppable.assertNotDropped("TableStorage has been dropped")
     const terminal = await this.getTerminalEntry(initialId)
     if (terminal.entry == null) {
       throw new Error("Cannot set a deleted record")
@@ -353,6 +393,7 @@ export class HeapFileTableStorage<RowData>
   }
 
   async insert(data: RowData): Promise<HeapFileRowId> {
+    this.droppable.assertNotDropped("TableStorage has been dropped")
     const entry = {
       header: {
         forward: false,
@@ -377,6 +418,7 @@ export class HeapFileTableStorage<RowData>
   }
 
   async remove(id: HeapFileRowId): Promise<void> {
+    this.droppable.assertNotDropped("TableStorage has been dropped")
     const terminal = await this.getTerminalEntry(id)
     for (const { id, entry } of terminal.path) {
       if (entry == null) {
@@ -390,6 +432,7 @@ export class HeapFileTableStorage<RowData>
   }
 
   async commit(): Promise<void> {
+    this.droppable.assertNotDropped("TableStorage has been dropped")
     await this.bufferPool.commit()
   }
 }
