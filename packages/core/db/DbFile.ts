@@ -1,31 +1,15 @@
 import { Struct } from "../binary/Struct.ts"
 import { readBytesAt, writeBytesAt } from "../io.ts"
-import {
-  FileBackedBufferPool,
-  IBufferPool,
-  PageId,
-} from "../pages/BufferPool.ts"
+import { FileBackedBufferPool, PageId } from "../pages/BufferPool.ts"
 import { getColumnTypeFromString } from "../schema/ColumnType.ts"
-import {
-  makeTableSchemaStruct,
-  SomeTableSchema,
-  StoredRecordForTableSchema,
-  TableSchema,
-} from "../schema/schema.ts"
-import { Table, TableConfig } from "../tables/Table.ts"
-import {
-  HeapFileRowId,
-  HeapFileTableInfer,
-  HeapFileTableStorage,
-} from "../tables/TableStorage.ts"
+import { SomeTableSchema, TableSchema } from "../schema/schema.ts"
+import { Table } from "../tables/Table.ts"
+import { HeapFileTableInfer } from "../tables/TableStorage.ts"
 import { ReadonlyDataView } from "../binary/dataview.ts"
 import { debugLog } from "../logging.ts"
-import { DBFileSerialIdGenerator } from "../serial.ts"
-import { schemas } from "./metadataSchemas.ts"
+import { schemas, SYSTEM_DB } from "./metadataSchemas.ts"
 import { IndexManager } from "./IndexManager.ts"
-import { HeapFileBackedIndexProvider } from "../indexes/IndexProvider.ts"
-
-const SYSTEM_DB = "system"
+import { getTableConfig, TableManager } from "./TableManager.ts"
 
 const headerStruct = Struct.record({
   pageSize: [0, Struct.uint32],
@@ -38,187 +22,34 @@ export class DbFile {
     readonly bufferPool: FileBackedBufferPool,
     readonly dbPageIdsTable: HeapFileTableInfer<typeof schemas.dbPageIds>,
     readonly indexManager: IndexManager,
-    readonly tablesTable: HeapFileTableInfer<typeof schemas.dbTables>,
+    readonly tableManager: TableManager,
   ) {}
 
-  /**
-   * Gets table storage, while lazily creating the table if it doesn't exist.
-   * Note: ths does not store the schema metadata.
-   */
-  private async _getTableStorage<SchemaT extends SomeTableSchema>(
-    schema: SchemaT,
-    db: string,
-    schemaId: number,
-  ) {
-    let tableRecord = await this.tablesTable.lookupUnique("_db_name", {
-      db,
-      name: schema.name,
-    })
-    let created = false
-    if (tableRecord == null) {
-      const pageId = await this.bufferPool.allocatePage()
-      await this.bufferPool.commit()
-      tableRecord = await this.tablesTable.insertAndReturn({
-        id: `${db}.${schema.name}`,
-        name: schema.name,
-        heapPageId: pageId,
-        db,
-      })
-      created = true
-    }
-
-    if (makeTableSchemaStruct(schema) == null) {
-      throw new Error("Schema is not serializable")
-    }
-
-    return {
-      tableRecord,
-      created,
-      storage: {
-        ...getTableConfig(
-          this.bufferPool,
-          db,
-          schema,
-          tableRecord.heapPageId,
-          this.indexManager,
-          schemaId,
-        ),
-        serialIdGenerator: new DBFileSerialIdGenerator(
-          this,
-          `${db}.${schema.name}`,
-        ),
-      },
-    }
-  }
-
-  private async writeSchemaMetadata<SchemaT extends SomeTableSchema>(
-    db: string,
-    schema: SchemaT,
-    schemaTable: HeapFileTableInfer<typeof schemas.dbSchemas>,
-    columnsTable: HeapFileTableInfer<typeof schemas.dbTableColumns>,
-  ) {
-    const table = await this.tablesTable.lookupUnique("_db_name", {
-      db,
-      name: schema.name,
-    })
-    if (table == null) {
-      console.debug(
-        "table records are",
-        await this.tablesTable.iterate().toArray(),
-      )
-      throw new Error(`Table ${schema.name} not found`)
-    }
-    const existingIds = await schemaTable.iterate().map((s) => s.id).toArray()
-    const schemaRecord = await schemaTable.insertAndReturn({
-      // TODO: make id generation sane, but can't use serial,
-      // because serial depends on this!
-      id: existingIds.length === 0 ? 0 : Math.max(...existingIds) + 1,
-      tableId: table.id,
-      version: 0,
-    })
-    const records = getColumnRecordsForSchema(schema)
-    await columnsTable.insertMany(records.map((record) => ({
-      ...record,
-      schemaId: schemaRecord.id,
-    })))
-  }
-
   async getSchemasTable() {
-    const schemaTableStorage = await this._getTableStorage(
+    let schemaTable = await this.tableManager.getTable(
+      SYSTEM_DB,
       schemas.dbSchemas,
-      SYSTEM_DB,
-      0,
     )
-    const schemaTable = new Table(schemaTableStorage.storage)
-    const columnsTableStorage = await this._getTableStorage(
+    let columnsTable = await this.tableManager.getTable(
+      SYSTEM_DB,
       schemas.dbTableColumns,
-      SYSTEM_DB,
-      0,
     )
-    const columnsTable = new Table(columnsTableStorage.storage)
-    if (schemaTableStorage.created) {
-      await this.writeSchemaMetadata(
+    if (schemaTable == null || columnsTable == null) {
+      schemaTable = await this.tableManager.createTable(
         SYSTEM_DB,
         schemas.dbSchemas,
-        schemaTable,
-        columnsTable,
       )
-      await this.writeSchemaMetadata(
+      columnsTable = await this.tableManager.createTable(
         SYSTEM_DB,
         schemas.dbTableColumns,
-        schemaTable,
-        columnsTable,
       )
     }
     return { schemaTable, columnsTable }
   }
 
-  private async getTableStorage<SchemaT extends SomeTableSchema>(
-    db: string,
-    schema: SchemaT,
-  ) {
-    const { created, storage } = await this._getTableStorage(
-      schema,
-      db,
-      0,
-    )
-    if (created) {
-      // table was just created, lets add the schema metadata as well
-      const schemaTables = await this.getSchemasTable()
-      await this.writeSchemaMetadata(
-        db,
-        schema,
-        schemaTables.schemaTable,
-        schemaTables.columnsTable,
-      )
-    } else {
-      const existingSchemas = await this.getSchemasOrThrow(db, schema.name)
-      if (existingSchemas.length === 0) {
-        throw new Error(`No schema found for ${db}.${schema.name}`)
-      }
-      const existingColumns = existingSchemas[0].columnRecords
-      const newColumns = getColumnRecordsForSchema(schema)
-      for (const [i, existingColumn] of existingColumns.entries()) {
-        const column = newColumns[i]
-        if (column == null) {
-          throw new Error("Column mismatch")
-        }
-        if (column.name !== existingColumn.name) {
-          throw new Error(
-            `Column name mismatch: ${column.name} !== ${existingColumn.name}`,
-          )
-        }
-        if (column.type !== existingColumn.type) {
-          throw new Error(
-            `Column type mismatch: ${column.type} !== ${existingColumn.type}`,
-          )
-        }
-        if (column.unique !== existingColumn.unique) {
-          throw new Error(
-            `Column isUnique mismatch: ${column.unique} !== ${existingColumn.unique}`,
-          )
-        }
-        if (column.indexed !== existingColumn.indexed) {
-          throw new Error(
-            `Column indexed mismatch: ${column.indexed} !== ${existingColumn.indexed}`,
-          )
-        }
-      }
-      if (newColumns.length > existingColumns.length) {
-        throw new Error(
-          `Column length mismatch. Found new column(s) ${
-            newColumns.slice(existingColumns.length).map((c) => `"${c.name}"`)
-              .join(", ")
-          }`,
-        )
-      }
-    }
-    return storage
-  }
-
   async *export(filter: { db?: string; table?: string } = {}) {
     debugLog("DbFile.export()")
-    const tables = await this.tablesTable.iterate().toArray()
+    const tables = await this.tableManager.tablesTable.iterate().toArray()
     for (const tableRecord of tables) {
       if (filter.db && tableRecord.db !== filter.db) {
         continue
@@ -235,12 +66,17 @@ export class DbFile {
         console.warn("No schema found for", tableRecord)
         continue
       }
-      const storage = await this.getTableStorage(
+      const table = await this.tableManager.getTable(
         tableRecord.db,
         schemas[0].schema,
       )
-      for await (const [_rowId, record] of storage.data.iterate()) {
-        const json = storage.data.recordStruct.toJSON(record)
+      if (table == null) {
+        throw new Error(
+          `Table ${tableRecord.db}.${schemas[0].schema.name} not found`,
+        )
+      }
+      for await (const [_rowId, record] of table.data.iterate()) {
+        const json = table.data.recordStruct.toJSON(record)
         yield { table: tableRecord.name, db: tableRecord.db, record: json }
       }
     }
@@ -349,15 +185,16 @@ export class DbFile {
         await getOrCreatePageIdForPageType("tablesTable"),
       ),
     )
+    const indexManager = new IndexManager(dbIndexesTable)
     const dbFile = new DbFile(
       file,
       bufferPool,
       dbPageIdsTable,
-      new IndexManager(dbIndexesTable),
-      dbTablesTable,
+      indexManager,
+      new TableManager(bufferPool, dbTablesTable, indexManager),
     )
     if (needsCreation) {
-      await dbFile.tablesTable.insertMany([
+      await dbTablesTable.insertMany([
         {
           id: `${SYSTEM_DB}.__dbPageIds`,
           db: SYSTEM_DB,
@@ -379,12 +216,11 @@ export class DbFile {
     this.close()
   }
 
-  async getOrCreateTable<SchemaT extends SomeTableSchema>(
+  getOrCreateTable<SchemaT extends SomeTableSchema>(
     schema: SchemaT,
     { db = "default" }: { db?: string } = {},
   ) {
-    const storage = await this.getTableStorage(db, schema)
-    return new Table(storage)
+    return this.tableManager.getOrCreateTable(db, schema)
   }
 
   async getSchemasOrThrow(db: string, tableName: string) {
@@ -396,10 +232,13 @@ export class DbFile {
   }
 
   async getSchemas(db: string, tableName: string) {
-    const tableRecord = await this.tablesTable.lookupUnique("_db_name", {
-      db,
-      name: tableName,
-    })
+    const tableRecord = await this.tableManager.tablesTable.lookupUnique(
+      "_db_name",
+      {
+        db,
+        name: tableName,
+      },
+    )
     if (tableRecord == null) {
       return null
     }
@@ -435,56 +274,5 @@ export class DbFile {
 
       return { schema, columnRecords, schemaRecord }
     }))
-  }
-}
-
-function getColumnRecordsForSchema<SchemaT extends SomeTableSchema>(
-  schema: SchemaT,
-) {
-  return schema.columns.map((column, i) => ({
-    name: column.name,
-    unique: column.isUnique,
-    indexed: column.indexed.shouldIndex,
-    indexInMemory: column.indexed.shouldIndex && column.indexed.inMemory,
-    computed: false,
-    type: column.type.name,
-    order: i,
-  }))
-}
-
-function getTableConfig<SchemaT extends SomeTableSchema>(
-  bufferPool: IBufferPool,
-  db: string,
-  schema: SchemaT,
-  heapPageId: PageId,
-  indexManager?: IndexManager,
-  schemaId: number = 0,
-): TableConfig<
-  HeapFileRowId,
-  SchemaT,
-  HeapFileTableStorage<StoredRecordForTableSchema<SchemaT>>
-> {
-  const recordStruct = makeTableSchemaStruct(schema)
-  if (recordStruct == null) {
-    throw new Error("Schema is not serializable")
-  }
-
-  const data = new HeapFileTableStorage<StoredRecordForTableSchema<SchemaT>>(
-    bufferPool,
-    heapPageId,
-    recordStruct,
-    schemaId,
-  )
-
-  return {
-    data,
-    schema,
-    indexProvider: new HeapFileBackedIndexProvider(
-      bufferPool,
-      db,
-      schema,
-      data,
-      indexManager,
-    ),
   }
 }

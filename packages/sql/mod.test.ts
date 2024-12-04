@@ -16,7 +16,7 @@ Deno.test("CREATE TABLE", async (t) => {
   await t.step("CREATE TABLE test", async () => {
     using e = await getExecutor()
     await e.sql.execute("CREATE TABLE test")
-    const tables = await e.dbFile.tablesTable.scan("name", "test")
+    const tables = await e.dbFile.tableManager.tablesTable.scan("name", "test")
     expect(tables).toHaveLength(1)
     expect(tables[0].db).toEqual("default")
   })
@@ -26,7 +26,10 @@ Deno.test("CREATE TABLE", async (t) => {
     async () => {
       using e = await getExecutor()
       await e.sql.execute("CREATE TABLE points (x float, y float, color TEXT)")
-      const tables = await e.dbFile.tablesTable.scan("name", "points")
+      const tables = await e.dbFile.tableManager.tablesTable.scan(
+        "name",
+        "points",
+      )
       expect(tables).toHaveLength(1)
       expect(tables[0].db).toEqual("default")
 

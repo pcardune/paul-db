@@ -1,10 +1,10 @@
 import { Promisable } from "npm:type-fest"
-import { DbFile } from "./db/DbFile.ts"
 import { StoredRecordForTableSchema, TableSchema } from "./schema/schema.ts"
 import { ColumnTypes } from "./schema/ColumnType.ts"
 import { column } from "./schema/ColumnSchema.ts"
 import { Mutex } from "./async.ts"
 import { HeapFileRowId } from "./tables/TableStorage.ts"
+import { TableManager } from "./db/TableManager.ts"
 
 export interface SerialIdGenerator {
   next(columnName: string): Promisable<number>
@@ -16,7 +16,10 @@ const dbSequenceTableSchema = TableSchema.create("__dbSequences")
 
 export class DBFileSerialIdGenerator implements SerialIdGenerator {
   private locks = new Map<string, Mutex>()
-  constructor(private dbFile: DbFile, private sequencePrefix: string) {
+  constructor(
+    private tableManager: TableManager,
+    private sequencePrefix: string,
+  ) {
   }
 
   private async acquireLock(columnName: string) {
@@ -38,9 +41,9 @@ export class DBFileSerialIdGenerator implements SerialIdGenerator {
   >()
 
   async next(columnName: string): Promise<number> {
-    const sequenceTable = await this.dbFile.getOrCreateTable(
+    const sequenceTable = await this.tableManager.getOrCreateTable(
+      "system",
       dbSequenceTableSchema,
-      { db: "system" },
     )
 
     const cached = this._cache.get(columnName)

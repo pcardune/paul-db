@@ -6,6 +6,8 @@ import { TableSchema } from "../schema/schema.ts"
 const ulidIdColumn = column("id", ColumnTypes.string())
   .unique({ inMemory: true }).defaultTo(() => ulid())
 
+export const SYSTEM_DB = "system"
+
 export const schemas = {
   dbPageIds: TableSchema.create("__dbPageIds")
     .with(column("pageType", ColumnTypes.string()).unique({ inMemory: true }))
