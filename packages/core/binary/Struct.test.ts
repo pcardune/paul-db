@@ -88,6 +88,34 @@ describe("FixedWidthStruct", () => {
       ])
     })
   })
+
+  describe(".nullable()", () => {
+    const nullablePointStruct = pointStruct.nullable()
+    it("Takes up one more byte of space", () => {
+      expect(nullablePointStruct.size).toBe(pointStruct.size + 1)
+    })
+    it("Creates a struct that can be null", () => {
+      const view = new WriteableDataView(
+        new ArrayBuffer(nullablePointStruct.size),
+      )
+      nullablePointStruct.writeAt(null, view, 0)
+      expect(nullablePointStruct.readAt(view, 0)).toBe(null)
+
+      nullablePointStruct.writeAt({ x: 1, y: 2 }, view, 0)
+      expect(nullablePointStruct.readAt(view, 0)).toEqual({ x: 1, y: 2 })
+    })
+    it("serializes to JSON correctly", () => {
+      expect(nullablePointStruct.toJSON(null)).toBe(null)
+      expect(nullablePointStruct.toJSON({ x: 1, y: 2 })).toEqual({ x: 1, y: 2 })
+    })
+    it("deserializes from JSON correctly", () => {
+      expect(nullablePointStruct.fromJSON(null)).toBe(null)
+      expect(nullablePointStruct.fromJSON({ x: 1, y: 2 })).toEqual({
+        x: 1,
+        y: 2,
+      })
+    })
+  })
 })
 
 describe("VariableWidthStruct", () => {
@@ -163,6 +191,40 @@ describe("VariableWidthStruct", () => {
         [{ x: 1, y: 2 }, { x: 3, y: 4 }],
         [{ x: 5, y: 6 }, { x: 7, y: 8 }, { x: 9, y: 10 }],
       ])
+    })
+  })
+
+  describe(".nullable()", () => {
+    const nullablePointListStruct = pointListStruct.nullable()
+    it("Takes up 5 additional byte", () => {
+      expect(nullablePointListStruct.sizeof([{ x: 1, y: 2 }])).toBe(
+        1 + 4 + pointListStruct.sizeof([{ x: 1, y: 2 }]),
+      )
+      expect(nullablePointListStruct.sizeof(null)).toBe(5)
+    })
+    it("Creates a struct that can be null", () => {
+      const view = new WriteableDataView(
+        new ArrayBuffer(nullablePointListStruct.sizeof(null)),
+      )
+      nullablePointListStruct.writeAt(null, view, 0)
+      expect(nullablePointListStruct.readAt(view, 0)).toBe(null)
+
+      const points = [{ x: 1, y: 2 }, { x: 3, y: 4 }]
+      const nonNullView = new WriteableDataView(
+        new ArrayBuffer(nullablePointListStruct.sizeof(points)),
+      )
+      nullablePointListStruct.writeAt(points, nonNullView, 0)
+      expect(nullablePointListStruct.readAt(nonNullView, 0)).toEqual(points)
+    })
+    it("serializes to JSON correctly", () => {
+      expect(nullablePointListStruct.toJSON(null)).toBe(null)
+      expect(nullablePointListStruct.toJSON([{ x: 1, y: 2 }, { x: 3, y: 4 }]))
+        .toEqual([{ x: 1, y: 2 }, { x: 3, y: 4 }])
+    })
+    it("deserializes from JSON correctly", () => {
+      expect(nullablePointListStruct.fromJSON(null)).toBe(null)
+      expect(nullablePointListStruct.fromJSON([{ x: 1, y: 2 }, { x: 3, y: 4 }]))
+        .toEqual([{ x: 1, y: 2 }, { x: 3, y: 4 }])
     })
   })
 })

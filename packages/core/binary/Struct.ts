@@ -6,6 +6,7 @@ export abstract class IStruct<ValueT> {
   abstract readAt(view: ReadonlyDataView, offset: number): ValueT
   abstract writeAt(value: ValueT, view: WriteableDataView, offset: number): void
   abstract array(): IStruct<ValueT[]>
+  abstract nullable(): IStruct<ValueT | null>
   abstract wrap<Target>(
     toValue: (value: Target) => ValueT,
     toTarget: (value: ValueT) => Target,
@@ -102,6 +103,29 @@ export class VariableWidthStruct<ValueT> extends IStruct<ValueT> {
       )
     }
     this.write(value, view.slice(offset + 4, size))
+  }
+
+  nullable(): VariableWidthStruct<ValueT | null> {
+    return new VariableWidthStruct<ValueT | null>({
+      sizeof: (value) => 1 + (value === null ? 0 : this.sizeof(value)),
+      emptyValue: () => null,
+      toJSON: (value) => value === null ? null : this.toJSON(value),
+      fromJSON: (json) => json === null ? null : this.fromJSON(json),
+      read: (view) => {
+        if (view.getUint8(0) === 0) {
+          return null
+        }
+        return this.readAt(view, 1)
+      },
+      write: (value, view) => {
+        if (value === null) {
+          view.setUint8(0, 0)
+        } else {
+          view.setUint8(0, 1)
+          this.writeAt(value, view, 1)
+        }
+      },
+    })
   }
 
   array(): VariableWidthStruct<ValueT[]> {
@@ -218,6 +242,28 @@ export class FixedWidthStruct<ValueT> extends IStruct<ValueT> {
       throw new Error("Writing past the end of the view")
     }
     this.write(value, view.slice(offset, this.size))
+  }
+
+  nullable(): FixedWidthStruct<ValueT | null> {
+    return new FixedWidthStruct<ValueT | null>({
+      size: this.size + 1,
+      toJSON: (value) => value === null ? null : this.toJSON(value),
+      fromJSON: (json) => json === null ? null : this.fromJSON(json),
+      read: (view) => {
+        if (view.getUint8(0) === 0) {
+          return null
+        }
+        return this.readAt(view, 1)
+      },
+      write: (value, view) => {
+        if (value === null) {
+          view.setUint8(0, 0)
+        } else {
+          view.setUint8(0, 1)
+          this.writeAt(value, view, 1)
+        }
+      },
+    })
   }
 
   array(): VariableWidthStruct<ValueT[]> {
