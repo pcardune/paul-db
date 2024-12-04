@@ -70,28 +70,17 @@ export class DbFile {
     if (makeTableSchemaStruct(schema) == null) {
       throw new Error("Schema is not serializable")
     }
-    const indexPageIds: Record<string, PageId> = {}
-
-    for (const column of [...schema.columns, ...schema.computedColumns]) {
-      if (column.indexed.shouldIndex && !column.indexed.inMemory) {
-        indexPageIds[column.name] = await this.indexManager
-          .getOrAllocateIndexStoragePageId({
-            db,
-            table: schema.name,
-            column: column.name,
-          })
-      }
-    }
 
     return {
       tableRecord,
       created,
       storage: {
-        ...await getTableConfig(
+        ...getTableConfig(
           this.bufferPool,
+          db,
           schema,
           tableRecord.heapPageId,
-          indexPageIds,
+          this.indexManager,
           schemaId,
         ),
         serialIdGenerator: new DBFileSerialIdGenerator(
@@ -327,8 +316,9 @@ export class DbFile {
     }
 
     const dbPageIdsTable = new Table(
-      await getTableConfig(
+      getTableConfig(
         bufferPool,
+        SYSTEM_DB,
         schemas.dbPageIds,
         headerPageId,
       ),
@@ -344,15 +334,17 @@ export class DbFile {
       return pageId
     }
     const dbIndexesTable = new Table(
-      await getTableConfig(
+      getTableConfig(
         bufferPool,
+        SYSTEM_DB,
         schemas.dbIndexes,
         await getOrCreatePageIdForPageType("indexesTable"),
       ),
     )
     const dbTablesTable = new Table(
-      await getTableConfig(
+      getTableConfig(
         bufferPool,
+        SYSTEM_DB,
         schemas.dbTables,
         await getOrCreatePageIdForPageType("tablesTable"),
       ),
@@ -462,9 +454,10 @@ function getColumnRecordsForSchema<SchemaT extends SomeTableSchema>(
 
 function getTableConfig<SchemaT extends SomeTableSchema>(
   bufferPool: IBufferPool,
+  db: string,
   schema: SchemaT,
   heapPageId: PageId,
-  indexPageIds: Record<string, PageId> = {},
+  indexManager?: IndexManager,
   schemaId: number = 0,
 ): TableConfig<
   HeapFileRowId,
@@ -488,9 +481,10 @@ function getTableConfig<SchemaT extends SomeTableSchema>(
     schema,
     indexProvider: new HeapFileBackedIndexProvider(
       bufferPool,
+      db,
       schema,
       data,
-      indexPageIds,
+      indexManager,
     ),
   }
 }

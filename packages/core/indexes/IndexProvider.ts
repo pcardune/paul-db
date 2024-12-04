@@ -10,8 +10,9 @@ import {
   heapFileRowIdStruct,
   HeapFileTableStorage,
 } from "../tables/TableStorage.ts"
-import { IBufferPool, PageId } from "../pages/BufferPool.ts"
+import { IBufferPool } from "../pages/BufferPool.ts"
 import { Droppable, IDroppable } from "../droppable.ts"
+import { IndexManager } from "../db/IndexManager.ts"
 
 export interface IndexProvider<RowIdT> extends IDroppable {
   getIndexForColumn(
@@ -71,11 +72,12 @@ export class HeapFileBackedIndexProvider<
   implements IndexProvider<HeapFileRowId> {
   constructor(
     private bufferPool: IBufferPool,
+    private db: string,
     private schema: SchemaT,
     private tableData: HeapFileTableStorage<
       StoredRecordForTableSchema<SchemaT>
     >,
-    private indexPageIds: Record<string, PageId>,
+    private indexManager?: IndexManager,
   ) {
     super()
   }
@@ -117,12 +119,19 @@ export class HeapFileBackedIndexProvider<
     if (!column.type.serializer) {
       throw new Error("Type must have a serializer")
     }
-    const pageId = this.indexPageIds[column.name]
-    if (pageId == null) {
+
+    if (!this.indexManager) {
       throw new Error(
-        `No page ID for "${column.name}" index in "${this.schema.name}"`,
+        "No index manager was provided. maybe we're bootstrapping?",
       )
     }
+
+    const pageId = await this.indexManager.getOrAllocateIndexStoragePageId({
+      db: this.db,
+      table: this.schema.name,
+      column: column.name,
+    })
+
     const index = await Index.inFile(
       this.bufferPool,
       pageId,

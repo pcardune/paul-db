@@ -102,7 +102,7 @@ Deno.test("DbFile.createTable()", async () => {
     .with(s.column("id", ColumnTypes.uint32()).unique())
     .with(s.column("name", ColumnTypes.string()))
 
-  await db.getOrCreateTable(usersSchema)
+  const table = await db.getOrCreateTable(usersSchema)
 
   expect(
     await db.indexManager.getIndexStoragePageId({
@@ -110,7 +110,18 @@ Deno.test("DbFile.createTable()", async () => {
       table: "users",
       column: "id",
     }),
-    "An index page should have been allocated for the unique column",
+    "An index page won't be allocated until something is inserted",
+  ).toBeNull()
+
+  await table.insert({ id: 1, name: "Mr. Blue" })
+
+  expect(
+    await db.indexManager.getIndexStoragePageId({
+      db: "default",
+      table: "users",
+      column: "id",
+    }),
+    "An index page won't be allocated until something is inserted",
   ).not.toBeNull()
 })
 
