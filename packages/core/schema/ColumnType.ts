@@ -204,6 +204,22 @@ export class ColumnType<T> {
     this.compare = compare
     this.serializer = serializer
   }
+
+  nullable(): ColumnType<T | null> {
+    return new ColumnType<T | null>({
+      name: this.name + "?",
+      isValid: (value) => value === null || this.isValid(value),
+      equals: (a, b) =>
+        a === b || (a !== null && b !== null && this.isEqual(a, b)),
+      compare: (a, b) => {
+        if (a === b) return 0
+        if (a === null) return -1
+        if (b === null) return 1
+        return this.compare(a, b)
+      },
+      serializer: this.serializer?.nullable(),
+    })
+  }
 }
 
 export class SerialUInt32ColumnType extends ColumnType<number> {

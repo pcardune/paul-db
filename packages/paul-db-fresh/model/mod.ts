@@ -6,7 +6,18 @@ const todoSchema = TableSchema.create("todos")
     column("id", ColumnTypes.uuid())
       .unique()
       .defaultTo(() => crypto.randomUUID()),
-  ).with(column("title", ColumnTypes.string()))
+  )
+  .with(
+    column("title", ColumnTypes.string()),
+  )
+  .with(
+    column("createdAt", ColumnTypes.timestamp())
+      .defaultTo(() => new Date()),
+  )
+  .with(
+    column("completedAt", ColumnTypes.timestamp().nullable())
+      .defaultTo(() => null),
+  )
 
 export type Model = {
   todos: HeapFileTableInfer<typeof todoSchema>

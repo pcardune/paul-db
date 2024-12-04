@@ -194,6 +194,33 @@ export class Table<
     return newRowId
   }
 
+  async updateWhere<
+    IName extends FilterTuple<
+      SchemaT["columns"],
+      { indexed: CIndex.Config }
+    >["name"],
+    ValueT extends Column.GetValue<
+      FilterTuple<SchemaT["columns"], { name: IName }>
+    >,
+  >(
+    indexName: IName,
+    value: ValueT,
+    updatedValue: Partial<StoredRecordForTableSchema<SchemaT>>,
+  ): Promise<void> {
+    const index = await this.indexProvider.getIndexForColumn(indexName)
+    if (!index) {
+      throw new Error(`Index ${indexName} does not exist`)
+    }
+    const ids = await this.lookupInIndex(indexName, value)
+    for (const id of ids) {
+      const data = await this.get(id)
+      if (!data) {
+        throw new Error(`Record not found for id ${id}`)
+      }
+      await this.set(id, { ...data, ...updatedValue })
+    }
+  }
+
   async removeWhere<
     IName extends FilterTuple<
       SchemaT["columns"],
