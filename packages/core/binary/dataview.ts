@@ -13,6 +13,14 @@ export class ReadonlyDataView {
     return this.view.byteLength
   }
 
+  toUint8Array(): Uint8Array {
+    return new Uint8Array(
+      this.view.buffer,
+      this.view.byteOffset,
+      this.view.byteLength,
+    )
+  }
+
   slice(offset: number, length: number): ReadonlyDataView {
     return new ReadonlyDataView(
       this.view.buffer,
@@ -118,5 +126,10 @@ export class WriteableDataView extends ReadonlyDataView {
 
   fill(value: number, start?: number, end?: number): void {
     new Uint8Array(this.view.buffer).fill(value, start, end)
+  }
+
+  setUint8Array(byteOffset: number, value: Uint8Array): void {
+    new Uint8Array(this.view.buffer, this.view.byteOffset, this.view.byteLength)
+      .set(value, byteOffset)
   }
 }

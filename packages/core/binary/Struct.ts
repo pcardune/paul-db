@@ -1,5 +1,7 @@
 import { Json, JsonRecord } from "../types.ts"
 import { ReadonlyDataView, WriteableDataView } from "./dataview.ts"
+import { copy } from "jsr:@std/bytes/copy"
+import { decodeBase64, encodeBase64 } from "jsr:@std/encoding"
 
 export abstract class IStruct<ValueT> {
   abstract sizeof(value: ValueT): number
@@ -567,6 +569,28 @@ const boolean = new FixedWidthStruct<boolean>({
   size: 1,
 })
 
+const bytes = new VariableWidthStruct<Uint8Array>({
+  emptyValue: () => new Uint8Array(0),
+  toJSON: (value) => {
+    return encodeBase64(value)
+  },
+  fromJSON: (json) => {
+    if (typeof json !== "string") {
+      throw new Error("Expected a string")
+    }
+    return decodeBase64(json)
+  },
+  read: (view) => {
+    const arr = new Uint8Array(view.byteLength)
+    copy(view.toUint8Array(), arr)
+    return arr
+  },
+  write: (value, view) => {
+    view.setUint8Array(0, value)
+  },
+  sizeof: (value) => value.byteLength,
+})
+
 const jsonNumber = {
   toJSON: (value: number) => value,
   fromJSON: (json: Json) => {
@@ -651,6 +675,7 @@ export const Struct = {
   bigInt64,
   tuple,
   record,
+  bytes,
   timestamp: int32.wrap<Date>(
     (date) => date.getTime(),
     (time) => new Date(time),

@@ -258,3 +258,23 @@ describe("RecordStruct", () => {
     expect(pointObjectStruct.readAt(view, 0)).toEqual({ x: 1, y: 2 })
   })
 })
+
+describe("bytes", () => {
+  it("lets you read and write byte arrays", () => {
+    const value = new Uint8Array([1, 2, 3, 4, 5])
+    expect(Struct.bytes.sizeof(value)).toBe(4 + 5)
+    const view = new WriteableDataView(Struct.bytes.sizeof(value))
+    Struct.bytes.writeAt(value, view, 0)
+    expect(Struct.bytes.readAt(view, 0)).toEqual(
+      new Uint8Array([1, 2, 3, 4, 5]),
+    )
+  })
+
+  it("serializes and deserialized to/from json correctly using base64 encoding", () => {
+    const value = new Uint8Array([1, 2, 3, 4, 5])
+    expect(Struct.bytes.toJSON(value)).toEqual("AQIDBAU=")
+    expect(Struct.bytes.fromJSON("AQIDBAU=")).toEqual(
+      new Uint8Array([1, 2, 3, 4, 5]),
+    )
+  })
+})

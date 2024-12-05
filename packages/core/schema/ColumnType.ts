@@ -39,6 +39,8 @@ export function getColumnTypeFromSQLType(sqlType: string): ColumnType<any> {
       return ColumnTypes.date()
     case "TIMESTAMP":
       return ColumnTypes.timestamp()
+    case "BLOB":
+      return ColumnTypes.blob()
     case "SERIAL":
       return new SerialUInt32ColumnType()
     default:
@@ -174,6 +176,13 @@ export const ColumnTypes = {
       name: "date",
       isValid: (value) => value instanceof Date,
       serializer: Struct.date,
+    })
+  },
+  blob() {
+    return new ColumnType<Uint8Array>({
+      name: "blob",
+      isValid: (value) => value instanceof Uint8Array,
+      serializer: Struct.bytes,
     })
   },
 }
