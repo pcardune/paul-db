@@ -2,8 +2,25 @@ import { IStruct, Struct } from "../binary/Struct.ts"
 import { Comparator, EqualityChecker, Json } from "../types.ts"
 import * as uuid from "jsr:@std/uuid"
 
-export function getColumnTypeFromString(type: string): ColumnType<unknown> {
+export function getColumnTypeFromString(
+  type: `${string}[]`,
+): ColumnType<unknown[]>
+export function getColumnTypeFromString(
+  type: `${string}?`,
+): ColumnType<unknown | null>
+export function getColumnTypeFromString(type: string): ColumnType<unknown>
+export function getColumnTypeFromString(
+  type: `${string}[]` | string,
+): ColumnType<unknown> | ColumnType<unknown[]> {
   const t = type.toLowerCase()
+
+  if (t.endsWith("?")) {
+    return getColumnTypeFromString(t.slice(0, -1)).nullable()
+  }
+  if (t.endsWith("[]")) {
+    return getColumnTypeFromString(t.slice(0, -2)).array()
+  }
+
   if (t in ColumnTypes) {
     return (ColumnTypes as Record<string, () => ColumnType<unknown>>)[t]()
   }
@@ -14,6 +31,9 @@ export function getColumnTypeFromString(type: string): ColumnType<unknown> {
 }
 
 export function getColumnTypeFromSQLType(sqlType: string): ColumnType<any> {
+  if (sqlType.endsWith("[]")) {
+    return getColumnTypeFromSQLType(sqlType.slice(0, -2)).array()
+  }
   switch (sqlType) {
     case "TEXT":
     case "VARCHAR":
@@ -212,6 +232,23 @@ export class ColumnType<T> {
     this.isEqual = equals
     this.compare = compare
     this.serializer = serializer
+  }
+
+  array(): ColumnType<T[]> {
+    return new ColumnType<T[]>({
+      name: this.name + "[]",
+      isValid: (value) => Array.isArray(value) && value.every(this.isValid),
+      equals: (a, b) =>
+        a.length === b.length && a.every((v, i) => this.isEqual(v, b[i])),
+      compare: (a, b) => {
+        for (let i = 0; i < Math.min(a.length, b.length); i++) {
+          const cmp = this.compare(a[i], b[i])
+          if (cmp !== 0) return cmp
+        }
+        return a.length - b.length
+      },
+      serializer: this.serializer?.array(),
+    })
   }
 
   nullable(): ColumnType<T | null> {
