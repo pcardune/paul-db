@@ -74,6 +74,7 @@ export class HeapFileBackedIndexProvider<
     private bufferPool: IBufferPool,
     private db: string,
     private schema: SchemaT,
+    private tableId: string,
     private tableData: HeapFileTableStorage<
       StoredRecordForTableSchema<SchemaT>
     >,
@@ -86,9 +87,8 @@ export class HeapFileBackedIndexProvider<
     if (this.indexManager) {
       for (const column of this.indexes.keys()) {
         await this.indexManager.freeIndexStoragePageId({
-          db: this.db,
-          table: this.schema.name,
-          column,
+          tableId: this.tableId,
+          indexName: column,
         })
       }
     }
@@ -140,9 +140,8 @@ export class HeapFileBackedIndexProvider<
     }
 
     const pageId = await this.indexManager.getOrAllocateIndexStoragePageId({
-      db: this.db,
-      table: this.schema.name,
-      column: column.name,
+      tableId: this.tableId,
+      indexName: column.name,
     })
 
     const index = await Index.inFile(

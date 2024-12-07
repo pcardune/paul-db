@@ -1,7 +1,7 @@
 import { column } from "../schema/ColumnSchema.ts"
 import { ColumnTypes } from "../schema/ColumnType.ts"
 import { ulid } from "jsr:@std/ulid"
-import { TableSchema } from "../schema/schema.ts"
+import { StoredRecordForTableSchema, TableSchema } from "../schema/schema.ts"
 
 const ulidIdColumn = column("id", ColumnTypes.string())
   .unique({ inMemory: true }).defaultTo(() => ulid())
@@ -27,8 +27,17 @@ export const schemas = {
     ),
 
   dbIndexes: TableSchema.create("__dbIndexes")
-    .with(column("indexName", ColumnTypes.string()).unique({ inMemory: true }))
-    .with(column("heapPageId", ColumnTypes.uint64())),
+    .with(ulidIdColumn)
+    .with(column("indexName", ColumnTypes.string()))
+    .with(column("tableId", ColumnTypes.string()))
+    .with(column("heapPageId", ColumnTypes.uint64()))
+    .withUniqueConstraint(
+      "_tableId_indexName",
+      ColumnTypes.string(),
+      ["tableId", "indexName"],
+      (input) => `${input.tableId}.${input.indexName}`,
+      { inMemory: true },
+    ),
 
   dbSchemas: TableSchema.create("__dbSchemas")
     .with(column("id", ColumnTypes.uint32()).unique({ inMemory: true }))
@@ -62,4 +71,11 @@ export const schemas = {
       (input) => `${input.schemaId}.${input.name}`,
       { inMemory: true },
     ),
+
+  dbMigrations: TableSchema.create("__dbMigrations")
+    .with(column("name", ColumnTypes.string()).unique())
+    .with(column("db", ColumnTypes.string()))
+    .with(column("completedAt", ColumnTypes.timestamp())),
 }
+
+export type TableRecord = StoredRecordForTableSchema<typeof schemas.dbTables>

@@ -1,6 +1,7 @@
 import { expect } from "jsr:@std/expect"
 import { ColumnTypes, DbFile, s } from "../mod.ts"
 import { generateTestFilePath } from "../testing.ts"
+import { tableSchemaMigration } from "./DbFile.ts"
 
 Deno.test("DbFile initialization", async (t) => {
   using tempFile = generateTestFilePath("DbFile.db")
@@ -41,23 +42,20 @@ Deno.test("DbFile initialization", async (t) => {
         },
       ],
     )
-    expect(tables).toEqual([
+    expect(tables.map(({ id: _id, ...t }) => t)).toEqual([
       {
         db: "system",
         heapPageId: 20n,
-        id: "system.__dbPageIds",
         name: "__dbPageIds",
       },
       {
         db: "system",
         heapPageId: 20500n,
-        id: "system.__dbSchemas",
         name: "__dbSchemas",
       },
       {
         db: "system",
         heapPageId: 24596n,
-        id: "system.__dbTableColumns",
         name: "__dbTableColumns",
       },
     ])
@@ -67,7 +65,7 @@ Deno.test("DbFile initialization", async (t) => {
       [
         {
           id: 0,
-          tableId: "system.__dbTableColumns",
+          tableId: tables.find((t) => t.name === "__dbTableColumns")?.id,
           version: 0,
         },
       ],
@@ -98,30 +96,30 @@ Deno.test("DbFile.createTable()", async () => {
     .with(s.column("name", ColumnTypes.string()))
 
   const table = await db.getOrCreateTable(usersSchema)
+  const tableRecord = await db.tableManager.getTableRecord("default", "users")
 
+  const indexId = {
+    tableId: tableRecord!.id,
+    indexName: "id",
+  }
   expect(
-    await db.indexManager.getIndexStoragePageId({
-      db: "default",
-      table: "users",
-      column: "id",
-    }),
+    await db.indexManager.getIndexStoragePageId(indexId),
     "An index page won't be allocated until something is inserted",
   ).toBeNull()
 
   await table.insert({ id: 1, name: "Mr. Blue" })
 
   expect(
-    await db.indexManager.getIndexStoragePageId({
-      db: "default",
-      table: "users",
-      column: "id",
-    }),
+    await db.indexManager.getIndexStoragePageId(indexId),
     "An index page won't be allocated until something is inserted",
   ).not.toBeNull()
 })
 
-Deno.test.ignore("DbFile.createTable() and schema changes", async (t) => {
+Deno.test("DbFile.createTable() and schema changes", async (t) => {
   using tempFile = generateTestFilePath("DbFile.db")
+  const usersSchema = s.table("users")
+    .with(s.column("id", ColumnTypes.uint32()).unique())
+    .with(s.column("name", ColumnTypes.string()))
 
   async function init() {
     const db = await DbFile.open(tempFile.filePath, {
@@ -129,31 +127,38 @@ Deno.test.ignore("DbFile.createTable() and schema changes", async (t) => {
       truncate: true,
     })
 
-    const usersSchema = s.table("users")
-      .with(s.column("id", ColumnTypes.uint32()).unique())
-      .with(s.column("name", ColumnTypes.string()))
-
-    const table = await db.getOrCreateTable(usersSchema)
-    await table.insert({ id: 1, name: "Mr. Blue" })
+    const users = await db.getOrCreateTable(usersSchema)
+    await users.insert({ id: 1, name: "Mr. Blue" })
     return {
       db,
-      table,
-      usersSchema,
+      users,
       [Symbol.dispose]: db[Symbol.dispose].bind(db),
     }
   }
 
   await t.step("Adding a column", async () => {
     using t = await init()
-    expect(await t.table.lookupUniqueOrThrow("id", 1)).toEqual({
+    expect(await t.users.lookupUniqueOrThrow("id", 1)).toEqual({
       id: 1,
       name: "Mr. Blue",
     })
-    const updatedSchema = t.usersSchema.with(
-      s.column("age", ColumnTypes.uint16()),
-    )
-    await expect(t.db.getOrCreateTable(updatedSchema)).rejects.toThrow(
-      'Column length mismatch. Found new column(s) "age"',
+
+    const { newSchema } = await t.db.migrate(tableSchemaMigration(
+      "add-age-column",
+      t.users.schema,
+      (oldSchema) => oldSchema.with(s.column("age", ColumnTypes.uint16())),
+      (row) => ({ ...row, age: 42 }),
+    ))
+
+    const newTable = await t.db.getOrCreateTable(newSchema)
+    expect(await newTable.lookupUniqueOrThrow("id", 1)).toEqual({
+      id: 1,
+      name: "Mr. Blue",
+      age: 42,
+    })
+
+    expect(t.users.lookupUnique("id", 1)).rejects.toThrow(
+      "Table has been dropped",
     )
   })
 })

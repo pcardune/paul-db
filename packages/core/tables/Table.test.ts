@@ -429,9 +429,10 @@ Deno.test("HeapFileTableStorage - drop", async () => {
         ),
       }
     }).toArray()
+    const tableIds = tablesRows.map((row) => row.tableRow.id)
     const indexes = await r.dbFile.indexManager.indexesTable.iterate().filter((
       indexRow,
-    ) => indexRow.indexName.includes(tableName)).toArray()
+    ) => tableIds.includes(indexRow.tableId)).toArray()
     return { tablesRows, indexes }
   }
   const beforeMetadata = await dumpTableMetadata("foo")

@@ -13,7 +13,7 @@ import {
   ITableStorage,
 } from "../tables/TableStorage.ts"
 import { UnknownRecord } from "npm:type-fest"
-import { schemas, SYSTEM_DB } from "./metadataSchemas.ts"
+import { schemas, SYSTEM_DB, TableRecord } from "./metadataSchemas.ts"
 import { IndexManager } from "./IndexManager.ts"
 import { DBFileSerialIdGenerator } from "../serial.ts"
 import { HeapFileBackedIndexProvider } from "../indexes/IndexProvider.ts"
@@ -48,11 +48,23 @@ export class TableManager {
     return (await this.getTableRecord(db, name)) != null
   }
 
+  async renameTable(db: string, oldName: string, newName: string) {
+    const tableRecord = await this.getTableRecord(db, oldName)
+    if (tableRecord == null) {
+      throw new Error(`Table ${db}.${oldName} not found`)
+    }
+    await this.tablesTable.updateWhere(
+      "_db_name",
+      { db, name: oldName },
+      { name: newName },
+    )
+    this.tables.delete(`${db}.${oldName}`)
+  }
+
   private async createTableRecord(db: string, name: string) {
     const pageId = await this.bufferPool.allocatePage()
     await this.bufferPool.commit()
     const tableRecord = await this.tablesTable.insertAndReturn({
-      id: `${db}.${name}`,
       name: name,
       heapPageId: pageId,
       db,
@@ -79,7 +91,7 @@ export class TableManager {
           this.bufferPool,
           db,
           schema,
-          tableRecord.heapPageId,
+          tableRecord,
           this.indexManager,
           new Droppable(async () => {
             const tableRecord = await this.getTableRecord(db, schema.name)
@@ -214,7 +226,7 @@ export function getTableConfig<SchemaT extends SomeTableSchema>(
   bufferPool: IBufferPool,
   db: string,
   schema: SchemaT,
-  heapPageId: PageId,
+  tableRecord: Pick<TableRecord, "id" | "heapPageId">,
   indexManager?: IndexManager,
   droppable?: Droppable,
 ): TableConfig<
@@ -229,7 +241,7 @@ export function getTableConfig<SchemaT extends SomeTableSchema>(
 
   const data = new HeapFileTableStorage<StoredRecordForTableSchema<SchemaT>>(
     bufferPool,
-    heapPageId,
+    tableRecord.heapPageId,
     recordStruct,
     /* schemaId = */ 0,
   )
@@ -238,6 +250,7 @@ export function getTableConfig<SchemaT extends SomeTableSchema>(
     bufferPool,
     db,
     schema,
+    tableRecord.id,
     data,
     indexManager,
   )

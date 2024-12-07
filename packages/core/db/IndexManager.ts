@@ -2,11 +2,7 @@ import { PageId } from "../pages/BufferPool.ts"
 import { HeapFileTableInfer } from "../tables/TableStorage.ts"
 import { schemas } from "./metadataSchemas.ts"
 
-export type IndexId = { db: string; table: string; column: string }
-
-function indexName({ db, table, column }: IndexId) {
-  return `${db}.${table}.${column}`
-}
+export type IndexId = { tableId: string; indexName: string }
 
 export class IndexManager {
   constructor(
@@ -19,14 +15,14 @@ export class IndexManager {
    */
   async getIndexStoragePageId(id: IndexId): Promise<PageId | null> {
     const record = await this.indexesTable.lookupUnique(
-      "indexName",
-      indexName(id),
+      "_tableId_indexName",
+      id,
     )
     return record?.heapPageId ?? null
   }
 
   async freeIndexStoragePageId(id: IndexId) {
-    await this.indexesTable.removeWhere("indexName", indexName(id))
+    await this.indexesTable.removeWhere("_tableId_indexName", id)
   }
 
   /**
@@ -40,7 +36,8 @@ export class IndexManager {
     }
     const pageId = await this.indexesTable.data.bufferPool.allocatePage()
     await this.indexesTable.insert({
-      indexName: indexName(id),
+      indexName: id.indexName,
+      tableId: id.tableId,
       heapPageId: pageId,
     })
     return pageId

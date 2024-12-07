@@ -77,6 +77,8 @@ export class Table<
   async insertManyAndReturn(
     records: InsertRecordForTableSchema<SchemaT>[],
   ): Promise<StoredRecordForTableSchema<SchemaT>[]> {
+    this.droppable.assertNotDropped("Table has been dropped")
+
     const rows: StoredRecordForTableSchema<SchemaT>[] = []
     for (const record of records) {
       rows.push(await this.insertAndReturn(record))
@@ -87,6 +89,8 @@ export class Table<
   async insertMany(
     records: InsertRecordForTableSchema<SchemaT>[],
   ): Promise<RowIdT[]> {
+    this.droppable.assertNotDropped("Table has been dropped")
+
     const rowIds: RowIdT[] = []
     for (const record of records) {
       rowIds.push(await this.insert(record))
@@ -97,11 +101,15 @@ export class Table<
   async insertAndReturn(
     record: InsertRecordForTableSchema<SchemaT>,
   ): Promise<StoredRecordForTableSchema<SchemaT>> {
+    this.droppable.assertNotDropped("Table has been dropped")
+
     const id = await this.insert(record)
     return this.data.get(id) as Promise<StoredRecordForTableSchema<SchemaT>>
   }
 
   async insert(record: InsertRecordForTableSchema<SchemaT>): Promise<RowIdT> {
+    this.droppable.assertNotDropped("Table has been dropped")
+
     const validation = this.schema.isValidInsertRecord(record)
     if (!validation.valid) {
       throw new Error("Invalid record: " + validation.reason)
@@ -182,31 +190,68 @@ export class Table<
   }
 
   get(id: RowIdT): Promisable<StoredRecordForTableSchema<SchemaT> | undefined> {
+    this.droppable.assertNotDropped("Table has been dropped")
+
     return this.data.get(id)
   }
 
   async set(
     id: RowIdT,
-    record: StoredRecordForTableSchema<SchemaT>,
+    newRecord: StoredRecordForTableSchema<SchemaT>,
   ): Promise<RowIdT> {
-    const newRowId = await this.data.set(id, record)
+    this.droppable.assertNotDropped("Table has been dropped")
+
+    const oldRecord = await this.data.get(id) as typeof newRecord
+    const newRowId = await this.data.set(id, newRecord)
+
+    for (const column of this.schema.columns) {
+      const columnName = column.name as keyof typeof newRecord
+      const index = await this.indexProvider.getIndexForColumn(columnName)
+      if (index) {
+        if (column.type.isEqual(oldRecord[columnName], newRecord[columnName])) {
+          continue
+        }
+        await index.remove(oldRecord[columnName], id)
+        await index.insert(newRecord[columnName], id)
+      } else if (column.indexed.shouldIndex) {
+        throw new Error(`Column ${columnName} is not indexed`)
+      }
+    }
+    for (const column of this.schema.computedColumns) {
+      const index = await this.indexProvider.getIndexForColumn(column.name)
+      if (index) {
+        const oldComputed = column.compute(oldRecord)
+        const newComputed = column.compute(newRecord)
+        if (column.type.isEqual(oldComputed, newComputed)) {
+          continue
+        }
+        await index.remove(oldComputed, id)
+        await index.insert(newComputed, id)
+      } else if (column.indexed.shouldIndex) {
+        throw new Error(`Column ${column.name} is not indexed`)
+      }
+    }
+
     await this.data.commit()
     return newRowId
   }
 
   async updateWhere<
-    IName extends FilterTuple<
-      SchemaT["columns"],
-      { indexed: CIndex.Config }
+    IName extends Column.FindIndexed<
+      SchemaT["columns"] | SchemaT["computedColumns"]
     >["name"],
-    ValueT extends Column.GetValue<
-      FilterTuple<SchemaT["columns"], { name: IName }>
-    >,
+    ValueT extends
+      | Column.GetValue<Column.FindWithName<SchemaT["columns"], IName>>
+      | Column.Computed.GetInput<
+        Column.FindWithName<SchemaT["computedColumns"], IName>
+      >,
   >(
     indexName: IName,
     value: ValueT,
     updatedValue: Partial<StoredRecordForTableSchema<SchemaT>>,
   ): Promise<void> {
+    this.droppable.assertNotDropped("Table has been dropped")
+
     const index = await this.indexProvider.getIndexForColumn(indexName)
     if (!index) {
       throw new Error(`Index ${indexName} does not exist`)
@@ -222,22 +267,25 @@ export class Table<
   }
 
   async removeWhere<
-    IName extends FilterTuple<
-      SchemaT["columns"],
-      { indexed: CIndex.Config }
+    IName extends Column.FindIndexed<
+      SchemaT["columns"] | SchemaT["computedColumns"]
     >["name"],
-    ValueT extends Column.GetValue<
-      FilterTuple<SchemaT["columns"], { name: IName }>
-    >,
+    ValueT extends
+      | Column.GetValue<Column.FindWithName<SchemaT["columns"], IName>>
+      | Column.Computed.GetInput<
+        Column.FindWithName<SchemaT["computedColumns"], IName>
+      >,
   >(
     indexName: IName,
     value: ValueT,
   ): Promise<void> {
+    this.droppable.assertNotDropped("Table has been dropped")
+
     const index = await this.indexProvider.getIndexForColumn(indexName)
     if (!index) {
       throw new Error(`Index ${indexName} does not exist`)
     }
-    const ids = await index.get(value)
+    const ids = await this.lookupInIndex(indexName, value)
     for (const id of ids) {
       await this.data.remove(id)
     }
@@ -245,6 +293,8 @@ export class Table<
   }
 
   async remove(id: RowIdT): Promise<void> {
+    this.droppable.assertNotDropped("Table has been dropped")
+
     await this.data.remove(id)
     await this.data.commit()
   }
@@ -262,6 +312,8 @@ export class Table<
     indexName: IName,
     value: ValueT,
   ): Promise<Readonly<StoredRecordForTableSchema<SchemaT>>> {
+    this.droppable.assertNotDropped("Table has been dropped")
+
     const result = await this.lookupUnique(indexName, value)
     if (!result) {
       console.error(`Record not found for`, indexName, value)
@@ -283,6 +335,7 @@ export class Table<
     indexName: IName,
     value: ValueT,
   ): Promise<Readonly<StoredRecordForTableSchema<SchemaT>> | undefined> {
+    this.droppable.assertNotDropped("Table has been dropped")
     const rowIds = await this.lookupInIndex(indexName, value)
     if (rowIds.length === 0) {
       return
@@ -296,7 +349,9 @@ export class Table<
    * @returns list of physical row ids that match the value
    */
   async lookupInIndex<
-    IName extends Column.FindIndexed<SchemaT["columns"]>["name"],
+    IName extends Column.FindIndexed<
+      SchemaT["columns"] | SchemaT["computedColumns"]
+    >["name"],
     ValueT extends
       | Column.GetValue<Column.FindWithName<SchemaT["columns"], IName>>
       | Column.Computed.GetInput<
@@ -306,6 +361,7 @@ export class Table<
     indexName: IName,
     value: ValueT,
   ): Promise<readonly RowIdT[]> {
+    this.droppable.assertNotDropped("Table has been dropped")
     const index = await this.indexProvider.getIndexForColumn(indexName)
     if (!index) {
       throw new Error(`Index ${indexName} does not exist`)
@@ -329,6 +385,8 @@ export class Table<
     indexName: IName,
     value: ValueT,
   ): Promise<Readonly<StoredRecordForTableSchema<SchemaT>>[]> {
+    this.droppable.assertNotDropped("Table has been dropped")
+
     const ids = await this.lookupInIndex(indexName, value)
     return Promise.all(ids.map((id) => this.data.get(id))) as Promise<
       StoredRecordForTableSchema<SchemaT>[]
@@ -341,6 +399,8 @@ export class Table<
       Column.FindWithName<SchemaT["computedColumns"], IName>
     >,
   >(indexName: IName, value: ValueT) {
+    this.droppable.assertNotDropped("Table has been dropped")
+
     const index = await this.indexProvider.getIndexForColumn(indexName)
     if (!index) {
       throw new Error(`Index ${indexName} does not exist`)
@@ -357,6 +417,8 @@ export class Table<
   }
 
   iterate(): AsyncIterableWrapper<StoredRecordForTableSchema<SchemaT>> {
+    this.droppable.assertNotDropped("Table has been dropped")
+
     return this.data.iterate().map(([_rowId, record]) =>
       record
     ) as AsyncIterableWrapper<StoredRecordForTableSchema<SchemaT>>
@@ -369,6 +431,8 @@ export class Table<
     columnName: IName,
     value: IValue,
   ): AsyncIterableWrapper<StoredRecordForTableSchema<SchemaT>> {
+    this.droppable.assertNotDropped("Table has been dropped")
+
     const columnType =
       this.schema.columns.find((c) => c.name === columnName)!.type
     return this.iterate().filter((record) =>
@@ -383,6 +447,8 @@ export class Table<
     columnName: IName,
     value: IValue,
   ): Promise<StoredRecordForTableSchema<SchemaT>[]> {
+    this.droppable.assertNotDropped("Table has been dropped")
+
     return this.scanIter(columnName, value).toArray()
   }
 }
