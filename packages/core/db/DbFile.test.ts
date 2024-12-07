@@ -1,7 +1,7 @@
 import { expect } from "jsr:@std/expect"
 import { DbFile, s } from "../mod.ts"
 import { generateTestFilePath } from "../testing.ts"
-import { tableSchemaMigration } from "./DbFile.ts"
+import { tableSchemaMigration } from "./migrations.ts"
 
 Deno.test("DbFile initialization", async (t) => {
   using tempFile = generateTestFilePath("DbFile.db")

@@ -2,12 +2,7 @@ import { Struct } from "../binary/Struct.ts"
 import { readBytesAt, writeBytesAt } from "../io.ts"
 import { FileBackedBufferPool, PageId } from "../pages/BufferPool.ts"
 import { getColumnTypeFromString } from "../schema/columns/ColumnType.ts"
-import {
-  InsertRecordForTableSchema,
-  SomeTableSchema,
-  StoredRecordForTableSchema,
-  TableSchema,
-} from "../schema/schema.ts"
+import { SomeTableSchema, TableSchema } from "../schema/schema.ts"
 import { Table } from "../tables/Table.ts"
 import { HeapFileTableInfer } from "../tables/TableStorage.ts"
 import { ReadonlyDataView } from "../binary/dataview.ts"
@@ -319,45 +314,4 @@ type Migration = {
   db: string
   name: string
   migrate: (db: DbFile) => Promise<void>
-}
-
-export function tableSchemaMigration<
-  OldSchemaT extends SomeTableSchema,
-  NewSchemaT extends SomeTableSchema,
->(
-  name: string,
-  oldSchema: OldSchemaT,
-  newSchema: NewSchemaT | ((oldSchema: OldSchemaT) => NewSchemaT),
-  rowMapper: (
-    oldRow: StoredRecordForTableSchema<OldSchemaT>,
-  ) => InsertRecordForTableSchema<NewSchemaT>,
-  { db = "default" }: { db?: string } = {},
-) {
-  if (typeof newSchema === "function") {
-    newSchema = newSchema(oldSchema)
-  }
-
-  return {
-    db,
-    name,
-    newSchema,
-    migrate: async (dbFile: DbFile) => {
-      const oldTable = await dbFile.getOrCreateTable(oldSchema, { db })
-      if (newSchema.name === oldSchema.name) {
-        // rename the old table so the new table can use its name
-        await dbFile.renameTable(
-          oldSchema.name,
-          `$migration_${oldSchema.name}`,
-          {
-            db,
-          },
-        )
-      }
-      const newTable = await dbFile.getOrCreateTable(newSchema, { db })
-      for await (const row of oldTable.iterate()) {
-        await newTable.insert(rowMapper(row))
-      }
-      await oldTable.drop()
-    },
-  }
 }

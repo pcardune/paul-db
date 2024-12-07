@@ -6,7 +6,7 @@ import * as path from "@std/path"
 export { DbFile } from "./db/DbFile.ts"
 export { Table } from "./tables/Table.ts"
 export { TableSchema } from "./schema/schema.ts"
-
+export * as migrations from "./db/migrations.ts"
 export * as s from "./public.ts"
 
 export {
