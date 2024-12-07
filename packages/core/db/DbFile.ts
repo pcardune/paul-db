@@ -1,7 +1,7 @@
 import { Struct } from "../binary/Struct.ts"
 import { readBytesAt, writeBytesAt } from "../io.ts"
 import { FileBackedBufferPool, PageId } from "../pages/BufferPool.ts"
-import { getColumnTypeFromString } from "../schema/ColumnType.ts"
+import { getColumnTypeFromString } from "../schema/columns/ColumnType.ts"
 import {
   InsertRecordForTableSchema,
   SomeTableSchema,

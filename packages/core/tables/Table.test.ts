@@ -8,10 +8,10 @@ import {
   InMemoryTableStorage,
   JsonFileTableStorage,
 } from "./TableStorage.ts"
-import { ColumnType, ColumnTypes } from "../schema/ColumnType.ts"
+import { ColumnType, ColumnTypes } from "../schema/columns/ColumnType.ts"
 import { DbFile } from "../db/DbFile.ts"
 import { generateTestFilePath, spyOnBufferPool } from "../testing.ts"
-import { column, computedColumn } from "../schema/ColumnSchema.ts"
+import { column, computedColumn } from "../schema/columns/ColumnBuilder.ts"
 import { pick } from "jsr:@std/collections"
 
 const peopleSchema = TableSchema.create("people")

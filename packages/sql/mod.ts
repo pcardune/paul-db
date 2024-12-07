@@ -1,8 +1,8 @@
-import { column, type DbFile, TableSchema } from "@paul-db/core"
+import { type DbFile, s, TableSchema } from "@paul-db/core"
 import SQLParser, { Column } from "node-sql-parser"
 import { Create } from "node-sql-parser/types"
 import { SomeTableSchema } from "../core/schema/schema.ts"
-import { getColumnTypeFromSQLType } from "../core/schema/ColumnType.ts"
+import { getColumnTypeFromSQLType } from "../core/schema/columns/ColumnType.ts"
 
 type CreateDefinition = Exclude<
   Create["create_definitions"],
@@ -228,7 +228,7 @@ export class SQLExecutor {
         const columnType = getColumnTypeFromSQLType(
           columnDef.definition.dataType,
         )
-        const col = column(columnDef.column.column, columnType)
+        const col = s.column(columnDef.column.column, columnType)
         schema = schema.with(col)
       }
     }

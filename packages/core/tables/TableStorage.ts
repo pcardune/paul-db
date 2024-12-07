@@ -437,6 +437,9 @@ export class HeapFileTableStorage<RowData>
   }
 }
 
+/**
+ * Infers the type of a Table instance for the given schema
+ */
 export type HeapFileTableInfer<SchemaT extends SomeTableSchema> =
   SchemaT extends
     TableSchema<infer TName, infer ColumnSchemasT, infer ComputedColumnSchemasT>

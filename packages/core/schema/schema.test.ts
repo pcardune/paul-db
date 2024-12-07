@@ -6,15 +6,15 @@ import {
   TableSchema,
 } from "./schema.ts"
 import { StoredRecordForTableSchema } from "./schema.ts"
-import { ColumnTypes } from "./ColumnType.ts"
+import { ColumnTypes } from "./columns/ColumnType.ts"
 import { dumpUint8Buffer } from "../binary/util.ts"
 import { WriteableDataView } from "../binary/dataview.ts"
+import * as Column from "./columns/index.ts"
 import {
-  Column,
   column,
   computedColumn,
   StoredRecordForColumnSchemas,
-} from "./ColumnSchema.ts"
+} from "./columns/ColumnBuilder.ts"
 
 function assertType<T>(_value: T) {}
 type TypeEquals<Actual, Expected> = Actual extends Expected ? true
@@ -40,11 +40,11 @@ describe("ColumnSchemas", () => {
 
     assertType<"name">(nameColumn.name)
     assertType<false>(nameColumn.isUnique)
-    assertTrue<TypeEquals<string, Column.GetValue<typeof nameColumn>>>()
+    assertTrue<TypeEquals<string, Column.Stored.GetValue<typeof nameColumn>>>()
   })
 
   it("exposes the types of the column to typescript", () => {
-    assertTrue<TypeEquals<string, Column.GetValue<typeof nameColumn>>>()
+    assertTrue<TypeEquals<string, Column.Stored.GetValue<typeof nameColumn>>>()
 
     // @ts-expect-error: Can't insert a number into a string column
     assertTrue<TypeEquals<number, Column.GetValue<typeof nameColumn>>>()
@@ -57,7 +57,7 @@ describe("ColumnSchemas", () => {
       "name",
       ColumnTypes.string(),
     )
-    assertTrue<TypeEquals<number, Column.GetValue<typeof ageColumn>>>()
+    assertTrue<TypeEquals<number, Column.Stored.GetValue<typeof ageColumn>>>()
 
     type StoredRecord = StoredRecordForColumnSchemas<
       [typeof ageColumn, typeof nameColumn]
@@ -113,7 +113,7 @@ describe("Computed column schemas", () => {
       (input: { firstName: string; lastName: string }) =>
         `${input.firstName} ${input.lastName}`,
     )
-    assertTrue<TypeEquals<never, Column.GetValue<typeof nameColumn>>>()
+    assertTrue<TypeEquals<never, Column.Stored.GetValue<typeof nameColumn>>>()
   })
 })
 

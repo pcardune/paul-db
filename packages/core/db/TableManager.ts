@@ -1,5 +1,5 @@
-import { IBufferPool, PageId } from "../pages/BufferPool.ts"
-import { Column } from "../schema/ColumnSchema.ts"
+import { IBufferPool } from "../pages/BufferPool.ts"
+import * as Column from "../schema/columns/index.ts"
 import {
   makeTableSchemaStruct,
   SomeTableSchema,
@@ -25,7 +25,7 @@ export class TableManager {
     Table<
       HeapFileRowId,
       string,
-      Column.Stored[],
+      Column.Stored.Any[],
       Column.Computed.Any[],
       SomeTableSchema,
       ITableStorage<HeapFileRowId, UnknownRecord>

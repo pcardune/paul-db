@@ -1,5 +1,5 @@
-import { column } from "../schema/ColumnSchema.ts"
-import { ColumnTypes } from "../schema/ColumnType.ts"
+import { column } from "../schema/columns/ColumnBuilder.ts"
+import { ColumnTypes } from "../schema/columns/ColumnType.ts"
 import { ulid } from "jsr:@std/ulid"
 import { StoredRecordForTableSchema, TableSchema } from "../schema/schema.ts"
 

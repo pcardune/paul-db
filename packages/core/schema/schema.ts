@@ -1,39 +1,47 @@
 import { IStruct, Struct } from "../binary/Struct.ts"
 import { PushTuple } from "../typetools.ts"
 import {
-  Column,
   ColumnBuilder,
   computedColumn,
-  Index,
   StoredRecordForColumnSchemas,
-} from "./ColumnSchema.ts"
-import { ColumnType } from "./ColumnType.ts"
+} from "./columns/ColumnBuilder.ts"
+import { ColumnType } from "./columns/ColumnType.ts"
 import { Simplify } from "npm:type-fest"
+import * as Column from "./columns/index.ts"
 
-type InsertRecordForColumnSchemas<CS extends Column.Stored[]> =
+type InsertRecordForColumnSchemas<CS extends Column.Stored.Any[]> =
   & {
     [K in Extract<CS[number], { defaultValueFactory: undefined }>["name"]]:
-      Column.GetValue<Extract<CS[number], { name: K }>>
+      Column.Stored.GetValue<Extract<CS[number], { name: K }>>
   }
   & {
-    [K in Extract<CS[number], Column.WithDefaultValue>["name"]]?:
-      Column.GetValue<Extract<CS[number], { name: K }>>
+    [K in Extract<CS[number], Column.Stored.WithDefaultValue>["name"]]?:
+      Column.Stored.GetValue<Extract<CS[number], { name: K }>>
   }
 
+/**
+ * Infers the type of a record that can be inserted into a table with the given
+ * schema. All columns with default values are optional.
+ */
 export type InsertRecordForTableSchema<TS extends SomeTableSchema> =
   InsertRecordForColumnSchemas<TS["columns"]>
+
+/**
+ * Infers the type of a record that is stored in a table with the given schema.
+ * This is what you'll get back when querying the table.
+ */
 export type StoredRecordForTableSchema<TS extends SomeTableSchema> =
   StoredRecordForColumnSchemas<TS["columns"]>
 
 export type SomeTableSchema = TableSchema<
   string,
-  Column.Stored[],
+  Column.Stored.Any[],
   Column.Computed.Any[]
 >
 
 export class TableSchema<
   TableName extends string,
-  ColumnSchemasT extends Column.Stored[],
+  ColumnSchemasT extends Column.Stored.Any[],
   ComputedColumnsT extends Column.Computed.Any[],
 > {
   private columnsByName: Record<string, Column.Any> = {}
@@ -89,7 +97,7 @@ export class TableSchema<
   withComputedColumn<
     CName extends string,
     CUnique extends boolean,
-    CIndexed extends Index.Config,
+    CIndexed extends Column.Index.Config,
     COutput,
   >(
     column: Column.Computed.Any<
@@ -133,7 +141,7 @@ export class TableSchema<
         CInputNames[number]
       >,
     ) => COutput,
-    indexConfig: Partial<Index.ShouldIndex> = {},
+    indexConfig: Partial<Column.Index.ShouldIndex> = {},
   ) {
     return new TableSchema(this.name, this.columns, [
       ...this.computedColumns,
@@ -145,7 +153,7 @@ export class TableSchema<
     ])
   }
 
-  with<C extends Column.Stored>(
+  with<C extends Column.Stored.Any>(
     column: C,
   ): TableSchema<TableName, PushTuple<ColumnSchemasT, C>, ComputedColumnsT> {
     if (column instanceof ColumnBuilder) {

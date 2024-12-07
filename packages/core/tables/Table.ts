@@ -6,12 +6,11 @@ import {
   TableSchema,
 } from "../schema/schema.ts"
 import { ITableStorage } from "./TableStorage.ts"
-import { FilterTuple } from "../typetools.ts"
 import { AsyncIterableWrapper } from "../async.ts"
-import { Column, Index as CIndex } from "../schema/ColumnSchema.ts"
+import * as Column from "../schema/columns/index.ts"
 import { Promisable } from "npm:type-fest"
 import { SerialIdGenerator } from "../serial.ts"
-import { SerialUInt32ColumnType } from "../schema/ColumnType.ts"
+import { SerialUInt32ColumnType } from "../schema/columns/ColumnType.ts"
 import { IndexProvider } from "../indexes/IndexProvider.ts"
 import { Droppable, IDroppable } from "../droppable.ts"
 
@@ -49,7 +48,7 @@ export type TableConfig<
 export class Table<
   RowIdT,
   TName extends string,
-  ColumnSchemasT extends Column.Stored[],
+  ColumnSchemasT extends Column.Stored.Any[],
   ComputedColumnSchemasT extends Column.Computed.Any[],
   SchemaT extends TableSchema<TName, ColumnSchemasT, ComputedColumnSchemasT>,
   StorageT extends ITableStorage<RowIdT, StoredRecordForTableSchema<SchemaT>>,
@@ -241,7 +240,7 @@ export class Table<
       SchemaT["columns"] | SchemaT["computedColumns"]
     >["name"],
     ValueT extends
-      | Column.GetValue<Column.FindWithName<SchemaT["columns"], IName>>
+      | Column.Stored.GetValue<Column.FindWithName<SchemaT["columns"], IName>>
       | Column.Computed.GetInput<
         Column.FindWithName<SchemaT["computedColumns"], IName>
       >,
@@ -271,7 +270,7 @@ export class Table<
       SchemaT["columns"] | SchemaT["computedColumns"]
     >["name"],
     ValueT extends
-      | Column.GetValue<Column.FindWithName<SchemaT["columns"], IName>>
+      | Column.Stored.GetValue<Column.FindWithName<SchemaT["columns"], IName>>
       | Column.Computed.GetInput<
         Column.FindWithName<SchemaT["computedColumns"], IName>
       >,
@@ -304,7 +303,7 @@ export class Table<
       SchemaT["columns"] | SchemaT["computedColumns"]
     >["name"],
     ValueT extends
-      | Column.GetValue<Column.FindWithName<SchemaT["columns"], IName>>
+      | Column.Stored.GetValue<Column.FindWithName<SchemaT["columns"], IName>>
       | Column.Computed.GetInput<
         Column.FindWithName<SchemaT["computedColumns"], IName>
       >,
@@ -327,7 +326,7 @@ export class Table<
       SchemaT["columns"] | SchemaT["computedColumns"]
     >["name"],
     ValueT extends
-      | Column.GetValue<Column.FindWithName<SchemaT["columns"], IName>>
+      | Column.Stored.GetValue<Column.FindWithName<SchemaT["columns"], IName>>
       | Column.Computed.GetInput<
         Column.FindWithName<SchemaT["computedColumns"], IName>
       >,
@@ -353,7 +352,7 @@ export class Table<
       SchemaT["columns"] | SchemaT["computedColumns"]
     >["name"],
     ValueT extends
-      | Column.GetValue<Column.FindWithName<SchemaT["columns"], IName>>
+      | Column.Stored.GetValue<Column.FindWithName<SchemaT["columns"], IName>>
       | Column.Computed.GetInput<
         Column.FindWithName<SchemaT["computedColumns"], IName>
       >,
@@ -378,7 +377,7 @@ export class Table<
 
   async lookup<
     IName extends Column.FindIndexed<SchemaT["columns"]>["name"],
-    ValueT extends Column.GetValue<
+    ValueT extends Column.Stored.GetValue<
       Column.FindWithName<SchemaT["columns"], IName>
     >,
   >(

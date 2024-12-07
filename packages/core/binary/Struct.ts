@@ -2,7 +2,7 @@ import { Json, JsonRecord } from "../types.ts"
 import { ReadonlyDataView, WriteableDataView } from "./dataview.ts"
 import { copy } from "jsr:@std/bytes/copy"
 import { decodeBase64, encodeBase64 } from "jsr:@std/encoding"
-
+import { UnknownRecord } from "npm:type-fest"
 export abstract class IStruct<ValueT> {
   abstract sizeof(value: ValueT): number
   abstract readAt(view: ReadonlyDataView, offset: number): ValueT
@@ -387,8 +387,9 @@ function tuple<V1, V2, V3, V4, V5, V6, V7>(
   s6: IStruct<V6>,
   s7: IStruct<V7>,
 ): VariableWidthStruct<[V1, V2, V3, V4, V5, V6, V7]>
-// deno-lint-ignore no-explicit-any
-function tuple<T extends [IStruct<any>, ...IStruct<any>[]]>(...structs: T) {
+function tuple<T extends [IStruct<unknown>, ...IStruct<unknown>[]]>(
+  ...structs: T
+) {
   const toJSON = (value: T) => value.map((v, i) => structs[i].toJSON(v))
   const fromJSON = (json: Json) => {
     if (!Array.isArray(json)) {
@@ -447,13 +448,13 @@ function tuple<T extends [IStruct<any>, ...IStruct<any>[]]>(...structs: T) {
   })
 }
 
-function record<V extends Record<string, any>>(
+function record<V extends UnknownRecord>(
   structs: { [property in keyof V]: [number, FixedWidthStruct<V[property]>] },
 ): FixedWidthStruct<V>
-function record<V extends Record<string, any>>(
+function record<V extends UnknownRecord>(
   structs: { [property in keyof V]: [number, IStruct<V[property]>] },
 ): IStruct<V>
-function record<V extends Record<string, any>>(
+function record<V extends UnknownRecord>(
   structs: { [property in keyof V]: [number, IStruct<V[property]>] },
 ): IStruct<V> {
   const asArray = Object.entries(structs).map(
@@ -472,7 +473,7 @@ function record<V extends Record<string, any>>(
   }
 
   function read(view: ReadonlyDataView): V {
-    const obj: Record<string, any> = {}
+    const obj: UnknownRecord = {}
     let offset = 0
     for (const { key, struct } of asArray) {
       obj[key] = struct.readAt(view, offset)
@@ -489,7 +490,7 @@ function record<V extends Record<string, any>>(
   }
 
   function toJSON(value: V): Json {
-    const obj: Record<string, any> = {}
+    const obj: JsonRecord = {}
     for (const { key, struct } of asArray) {
       obj[key] = struct.toJSON(value[key])
     }
@@ -500,7 +501,7 @@ function record<V extends Record<string, any>>(
     if (typeof json !== "object" || json === null) {
       throw new Error("Expected an object")
     }
-    const obj: Record<string, any> = {}
+    const obj: UnknownRecord = {}
     for (const { key, struct } of asArray) {
       obj[key] = struct.fromJSON((json as JsonRecord)[key])
     }
@@ -525,7 +526,7 @@ function record<V extends Record<string, any>>(
       return asArray.reduce((acc, { key, struct }) => {
         acc[key] = struct.emptyValue()
         return acc
-      }, {} as Record<string, any>) as V
+      }, {} as UnknownRecord) as V
     },
     toJSON,
     fromJSON,

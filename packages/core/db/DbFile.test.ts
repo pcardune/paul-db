@@ -1,5 +1,5 @@
 import { expect } from "jsr:@std/expect"
-import { ColumnTypes, DbFile, s } from "../mod.ts"
+import { DbFile, s } from "../mod.ts"
 import { generateTestFilePath } from "../testing.ts"
 import { tableSchemaMigration } from "./DbFile.ts"
 
@@ -92,8 +92,8 @@ Deno.test("DbFile.createTable()", async () => {
   })
 
   const usersSchema = s.table("users")
-    .with(s.column("id", ColumnTypes.uint32()).unique())
-    .with(s.column("name", ColumnTypes.string()))
+    .with(s.column("id", s.type.uint32()).unique())
+    .with(s.column("name", s.type.string()))
 
   const table = await db.getOrCreateTable(usersSchema)
   const tableRecord = await db.tableManager.getTableRecord("default", "users")
@@ -118,8 +118,8 @@ Deno.test("DbFile.createTable()", async () => {
 Deno.test("DbFile.createTable() and schema changes", async (t) => {
   using tempFile = generateTestFilePath("DbFile.db")
   const usersSchema = s.table("users")
-    .with(s.column("id", ColumnTypes.uint32()).unique())
-    .with(s.column("name", ColumnTypes.string()))
+    .with(s.column("id", s.type.uint32()).unique())
+    .with(s.column("name", s.type.string()))
 
   async function init() {
     const db = await DbFile.open(tempFile.filePath, {
@@ -146,7 +146,7 @@ Deno.test("DbFile.createTable() and schema changes", async (t) => {
     const { newSchema } = await t.db.migrate(tableSchemaMigration(
       "add-age-column",
       t.users.schema,
-      (oldSchema) => oldSchema.with(s.column("age", ColumnTypes.uint16())),
+      (oldSchema) => oldSchema.with(s.column("age", s.type.uint16())),
       (row) => ({ ...row, age: 42 }),
     ))
 

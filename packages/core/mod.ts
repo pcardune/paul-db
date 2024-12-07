@@ -2,26 +2,18 @@ import { exists } from "@std/fs/exists"
 import { DbFile } from "./db/DbFile.ts"
 import { WriteAheadLog } from "./wal.ts"
 import * as path from "@std/path"
-import { TableSchema } from "./schema/schema.ts"
-import { column } from "./schema/ColumnSchema.ts"
 
 export { DbFile } from "./db/DbFile.ts"
 export { Table } from "./tables/Table.ts"
 export { TableSchema } from "./schema/schema.ts"
 
-export { column, computedColumn } from "./schema/ColumnSchema.ts"
+export * as s from "./public.ts"
 
 export {
   ColumnType,
-  ColumnTypes,
   getColumnTypeFromSQLType,
   getColumnTypeFromString,
-} from "./schema/ColumnType.ts"
-
-export const s = {
-  table: TableSchema.create,
-  column,
-}
+} from "./schema/columns/ColumnType.ts"
 
 export class PaulDB {
   private constructor(private wal: WriteAheadLog, readonly dbFile: DbFile) {
