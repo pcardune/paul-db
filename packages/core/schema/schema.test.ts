@@ -15,8 +15,9 @@ import {
   computedColumn,
   StoredRecordForColumnSchemas,
 } from "./columns/ColumnBuilder.ts"
+import { DBSchema } from "./DBSchema.ts"
+import { assertType } from "../testing.ts"
 
-function assertType<T>(_value: T) {}
 type TypeEquals<Actual, Expected> = Actual extends Expected ? true
   : "Types not equal"
 
@@ -281,5 +282,23 @@ describe("Serializing and deserializing records", () => {
       age: 25,
       likesIceCream: true,
     })
+  })
+})
+
+describe("DBSchema", () => {
+  it("lets you combine multiple table schemas", () => {
+    const people = TableSchema.create("people").with(
+      column("name", ColumnTypes.string()),
+    )
+    const pets = TableSchema.create("pets").with(
+      column("name", ColumnTypes.string()),
+    )
+    const db = DBSchema.create().withTables(
+      people,
+      pets,
+    )
+    expect(db.name).toBe("default")
+    expect(db.schemas.people).toBe(people)
+    expect(db.schemas.pets).toBe(pets)
   })
 })

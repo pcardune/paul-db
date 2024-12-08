@@ -10,6 +10,8 @@ import { debugLog } from "../logging.ts"
 import { schemas, SYSTEM_DB } from "./metadataSchemas.ts"
 import { IndexManager } from "./IndexManager.ts"
 import { getTableConfig, TableManager } from "./TableManager.ts"
+import { DBSchema } from "../schema/DBSchema.ts"
+import { Simplify } from "npm:type-fest"
 
 const headerStruct = Struct.record({
   pageSize: [0, Struct.uint32],
@@ -227,6 +229,30 @@ export class DbFile {
     { db = "default" }: { db?: string } = {},
   ) {
     return this.tableManager.getOrCreateTable(db, schema)
+  }
+
+  async getDBModel<DBSchemaT extends DBSchema>(
+    dbSchema: DBSchemaT,
+  ): Promise<
+    Simplify<
+      {
+        [K in keyof DBSchemaT["schemas"]]: HeapFileTableInfer<
+          DBSchemaT["schemas"][K]
+        >
+      }
+    >
+  > {
+    const tables: Record<string, HeapFileTableInfer<SomeTableSchema>> = {}
+    for (const schema of Object.values(dbSchema.schemas)) {
+      tables[schema.name] = await this.getOrCreateTable(schema, {
+        db: dbSchema.name,
+      })
+    }
+    return tables as {
+      [K in keyof DBSchemaT["schemas"]]: HeapFileTableInfer<
+        DBSchemaT["schemas"][K]
+      >
+    }
   }
 
   async getSchemasOrThrow(db: string, tableName: string) {

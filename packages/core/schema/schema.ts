@@ -66,7 +66,9 @@ export class TableSchema<
     return this.columnsByName[name] ?? null
   }
 
-  static create(name: string): TableSchema<string, [], []> {
+  static create<TableName extends string>(
+    name: TableName,
+  ): TableSchema<TableName, [], []> {
     return new TableSchema(name, [], [])
   }
 

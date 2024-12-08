@@ -174,3 +174,29 @@ Deno.test("DbFile.createTable() and schema changes", async (t) => {
     ).toEqual(["users"])
   })
 })
+
+Deno.test("DbFile.getDBModel()", async () => {
+  using tempFile = generateTestFilePath("DbFile.db")
+  const dbSchema = s.db().withTables(
+    s.table("users")
+      .with(
+        s.column("id", s.type.uint32()).unique(),
+        s.column("name", s.type.string()),
+      ),
+    s.table("todos")
+      .with(
+        s.column("id", s.type.uint32()).unique(),
+        s.column("text", s.type.string()),
+      ),
+  )
+
+  using dbFile = await DbFile.open(tempFile.filePath, {
+    create: true,
+    truncate: true,
+  })
+
+  const model = await dbFile.getDBModel(dbSchema)
+
+  await model.users.insert({ id: 1, name: "Mr. Blue" })
+  await model.todos.insert({ id: 1, text: "Buy milk" })
+})

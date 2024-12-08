@@ -56,3 +56,5 @@ export function spyOnBufferPool(bufferPool: IBufferPool, trace = false) {
     },
   }
 }
+
+export function assertType<T>(_value: T) {}
