@@ -287,12 +287,14 @@ export class DbFile {
     newTableName: string,
     { db = "default" }: { db?: string } = {},
   ) {
-    await this.tableManager.renameTable(db, oldTableName, newTableName)
+    return await this.tableManager.renameTable(db, oldTableName, newTableName)
   }
 
   async migrate<M extends Migration>(migration: M): Promise<M> {
     // TODO: Lock the database
-    const migrations = await this.getOrCreateTable(schemas.dbMigrations)
+    const migrations = await this.getOrCreateTable(schemas.dbMigrations, {
+      db: SYSTEM_DB,
+    })
     const existingMigration = await migrations.lookupUnique(
       "name",
       migration.name,

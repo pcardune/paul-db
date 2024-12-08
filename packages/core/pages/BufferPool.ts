@@ -12,23 +12,23 @@ class WriteablePage extends WriteableDataView {}
 
 export interface IBufferPool {
   get pageSize(): number
-  allocatePage(): Promise<PageId>
+  allocatePage(): Promisable<PageId>
   freePage(pageId: PageId): Promisable<void>
   freePages(pageIds: PageId[]): Promisable<void>
 
   /**
    * Get a DataView for the given page ID.
    */
-  getPageView(pageId: PageId): Promise<ReadonlyDataView>
+  getPageView(pageId: PageId): Promisable<ReadonlyDataView>
 
   // getWriteablePage(pageId: PageId): Promise<WriteablePage>
   writeToPage<R>(
     pageId: PageId,
-    writer: (view: WriteablePage) => R | Promise<R>,
-  ): R | Promise<R>
+    writer: (view: WriteablePage) => Promisable<R>,
+  ): Promisable<R>
 
   markDirty(pageId: PageId): void
-  commit(): Promise<void>
+  commit(): Promisable<void>
 }
 
 export class InMemoryBufferPool implements IBufferPool {
@@ -37,13 +37,13 @@ export class InMemoryBufferPool implements IBufferPool {
 
   constructor(readonly pageSize: number) {}
 
-  allocatePage(): Promise<PageId> {
+  allocatePage(): PageId {
     if (this.freeList.length > 0) {
-      return Promise.resolve(this.freeList.pop()!)
+      return this.freeList.pop()!
     }
     const pageId = BigInt(this.pages.size)
     this.pages.set(pageId, new Uint8Array(this.pageSize))
-    return Promise.resolve(pageId)
+    return pageId
   }
 
   freePages(pageIds: PageId[]): void {
@@ -55,24 +55,24 @@ export class InMemoryBufferPool implements IBufferPool {
     this.freeList.push(pageId)
   }
 
-  private getPage(pageId: PageId): Promise<Uint8Array> {
+  private getPage(pageId: PageId): Uint8Array {
     const page = this.pages.get(pageId)
     if (!page) {
       throw new Error(`Page ${pageId} not found`)
     }
-    return Promise.resolve(page)
+    return page
   }
 
-  async getPageView(pageId: PageId): Promise<ReadonlyDataView> {
-    const page = await this.getPage(pageId)
+  getPageView(pageId: PageId): ReadonlyDataView {
+    const page = this.getPage(pageId)
     return new ReadonlyDataView(page.buffer)
   }
 
-  async writeToPage<R>(
+  writeToPage<R>(
     pageId: PageId,
     writer: (view: WriteablePage) => Promise<R> | R,
-  ): Promise<R> {
-    const page = await this.getPage(pageId)
+  ): Promisable<R> {
+    const page = this.getPage(pageId)
     const result = writer(new WriteablePage(page.buffer))
     this.markDirty(pageId)
     return result
@@ -82,9 +82,8 @@ export class InMemoryBufferPool implements IBufferPool {
     // not needed for in-memory implementation
   }
 
-  commit(): Promise<void> {
+  commit(): void {
     // not needed for in-memory implementation
-    return Promise.resolve()
   }
 }
 

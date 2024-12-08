@@ -26,7 +26,7 @@ export function tableSchemaMigration<
     name,
     newSchema,
     migrate: async (dbFile: DbFile) => {
-      const oldTable = await dbFile.getOrCreateTable(oldSchema, { db })
+      let oldTable = await dbFile.getOrCreateTable(oldSchema, { db })
       if (newSchema.name === oldSchema.name) {
         // rename the old table so the new table can use its name
         await dbFile.renameTable(
@@ -41,6 +41,10 @@ export function tableSchemaMigration<
       for await (const row of oldTable.iterate()) {
         await newTable.insert(rowMapper(row))
       }
+      await dbFile.getOrCreateTable(
+        oldSchema.withName(`$migration_${oldSchema.name}`),
+        { db },
+      )
       await oldTable.drop()
     },
   }

@@ -34,12 +34,10 @@ describe("Create, Read, and Delete", () => {
     })
   })
   it("You can delete records", async () => {
-    const people = new Table(
-      await InMemoryTableStorage.forSchema(peopleSchema),
-    )
+    const people = new Table(InMemoryTableStorage.forSchema(peopleSchema))
     const aliceId = await people.insert({ name: "Alice", age: 12 })
     const bobId = await people.insert({ name: "Bob", age: 12 })
-    people.remove(aliceId)
+    await people.remove(aliceId)
     expect(await people.get(aliceId)).toBeUndefined()
     expect(await people.get(bobId)).toEqual({
       name: "Bob",
@@ -317,14 +315,12 @@ Deno.test("HeapFileTableStorage", async (t) => {
       likesIceCream: true,
     })
 
-    // the row id should change because the record no longer fits into
-    // the existing slot
     newRowId = await people.set(aliceRowId, {
       ...alice!,
       age: 27,
       lastName: "from the books about wonderland",
     })
-    expect(newRowId).not.toMatchObject(aliceRowId)
+    expect(newRowId).toEqual(aliceRowId)
     expect(await people.get(aliceRowId), "old row id will still work").toEqual({
       id: 1,
       firstName: "Alice",

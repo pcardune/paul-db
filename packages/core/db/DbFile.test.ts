@@ -143,6 +143,12 @@ Deno.test("DbFile.createTable() and schema changes", async (t) => {
       name: "Mr. Blue",
     })
 
+    expect(
+      await t.db.tableManager.tablesTable.scanIter("db", "default").map((t) =>
+        t.name
+      ).toArray(),
+    ).toEqual(["users"])
+
     const { newSchema } = await t.db.migrate(tableSchemaMigration(
       "add-age-column",
       t.users.schema,
@@ -160,5 +166,11 @@ Deno.test("DbFile.createTable() and schema changes", async (t) => {
     expect(t.users.lookupUnique("id", 1)).rejects.toThrow(
       "Table has been dropped",
     )
+
+    expect(
+      await t.db.tableManager.tablesTable.scanIter("db", "default").map((t) =>
+        t.name
+      ).toArray(),
+    ).toEqual(["users"])
   })
 })

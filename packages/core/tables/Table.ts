@@ -285,15 +285,28 @@ export class Table<
       throw new Error(`Index ${indexName} does not exist`)
     }
     const ids = await this.lookupInIndex(indexName, value)
+
     for (const id of ids) {
-      await this.data.remove(id)
+      await this.remove(id)
     }
-    await this.data.commit()
   }
 
   async remove(id: RowIdT): Promise<void> {
     this.droppable.assertNotDropped("Table has been dropped")
 
+    const oldRecord = await this.data.get(id)
+    if (oldRecord == null) return // already removed?
+    for (const column of this.schema.columns) {
+      const columnName = column.name as keyof typeof oldRecord
+      const index = await this.indexProvider.getIndexForColumn(columnName)
+      await index?.remove(oldRecord[columnName], id)
+    }
+    for (const column of this.schema.computedColumns) {
+      const columnName = column.name as keyof typeof oldRecord
+      const index = await this.indexProvider.getIndexForColumn(columnName)
+      const oldComputed = column.compute(oldRecord)
+      await index?.remove(oldComputed, id)
+    }
     await this.data.remove(id)
     await this.data.commit()
   }

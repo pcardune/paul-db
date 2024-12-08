@@ -233,7 +233,11 @@ export class InMemoryTableStorage<RowId, RowData>
 
 export type HeapFileRowId = { pageId: PageId; slotIndex: number }
 type HeapFileEntry<RowData> = {
-  header: { rowId: HeapFileRowId; forward: boolean; schemaId: number }
+  header: {
+    canonical: boolean
+    forwardRowId: HeapFileRowId | null
+    schemaId: number
+  }
   rowData: RowData
 }
 export const heapFileRowIdStruct: IStruct<HeapFileRowId> = Struct.record({
@@ -242,8 +246,9 @@ export const heapFileRowIdStruct: IStruct<HeapFileRowId> = Struct.record({
 })
 const headerStruct: IStruct<HeapFileEntry<unknown>["header"]> = Struct.record({
   forward: [0, Struct.boolean],
-  rowId: [1, heapFileRowIdStruct],
+  forwardRowId: [1, heapFileRowIdStruct.nullable()],
   schemaId: [2, Struct.uint32],
+  canonical: [3, Struct.boolean],
 })
 export class HeapFileTableStorage<RowData>
   implements ITableStorage<HeapFileRowId, RowData> {
@@ -280,26 +285,29 @@ export class HeapFileTableStorage<RowData>
     this.droppable.assertNotDropped("TableStorage has been dropped")
     const heapPageFile = this.heapPageFile
     const bufferPool = this.bufferPool
-    const getRecord = this.get.bind(this)
+    const getTerminalEntry = this.getTerminalEntry.bind(this)
     return new AsyncIterableWrapper(async function* () {
       let currentDirectoryPageRef: HeaderPageRef | null =
         heapPageFile.headerPageRef
       while (currentDirectoryPageRef != null) {
         const directoryPage = await currentDirectoryPageRef.get()
-        for (const entry of directoryPage.entries) {
+        for (const directoryEntry of directoryPage.entries) {
           const recordPage = new ReadonlyVariableLengthRecordPage(
-            await bufferPool.getPageView(entry.pageId),
+            await bufferPool.getPageView(directoryEntry.pageId),
           )
           for (
             const [_slot, slotIndex] of recordPage.iterSlots().filter((
               [slot],
             ) => slot.length > 0)
           ) {
-            const id: HeapFileRowId = { slotIndex, pageId: entry.pageId }
-            const data = await getRecord(id)
-            if (data != null) {
-              yield [id, data]
+            const id: HeapFileRowId = {
+              slotIndex,
+              pageId: directoryEntry.pageId,
             }
+            const terminalEntry = await getTerminalEntry(id)
+            if (terminalEntry.canonicalId == null) continue // we're not at the root
+            if (terminalEntry.rowData == null) continue // this was deleted
+            yield [terminalEntry.canonicalId, terminalEntry.rowData]
           }
         }
         currentDirectoryPageRef = await heapPageFile.headerPageRef.getNext()
@@ -319,30 +327,47 @@ export class HeapFileTableStorage<RowData>
     id: HeapFileRowId,
   ): Promise<
     {
-      id: HeapFileRowId
-      entry: HeapFileEntry<RowData> | null
-      path: { id: HeapFileRowId; entry: HeapFileEntry<RowData> | null }[]
+      canonicalId: HeapFileRowId | null
+      terminalId: HeapFileRowId
+      rowData: RowData | undefined
     }
   > {
-    let entry: HeapFileEntry<RowData> | null = null
-    const path: { id: HeapFileRowId; entry: HeapFileEntry<RowData> | null }[] =
-      []
-    while (entry == null || entry.header.forward) {
-      // follow the forward pointer
-      const view = await this.getRecordView(
-        entry == null ? id : entry.header.rowId,
-      )
-      if (view == null) return { id, entry, path } // this was deleted
-      entry = this.entryStruct.readAt(view, 0)
-      path.push({ id, entry })
+    const view = await this.getRecordView(id)
+    if (view == null) {
+      return { canonicalId: id, terminalId: id, rowData: undefined }
     }
-    return { id, entry, path }
+    const entry = this.entryStruct.readAt(view, 0)
+    const canonicalId = entry.header.canonical ? id : null
+    if (entry.header.forwardRowId == null) {
+      return {
+        canonicalId,
+        terminalId: id,
+        rowData: entry.rowData,
+      }
+    }
+    const forwardView = await this.getRecordView(entry.header.forwardRowId)
+    if (forwardView == null) {
+      return {
+        canonicalId,
+        terminalId: entry.header.forwardRowId,
+        rowData: undefined,
+      }
+    }
+    const forwardEntry = this.entryStruct.readAt(forwardView, 0)
+    if (forwardEntry.header.forwardRowId != null) {
+      throw new Error(`Forward chain too long`)
+    }
+    return {
+      canonicalId,
+      terminalId: entry.header.forwardRowId,
+      rowData: forwardEntry.rowData,
+    }
   }
 
   async get(id: HeapFileRowId): Promise<RowData | undefined> {
     this.droppable.assertNotDropped("TableStorage has been dropped")
     const terminal = await this.getTerminalEntry(id)
-    return terminal.entry?.rowData
+    return terminal.rowData ?? undefined
   }
 
   async set(
@@ -350,54 +375,121 @@ export class HeapFileTableStorage<RowData>
     data: RowData,
   ): Promise<HeapFileRowId> {
     this.droppable.assertNotDropped("TableStorage has been dropped")
+
     const terminal = await this.getTerminalEntry(initialId)
-    if (terminal.entry == null) {
+    if (terminal.rowData === undefined) {
+      throw new Error("Cannot set a deleted record")
+    }
+    if (terminal.canonicalId == null) {
+      throw new Error("Cannot set a forward record")
+    }
+
+    const isShallow = terminal.canonicalId === terminal.terminalId
+
+    const terminalSlot = new ReadonlyVariableLengthRecordPage(
+      await this.bufferPool.getPageView(terminal.terminalId.pageId),
+    )
+      .getSlotEntry(terminal.terminalId.slotIndex)
+    if (terminalSlot.length === 0) {
       throw new Error("Cannot set a deleted record")
     }
 
-    const view = await this.bufferPool.getPageView(terminal.id.pageId)
-    const recordPage = new ReadonlyVariableLengthRecordPage(view)
-    const slot = recordPage.getSlotEntry(terminal.id.slotIndex)
-    if (slot.length === 0) {
-      throw new Error("Cannot set a deleted record")
+    // two cases:
+    // case 1: this is a shallow entry
+    if (isShallow) {
+      const newEntry: HeapFileEntry<RowData> = {
+        header: {
+          canonical: true,
+          forwardRowId: null,
+          schemaId: this.schemaId,
+        },
+        rowData: data,
+      }
+      // case 1.1: the new record fits the existing slot
+      if (this.entryStruct.sizeof(newEntry) <= terminalSlot.length) {
+        await this.bufferPool.writeToPage(
+          terminal.terminalId.pageId,
+          (view) => {
+            this.entryStruct.writeAt(newEntry, view, terminalSlot.offset)
+          },
+        )
+        return terminal.canonicalId
+      }
+      // case 1.2: the new record does not fit the existing slot
+      const terminalId = await this._insert(data, { canonical: false })
+      await this.bufferPool.writeToPage(terminal.canonicalId.pageId, (view) => {
+        this.entryStruct.writeAt(
+          {
+            header: {
+              canonical: true,
+              forwardRowId: terminalId,
+              schemaId: this.schemaId,
+            },
+            rowData: this.recordStruct.emptyValue(),
+          },
+          view,
+          terminalSlot.offset,
+        )
+      })
+      return terminal.canonicalId
     }
 
-    const newEntry = {
+    // case 2: this is a forwarded entry
+    const newEntry: HeapFileEntry<RowData> = {
       header: {
-        forward: false,
-        rowId: heapFileRowIdStruct.emptyValue(),
+        canonical: false,
+        forwardRowId: null,
         schemaId: this.schemaId,
       },
       rowData: data,
     }
 
-    if (this.entryStruct.sizeof(newEntry) <= slot.length) {
-      await this.bufferPool.writeToPage(terminal.id.pageId, (view) => {
-        this.entryStruct.writeAt(newEntry, view, slot.offset)
+    if (this.entryStruct.sizeof(newEntry) <= terminalSlot.length) {
+      // case 2.1: this is a forwarded entry, and the new record fits the existing slot
+      await this.bufferPool.writeToPage(terminal.terminalId.pageId, (view) => {
+        this.entryStruct.writeAt(newEntry, view, terminalSlot.offset)
       })
-      return terminal.id
+      return terminal.canonicalId
     }
-    const forwardId = await this.insert(data)
-    const forwardEntry = {
-      header: { forward: true, rowId: forwardId, schemaId: this.schemaId },
-      rowData: this.recordStruct.emptyValue(),
-    }
-    const forwardSize = this.entryStruct.sizeof(forwardEntry)
-    if (forwardSize > slot.length) {
-      throw new Error("Record too large")
-    }
-    await this.bufferPool.writeToPage(terminal.id.pageId, (view) => {
-      this.entryStruct.writeAt(forwardEntry, view, slot.offset)
+    // case 2.2: this is a forwarded entry, and the new record does not fit the existing slot
+    // free up the old slot
+    await this.bufferPool.writeToPage(terminal.terminalId.pageId, (view) => {
+      const recordPage = new WriteableVariableLengthRecordPage(view)
+      recordPage.freeSlot(terminal.terminalId.slotIndex)
     })
-    return forwardId
+    // insert the new record
+    const terminalId = await this._insert(data, { canonical: false })
+    // update the forward record
+    const canoncalSlot = new ReadonlyVariableLengthRecordPage(
+      await this.bufferPool.getPageView(terminal.canonicalId.pageId),
+    )
+      .getSlotEntry(terminal.canonicalId.slotIndex)
+
+    await this.bufferPool.writeToPage(terminal.canonicalId.pageId, (view) => {
+      this.entryStruct.writeAt(
+        {
+          header: {
+            canonical: true,
+            forwardRowId: terminalId,
+            schemaId: this.schemaId,
+          },
+          rowData: this.recordStruct.emptyValue(),
+        },
+        view,
+        canoncalSlot.offset,
+      )
+    })
+    return terminal.canonicalId
   }
 
-  async insert(data: RowData): Promise<HeapFileRowId> {
-    this.droppable.assertNotDropped("TableStorage has been dropped")
-    const entry = {
+  private async _insert(
+    data: RowData,
+    { canonical }: { canonical: boolean },
+  ): Promise<HeapFileRowId> {
+    const entry: HeapFileEntry<RowData> = {
       header: {
-        forward: false,
-        rowId: heapFileRowIdStruct.emptyValue(),
+        canonical,
+        forwardRowId: null,
         schemaId: this.schemaId,
       },
       rowData: data,
@@ -417,16 +509,30 @@ export class HeapFileTableStorage<RowData>
     return { pageId, slotIndex }
   }
 
+  insert(data: RowData): Promise<HeapFileRowId> {
+    this.droppable.assertNotDropped("TableStorage has been dropped")
+    return this._insert(data, { canonical: true })
+  }
+
   async remove(id: HeapFileRowId): Promise<void> {
     this.droppable.assertNotDropped("TableStorage has been dropped")
     const terminal = await this.getTerminalEntry(id)
-    for (const { id, entry } of terminal.path) {
-      if (entry == null) {
-        continue
-      }
-      await this.bufferPool.writeToPage(id.pageId, (view) => {
+    if (terminal.canonicalId == null) {
+      throw new Error("Cannot delete a forward record")
+    }
+    // delete the root record
+    await this.bufferPool.writeToPage(terminal.terminalId.pageId, (view) => {
+      const recordPage = new WriteableVariableLengthRecordPage(view)
+      recordPage.freeSlot(terminal.terminalId.slotIndex)
+    })
+    // delete the forward record
+    if (
+      terminal.terminalId != null &&
+      terminal.terminalId !== terminal.canonicalId
+    ) {
+      await this.bufferPool.writeToPage(terminal.terminalId.pageId, (view) => {
         const recordPage = new WriteableVariableLengthRecordPage(view)
-        recordPage.freeSlot(id.slotIndex)
+        recordPage.freeSlot(terminal.terminalId.slotIndex)
       })
     }
   }

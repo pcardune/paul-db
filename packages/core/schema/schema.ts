@@ -56,6 +56,12 @@ export class TableSchema<
     )
   }
 
+  withName<NewName extends string>(
+    name: NewName,
+  ): TableSchema<NewName, ColumnSchemasT, ComputedColumnsT> {
+    return new TableSchema(name, this.columns, this.computedColumns)
+  }
+
   getColumnByName(name: string): Column.Any | null {
     return this.columnsByName[name] ?? null
   }

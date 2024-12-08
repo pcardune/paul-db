@@ -58,7 +58,11 @@ export class TableManager {
       { db, name: oldName },
       { name: newName },
     )
-    this.tables.delete(`${db}.${oldName}`)
+    const existingRef = this.tables.get(`${db}.${oldName}`)
+    if (existingRef != null) {
+      this.tables.delete(`${db}.${oldName}`)
+      this.tables.set(`${db}.${newName}`, existingRef)
+    }
   }
 
   private async createTableRecord(db: string, name: string) {
@@ -94,8 +98,6 @@ export class TableManager {
           tableRecord,
           this.indexManager,
           new Droppable(async () => {
-            const tableRecord = await this.getTableRecord(db, schema.name)
-            if (tableRecord == null) return
             const schemaTable = await this.getTable(
               SYSTEM_DB,
               schemas.dbSchemas,
