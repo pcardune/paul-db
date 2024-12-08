@@ -10,14 +10,18 @@ export const SYSTEM_DB = "system"
 
 export const schemas = {
   dbPageIds: TableSchema.create("__dbPageIds")
-    .with(column("pageType", ColumnTypes.string()).unique({ inMemory: true }))
-    .with(column("pageId", ColumnTypes.uint64())),
+    .with(
+      column("pageType", ColumnTypes.string()).unique({ inMemory: true }),
+      column("pageId", ColumnTypes.uint64()),
+    ),
 
   dbTables: TableSchema.create("__dbTables")
-    .with(ulidIdColumn)
-    .with(column("db", ColumnTypes.string()))
-    .with(column("name", ColumnTypes.string()))
-    .with(column("heapPageId", ColumnTypes.uint64()))
+    .with(
+      ulidIdColumn,
+      column("db", ColumnTypes.string()),
+      column("name", ColumnTypes.string()),
+      column("heapPageId", ColumnTypes.uint64()),
+    )
     .withUniqueConstraint(
       "_db_name",
       ColumnTypes.string(),
@@ -27,10 +31,12 @@ export const schemas = {
     ),
 
   dbIndexes: TableSchema.create("__dbIndexes")
-    .with(ulidIdColumn)
-    .with(column("indexName", ColumnTypes.string()))
-    .with(column("tableId", ColumnTypes.string()))
-    .with(column("heapPageId", ColumnTypes.uint64()))
+    .with(
+      ulidIdColumn,
+      column("indexName", ColumnTypes.string()),
+      column("tableId", ColumnTypes.string()),
+      column("heapPageId", ColumnTypes.uint64()),
+    )
     .withUniqueConstraint(
       "_tableId_indexName",
       ColumnTypes.string(),
@@ -40,9 +46,11 @@ export const schemas = {
     ),
 
   dbSchemas: TableSchema.create("__dbSchemas")
-    .with(column("id", ColumnTypes.uint32()).unique({ inMemory: true }))
-    .with(column("tableId", ColumnTypes.string()))
-    .with(column("version", ColumnTypes.uint32()))
+    .with(
+      column("id", ColumnTypes.uint32()).unique({ inMemory: true }),
+      column("tableId", ColumnTypes.string()),
+      column("version", ColumnTypes.uint32()),
+    )
     .withUniqueConstraint(
       "tableId_version",
       ColumnTypes.string(),
@@ -52,15 +60,17 @@ export const schemas = {
     ),
 
   dbTableColumns: TableSchema.create("__dbTableColumns")
-    .with(ulidIdColumn)
-    .with(column("schemaId", ColumnTypes.uint32()).index({ inMemory: true }))
-    .with(column("name", ColumnTypes.string()))
-    .with(column("type", ColumnTypes.string()))
-    .with(column("unique", ColumnTypes.boolean()))
-    .with(column("indexed", ColumnTypes.boolean()))
-    .with(column("indexInMemory", ColumnTypes.boolean()).defaultTo(() => false))
-    .with(column("computed", ColumnTypes.boolean()))
-    .with(column("order", ColumnTypes.uint16()))
+    .with(
+      ulidIdColumn,
+      column("schemaId", ColumnTypes.uint32()).index({ inMemory: true }),
+      column("name", ColumnTypes.string()),
+      column("type", ColumnTypes.string()),
+      column("unique", ColumnTypes.boolean()),
+      column("indexed", ColumnTypes.boolean()),
+      column("indexInMemory", ColumnTypes.boolean()).defaultTo(() => false),
+      column("computed", ColumnTypes.boolean()),
+      column("order", ColumnTypes.uint16()),
+    )
     .withUniqueConstraint(
       "schemaId_name",
       ColumnTypes.string(),
@@ -73,9 +83,11 @@ export const schemas = {
     ),
 
   dbMigrations: TableSchema.create("__dbMigrations")
-    .with(column("name", ColumnTypes.string()).unique())
-    .with(column("db", ColumnTypes.string()))
-    .with(column("completedAt", ColumnTypes.timestamp())),
+    .with(
+      column("name", ColumnTypes.string()).unique(),
+      column("db", ColumnTypes.string()),
+      column("completedAt", ColumnTypes.timestamp()),
+    ),
 }
 
 export type TableRecord = StoredRecordForTableSchema<typeof schemas.dbTables>

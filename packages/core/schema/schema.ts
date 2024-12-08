@@ -6,7 +6,7 @@ import {
   StoredRecordForColumnSchemas,
 } from "./columns/ColumnBuilder.ts"
 import { ColumnType } from "./columns/ColumnType.ts"
-import { Simplify } from "npm:type-fest"
+import { NonEmptyTuple, Simplify } from "npm:type-fest"
 import * as Column from "./columns/index.ts"
 
 type InsertRecordForColumnSchemas<CS extends Column.Stored.Any[]> =
@@ -159,22 +159,27 @@ export class TableSchema<
     ])
   }
 
-  with<C extends Column.Stored.Any>(
-    column: C,
-  ): TableSchema<TableName, PushTuple<ColumnSchemasT, C>, ComputedColumnsT> {
-    if (column instanceof ColumnBuilder) {
-      column = column.finalize() as C
-    }
-    const columnName = column.name
-    if (
-      this.columns.some((c) => c.name === columnName) ||
-      this.computedColumns.some((c) => c.name === columnName)
-    ) {
-      throw new Error(`Column '${columnName}' already exists`)
+  with<ColumnsT extends NonEmptyTuple<Column.Stored.Any>>(
+    ...columns: ColumnsT
+  ): TableSchema<
+    TableName,
+    [...ColumnSchemasT, ...ColumnsT],
+    ComputedColumnsT
+  > {
+    for (const column of columns) {
+      const columnName = column.name
+      if (
+        this.columns.some((c) => c.name === columnName) ||
+        this.computedColumns.some((c) => c.name === columnName)
+      ) {
+        throw new Error(`Column '${columnName}' already exists`)
+      }
     }
     return new TableSchema(this.name, [
       ...this.columns,
-      column,
+      ...(columns.map((c) =>
+        c instanceof ColumnBuilder ? c.finalize() : c
+      ) as unknown as ColumnsT),
     ], this.computedColumns)
   }
 }
