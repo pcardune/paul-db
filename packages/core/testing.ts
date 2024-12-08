@@ -58,3 +58,17 @@ export function spyOnBufferPool(bufferPool: IBufferPool, trace = false) {
 }
 
 export function assertType<T>(_value: T) {}
+export type TypeEquals<Actual, Expected> = Actual extends Expected ? true
+  : "Types not equal"
+
+/**
+ * This is a type-level test to ensure that the `TypeEquals` type works as
+ * expected.
+ *
+ * Usage:
+ *
+ * ```ts
+ * assertType<TypeEquals<"green", "green">>()
+ * ```
+ */
+export function assertTrue<T extends true>() {}

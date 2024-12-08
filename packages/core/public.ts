@@ -10,5 +10,6 @@ export type {
   InsertRecordForTableSchema as InferInsertRecord,
   StoredRecordForTableSchema as InferRecord,
 } from "./schema/schema.ts"
+export type { DBModel } from "./db/DbFile.ts"
 
 export type { HeapFileTableInfer as InferTable } from "./tables/TableStorage.ts"

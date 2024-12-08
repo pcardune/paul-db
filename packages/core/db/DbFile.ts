@@ -233,15 +233,7 @@ export class DbFile {
 
   async getDBModel<DBSchemaT extends DBSchema>(
     dbSchema: DBSchemaT,
-  ): Promise<
-    Simplify<
-      {
-        [K in keyof DBSchemaT["schemas"]]: HeapFileTableInfer<
-          DBSchemaT["schemas"][K]
-        >
-      }
-    >
-  > {
+  ): Promise<DBModel<DBSchemaT>> {
     const tables: Record<string, HeapFileTableInfer<SomeTableSchema>> = {}
     for (const schema of Object.values(dbSchema.schemas)) {
       tables[schema.name] = await this.getOrCreateTable(schema, {
@@ -343,3 +335,11 @@ type Migration = {
   name: string
   migrate: (db: DbFile) => Promise<void>
 }
+
+export type DBModel<DBSchemaT extends DBSchema> = Simplify<
+  {
+    [K in keyof DBSchemaT["schemas"]]: HeapFileTableInfer<
+      DBSchemaT["schemas"][K]
+    >
+  }
+>

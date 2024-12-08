@@ -16,13 +16,7 @@ import {
   StoredRecordForColumnSchemas,
 } from "./columns/ColumnBuilder.ts"
 import { DBSchema } from "./DBSchema.ts"
-import { assertType } from "../testing.ts"
-
-type TypeEquals<Actual, Expected> = Actual extends Expected ? true
-  : "Types not equal"
-
-function assertTrue<T extends true>() {}
-assertTrue<TypeEquals<"green", "green">>()
+import { assertTrue, assertType, TypeEquals } from "../testing.ts"
 
 describe("ColumnSchemas", () => {
   const nameColumn = column(

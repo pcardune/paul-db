@@ -1,7 +1,14 @@
 import { expect } from "jsr:@std/expect"
-import { DbFile, s } from "../mod.ts"
-import { generateTestFilePath } from "../testing.ts"
+import { s } from "../mod.ts"
+import { DbFile, DBModel } from "./DbFile.ts"
+import {
+  assertTrue,
+  assertType,
+  generateTestFilePath,
+  TypeEquals,
+} from "../testing.ts"
 import { tableSchemaMigration } from "./migrations.ts"
+import { HeapFileTableInfer } from "../tables/TableStorage.ts"
 
 Deno.test("DbFile initialization", async (t) => {
   using tempFile = generateTestFilePath("DbFile.db")
@@ -199,4 +206,12 @@ Deno.test("DbFile.getDBModel()", async () => {
 
   await model.users.insert({ id: 1, name: "Mr. Blue" })
   await model.todos.insert({ id: 1, text: "Buy milk" })
+
+  assertTrue<
+    TypeEquals<DBModel<typeof dbSchema>, {
+      users: HeapFileTableInfer<typeof dbSchema.schemas.users>
+      todos: HeapFileTableInfer<typeof dbSchema.schemas.todos>
+    }>
+  >()
+  assertType<DBModel<typeof dbSchema>>(model)
 })
