@@ -263,7 +263,12 @@ async function useTableResources(
     .with(column("lastName", ColumnTypes.string()))
     .with(column("age", ColumnTypes.uint32()))
     .with(column("likesIceCream", ColumnTypes.boolean()))
-  const dbFile = await DbFile.open(filePath, { create: true, truncate })
+  const dbFile = await DbFile.open({
+    type: "file",
+    path: filePath,
+    create: true,
+    truncate,
+  })
   const table = await dbFile.getOrCreateTable(schema)
   return {
     table,

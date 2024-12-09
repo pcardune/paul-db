@@ -1,6 +1,5 @@
 import { exists } from "@std/fs/exists"
 import { DbFile } from "./db/DbFile.ts"
-import { WriteAheadLog } from "./wal.ts"
 import * as path from "@std/path"
 
 export { DbFile } from "./db/DbFile.ts"
@@ -16,7 +15,15 @@ export {
 } from "./schema/columns/ColumnType.ts"
 
 export class PaulDB {
-  private constructor(private wal: WriteAheadLog, readonly dbFile: DbFile) {
+  private constructor(readonly dbFile: DbFile) {
+  }
+
+  static async inMemory() {
+    return new PaulDB(await DbFile.open({ type: "memory" }))
+  }
+
+  static async localStorage(prefix?: string) {
+    return new PaulDB(await DbFile.open({ type: "localstorage", prefix }))
   }
 
   static async open(dirName: string, { create = false } = {}) {
@@ -28,10 +35,13 @@ export class PaulDB {
         throw new Error(`Directory ${dirName} does not exist`)
       }
     }
-    const wal = await WriteAheadLog.create(path.join(dirName, "logs"))
-    const dbFile = await DbFile.open(path.join(dirName, "db"), { create })
+    const dbFile = await DbFile.open({
+      type: "file",
+      path: path.join(dirName, "db"),
+      create,
+    })
 
-    return new PaulDB(wal, dbFile)
+    return new PaulDB(dbFile)
   }
 
   [Symbol.dispose]() {
@@ -39,15 +49,6 @@ export class PaulDB {
   }
 
   shutdown() {
-    this.wal.cleanup()
     this.dbFile.close()
-  }
-
-  async insert(key: string, value: string) {
-    await this.wal.write({
-      type: "insert",
-      key,
-      value,
-    })
   }
 }

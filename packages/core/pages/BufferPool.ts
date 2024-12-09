@@ -3,6 +3,7 @@ import { Struct } from "../binary/Struct.ts"
 import { EOFError, readBytesAt, writeBytesAt } from "../io.ts"
 import { debugLogger } from "../logging.ts"
 import { Promisable } from "npm:type-fest"
+import { decodeBase64, encodeBase64 } from "jsr:@std/encoding"
 
 const debugLog = debugLogger(false)
 
@@ -29,6 +30,7 @@ export interface IBufferPool {
 
   markDirty(pageId: PageId): void
   commit(): Promisable<void>
+  close?(): void
 }
 
 export class InMemoryBufferPool implements IBufferPool {
@@ -84,6 +86,97 @@ export class InMemoryBufferPool implements IBufferPool {
 
   commit(): void {
     // not needed for in-memory implementation
+  }
+}
+
+export class LocalStorageBackedBufferPool implements IBufferPool {
+  private __nextPageId: PageId = 1n
+  private get nextPageId(): PageId {
+    return this.__nextPageId
+  }
+  private set nextPageId(value: PageId) {
+    this.__nextPageId = value
+    localStorage.setItem(`${this.prefix}-root`, value.toString())
+  }
+
+  constructor(
+    private prefix: string = "bufferpool",
+    readonly pageSize: number = 4096,
+  ) {
+    if (!localStorage) {
+      throw new Error("LocalStorage not available")
+    }
+    const root = localStorage.getItem(`${prefix}-root`)
+    if (root) {
+      this.__nextPageId = BigInt(root)
+    } else {
+      this.nextPageId = 1n
+    }
+  }
+
+  private pageCache: Map<PageId, Uint8Array> = new Map()
+
+  allocatePage(): PageId {
+    const pageId = this.nextPageId++
+    this.pageCache.set(pageId, new Uint8Array(this.pageSize))
+    this.markDirty(pageId)
+    return pageId
+  }
+
+  freePage(pageId: PageId): Promisable<void> {
+    this.pageCache.delete(pageId)
+    localStorage.removeItem(`${this.prefix}-${pageId}`)
+  }
+
+  freePages(pageIds: PageId[]): Promisable<void> {
+    for (const pageId of pageIds) {
+      this.freePage(pageId)
+    }
+  }
+
+  getPageView(pageId: PageId): Promisable<ReadonlyDataView> {
+    return new ReadonlyDataView(this._getPageBuffer(pageId).buffer)
+  }
+
+  private _getPageBuffer(pageId: PageId) {
+    const page = this.pageCache.get(pageId)
+    if (page) {
+      return page
+    }
+    const data = localStorage.getItem(`${this.prefix}-${pageId}`)
+    if (!data) {
+      throw new Error(`Page ${pageId} not found`)
+    }
+    const buffer = decodeBase64(data)
+    this.pageCache.set(pageId, buffer)
+    return buffer
+  }
+
+  writeToPage<R>(
+    pageId: PageId,
+    writer: (view: WriteablePage) => Promisable<R>,
+  ): Promisable<R> {
+    const page = this._getPageBuffer(pageId)
+    const result = writer(new WriteablePage(page.buffer))
+    this.markDirty(pageId)
+    return result
+  }
+
+  private dirtyPages: Set<PageId> = new Set()
+
+  markDirty(pageId: PageId): void {
+    this.dirtyPages.add(pageId)
+  }
+
+  commit(): Promisable<void> {
+    for (const pageId of this.dirtyPages) {
+      const page = this.pageCache.get(pageId)
+      if (!page) {
+        throw new Error(`Page ${pageId} not found`)
+      }
+      localStorage.setItem(`${this.prefix}-${pageId}`, encodeBase64(page))
+    }
+    this.dirtyPages.clear()
   }
 }
 

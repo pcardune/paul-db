@@ -14,7 +14,9 @@ import { Json } from "../types.ts"
 
 Deno.test("DbFile initialization", async (t) => {
   using tempFile = generateTestFilePath("DbFile.db")
-  using db = await DbFile.open(tempFile.filePath, {
+  using db = await DbFile.open({
+    type: "file",
+    path: tempFile.filePath,
     create: true,
     truncate: true,
   })
@@ -86,7 +88,7 @@ Deno.test("DbFile initialization", async (t) => {
   })
 
   await t.step("Reopening the db yields the same initial state", async () => {
-    using db = await DbFile.open(tempFile.filePath)
+    using db = await DbFile.open({ type: "file", path: tempFile.filePath })
     const newState = await dumpState(db)
     expect(newState).toEqual(initialState)
     await getColumns(db)
@@ -95,7 +97,9 @@ Deno.test("DbFile initialization", async (t) => {
 
 Deno.test("DbFile.createTable()", async () => {
   using tempFile = generateTestFilePath("DbFile.db")
-  using db = await DbFile.open(tempFile.filePath, {
+  using db = await DbFile.open({
+    type: "file",
+    path: tempFile.filePath,
     create: true,
     truncate: true,
   })
@@ -131,7 +135,9 @@ Deno.test("DbFile.createTable() and schema changes", async (t) => {
     .with(s.column("name", s.type.string()))
 
   async function init() {
-    const db = await DbFile.open(tempFile.filePath, {
+    const db = await DbFile.open({
+      type: "file",
+      path: tempFile.filePath,
       create: true,
       truncate: true,
     })
@@ -199,7 +205,9 @@ Deno.test("DbFile.getDBModel()", async () => {
       ),
   )
 
-  using dbFile = await DbFile.open(tempFile.filePath, {
+  using dbFile = await DbFile.open({
+    type: "file",
+    path: tempFile.filePath,
     create: true,
     truncate: true,
   })
@@ -235,7 +243,9 @@ Deno.test("DbFile.export() and DbFile.importRecords()", async () => {
 
   {
     using tempFile = generateTestFilePath("DbFile.db")
-    using dbFile = await DbFile.open(tempFile.filePath, {
+    using dbFile = await DbFile.open({
+      type: "file",
+      path: tempFile.filePath,
       create: true,
       truncate: true,
     })
@@ -261,7 +271,9 @@ Deno.test("DbFile.export() and DbFile.importRecords()", async () => {
 
   {
     using tempFile = generateTestFilePath("DbFile.db")
-    using dbFile = await DbFile.open(tempFile.filePath, {
+    using dbFile = await DbFile.open({
+      type: "file",
+      path: tempFile.filePath,
       create: true,
       truncate: true,
     })
@@ -277,5 +289,40 @@ Deno.test("DbFile.export() and DbFile.importRecords()", async () => {
     expect(await model.users.lookupUniqueOrThrow("id", 1)).toEqual(
       { id: 1, name: "Mr. Blue" },
     )
+  }
+})
+
+Deno.test("local storage buffer pool", async () => {
+  localStorage.clear()
+  {
+    using db = await DbFile.open({ type: "localstorage", prefix: "test" })
+    const dbSchema = s.db().withTables(
+      s.table("users").with(
+        s.column("id", s.type.uint32()).unique(),
+        s.column("name", s.type.string()),
+      ),
+    )
+    const model = await db.getDBModel(dbSchema)
+    await model.users.insert({ id: 1, name: "Alice" })
+    expect(await model.users.iterate().toArray()).toEqual([
+      { id: 1, name: "Alice" },
+    ])
+
+    expect(localStorage.getItem("test-header")).toEqual("1")
+    expect(localStorage.getItem("test-root")).toEqual("16")
+  }
+
+  {
+    using db = await DbFile.open({ type: "localstorage", prefix: "test" })
+    const dbSchema = s.db().withTables(
+      s.table("users").with(
+        s.column("id", s.type.uint32()).unique(),
+        s.column("name", s.type.string()),
+      ),
+    )
+    const model = await db.getDBModel(dbSchema)
+    expect(await model.users.iterate().toArray()).toEqual([
+      { id: 1, name: "Alice" },
+    ])
   }
 })

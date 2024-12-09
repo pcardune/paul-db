@@ -10,7 +10,9 @@ export const debugLogger = (cond: boolean) =>
     }
     : () => {}
 
-export const debugLog = debugLogger(Deno.env.get("DEBUG") === "true")
+export const debugLog = debugLogger(
+  globalThis.Deno?.env.get("DEBUG") === "true",
+)
 
 export function debugJson(obj: unknown, indent = 0): string {
   return JSON.stringify(obj, (_key: string, value: unknown) => {

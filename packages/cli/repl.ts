@@ -4,7 +4,7 @@ import { Input } from "@cliffy/prompt"
 import { SQLExecutor } from "@paul-db/sql"
 
 export async function startRepl(db: PaulDB) {
-  Deno.stdout.write(new TextEncoder().encode("Welcome to the PaulDB REPL\n"))
+  console.log("Welcome to the PaulDB REPL")
   const parser = new SQLParser.Parser()
 
   while (true) {
@@ -39,7 +39,9 @@ export async function startRepl(db: PaulDB) {
       if (cmd === "dt") {
         console.log("Tables:")
         const schemas = await db.dbFile.getSchemasTable()
-        for await (const table of db.dbFile.tablesTable.iterate()) {
+        for await (
+          const table of db.dbFile.tableManager.tablesTable.iterate()
+        ) {
           console.log(` ${table.db}:${table.name}`)
           for await (
             const schemaVersion of schemas.schemaTable.scanIter(

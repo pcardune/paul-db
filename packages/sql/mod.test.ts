@@ -4,7 +4,9 @@ import { expect } from "jsr:@std/expect"
 import { omit, pick } from "jsr:@std/collections"
 
 async function getExecutor() {
-  const dbFile = await DbFile.open("/tmp/paul-db-test", {
+  const dbFile = await DbFile.open({
+    type: "file",
+    path: "/tmp/paul-db-test",
     create: true,
     truncate: true,
   })

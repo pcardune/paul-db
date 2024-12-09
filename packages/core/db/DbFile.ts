@@ -1,6 +1,12 @@
 import { Struct } from "../binary/Struct.ts"
 import { readBytesAt, writeBytesAt } from "../io.ts"
-import { FileBackedBufferPool, PageId } from "../pages/BufferPool.ts"
+import {
+  FileBackedBufferPool,
+  IBufferPool,
+  InMemoryBufferPool,
+  LocalStorageBackedBufferPool,
+  PageId,
+} from "../pages/BufferPool.ts"
 import { getColumnTypeFromString } from "../schema/columns/ColumnType.ts"
 import { SomeTableSchema, TableSchema } from "../schema/schema.ts"
 import { Table } from "../tables/Table.ts"
@@ -21,8 +27,7 @@ const headerStruct = Struct.record({
 
 export class DbFile {
   private constructor(
-    private file: Deno.FsFile,
-    readonly bufferPool: FileBackedBufferPool,
+    readonly bufferPool: IBufferPool,
     readonly dbPageIdsTable: HeapFileTableInfer<typeof schemas.dbPageIds>,
     readonly indexManager: IndexManager,
     readonly tableManager: TableManager,
@@ -99,74 +104,42 @@ export class DbFile {
     }
   }
 
-  static async open(
-    path: string,
-    { create = false, truncate = false }: {
-      create?: boolean
-      truncate?: boolean
-    } = {},
-  ) {
-    const file = await Deno.open(path, {
-      read: true,
-      write: true,
-      create,
-      truncate,
-    })
-
-    let bufferPool: FileBackedBufferPool
-    let headerPageId: PageId
-
-    /** Where the buffer pool starts in the file */
-    const bufferPoolOffset = headerStruct.size
-
-    const fileInfo = await file.stat()
-    const needsCreation = fileInfo.size === 0
-    if (needsCreation) {
-      if (!create && !truncate) {
-        throw new Error(
-          "File is empty and neither create nor truncate flag were set",
-        )
+  static async open(config: StorageConfig) {
+    let storageLayer: StorageLayer
+    if (config.type === "file") {
+      storageLayer = await openFile(config)
+    } else if (config.type === "memory") {
+      const bufferPool = new InMemoryBufferPool(4096)
+      const headerPageId = bufferPool.allocatePage()
+      storageLayer = {
+        bufferPool: bufferPool,
+        headerPageId: headerPageId,
+        needsCreation: true,
       }
-      // write the header
-      const pageSize: number = 4096
-      await writeBytesAt(
-        file,
-        0,
-        headerStruct.toUint8Array({
-          pageSize: pageSize,
-          headerPageId: 0n,
-        }),
-      )
-
-      bufferPool = await FileBackedBufferPool.create(
-        file,
-        pageSize,
-        bufferPoolOffset,
-      )
-      headerPageId = await bufferPool.allocatePage()
-      await bufferPool.commit()
-      await writeBytesAt(
-        file,
-        0,
-        headerStruct.toUint8Array({
-          pageSize: pageSize,
-          headerPageId: headerPageId,
-        }),
-      )
+    } else if (config.type === "localstorage") {
+      const prefix = config.prefix ?? "bufferpool"
+      const bufferPool = new LocalStorageBackedBufferPool(prefix)
+      const header = localStorage.getItem(`${prefix}-header`)
+      if (header == null) {
+        const headerPageId = bufferPool.allocatePage()
+        localStorage.setItem(`${prefix}-header`, headerPageId.toString())
+        storageLayer = {
+          bufferPool,
+          headerPageId,
+          needsCreation: true,
+        }
+      } else {
+        storageLayer = {
+          bufferPool,
+          headerPageId: BigInt(header),
+          needsCreation: false,
+        }
+      }
     } else {
-      // read the header
-      const view = new ReadonlyDataView(
-        (await readBytesAt(file, 0, headerStruct.size)).buffer,
-      )
-      const header = headerStruct.readAt(view, 0)
-      const { pageSize: pageSize } = header
-      headerPageId = header.headerPageId
-      bufferPool = await FileBackedBufferPool.create(
-        file,
-        pageSize,
-        bufferPoolOffset,
-      )
+      throw new Error(`Unknown storage type`)
     }
+
+    const { bufferPool, headerPageId, needsCreation } = storageLayer
 
     const dbPageIdsTable = new Table(
       getTableConfig(
@@ -210,7 +183,6 @@ export class DbFile {
     )
     const indexManager = new IndexManager(dbIndexesTable)
     const dbFile = new DbFile(
-      file,
       bufferPool,
       dbPageIdsTable,
       indexManager,
@@ -232,7 +204,7 @@ export class DbFile {
   }
 
   close() {
-    this.file.close()
+    this.bufferPool.close?.()
   }
 
   [Symbol.dispose](): void {
@@ -358,3 +330,96 @@ export type DBModel<DBSchemaT extends DBSchema> = Simplify<
     >
   }
 >
+
+export type StorageConfig = {
+  type: "file"
+  path: string
+  create?: boolean
+  truncate?: boolean
+} | {
+  type: "memory"
+} | {
+  type: "localstorage"
+  prefix?: string
+}
+
+async function openFile(
+  { path, create = false, truncate = false }: Extract<
+    StorageConfig,
+    { type: "file" }
+  >,
+): Promise<StorageLayer> {
+  const file = await Deno.open(path, {
+    read: true,
+    write: true,
+    create,
+    truncate,
+  })
+
+  let bufferPool: FileBackedBufferPool
+  let headerPageId: PageId
+
+  /** Where the buffer pool starts in the file */
+  const bufferPoolOffset = headerStruct.size
+
+  const fileInfo = await file.stat()
+  const needsCreation = fileInfo.size === 0
+  if (needsCreation) {
+    if (!create && !truncate) {
+      throw new Error(
+        "File is empty and neither create nor truncate flag were set",
+      )
+    }
+    // write the header
+    const pageSize: number = 4096
+    await writeBytesAt(
+      file,
+      0,
+      headerStruct.toUint8Array({
+        pageSize: pageSize,
+        headerPageId: 0n,
+      }),
+    )
+
+    bufferPool = await FileBackedBufferPool.create(
+      file,
+      pageSize,
+      bufferPoolOffset,
+    )
+    headerPageId = await bufferPool.allocatePage()
+    await bufferPool.commit()
+    await writeBytesAt(
+      file,
+      0,
+      headerStruct.toUint8Array({
+        pageSize: pageSize,
+        headerPageId: headerPageId,
+      }),
+    )
+  } else {
+    // read the header
+    const view = new ReadonlyDataView(
+      (await readBytesAt(file, 0, headerStruct.size)).buffer,
+    )
+    const header = headerStruct.readAt(view, 0)
+    const { pageSize: pageSize } = header
+    headerPageId = header.headerPageId
+    bufferPool = await FileBackedBufferPool.create(
+      file,
+      pageSize,
+      bufferPoolOffset,
+    )
+  }
+
+  return {
+    bufferPool,
+    headerPageId,
+    needsCreation,
+  }
+}
+
+type StorageLayer = {
+  bufferPool: IBufferPool
+  headerPageId: PageId
+  needsCreation: boolean
+}
