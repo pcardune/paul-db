@@ -43,6 +43,41 @@ export function mapAsync<T, U>(
   }
 }
 
+export function takeAsync<T>(
+  iterable: AsyncIterable<T>,
+  count: number,
+): AsyncIterable<T> {
+  return {
+    [Symbol.asyncIterator]: async function* () {
+      let i = 0
+      for await (const item of iterable) {
+        if (i >= count) {
+          break
+        }
+        yield item
+        i++
+      }
+    },
+  }
+}
+
+export function skipAsync<T>(
+  iterable: AsyncIterable<T>,
+  count: number,
+): AsyncIterable<T> {
+  return {
+    [Symbol.asyncIterator]: async function* () {
+      let i = 0
+      for await (const item of iterable) {
+        if (i >= count) {
+          yield item
+        }
+        i++
+      }
+    },
+  }
+}
+
 /**
  * Wraps an async iterable to provide additional functionality.
  */
@@ -73,6 +108,14 @@ export class AsyncIterableWrapper<T> {
 
   map<U>(mapper: (item: T) => Promisable<U>): AsyncIterableWrapper<U> {
     return new AsyncIterableWrapper(mapAsync(this.iterable, mapper))
+  }
+
+  take(count: number): AsyncIterableWrapper<T> {
+    return new AsyncIterableWrapper(takeAsync(this.iterable, count))
+  }
+
+  skip(count: number): AsyncIterableWrapper<T> {
+    return new AsyncIterableWrapper(skipAsync(this.iterable, count))
   }
 }
 
