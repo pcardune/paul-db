@@ -12,6 +12,7 @@ import { IndexManager } from "./IndexManager.ts"
 import { getTableConfig, TableManager } from "./TableManager.ts"
 import { DBSchema } from "../schema/DBSchema.ts"
 import { Simplify } from "npm:type-fest"
+import { Json } from "../types.ts"
 
 const headerStruct = Struct.record({
   pageSize: [0, Struct.uint32],
@@ -49,7 +50,21 @@ export class DbFile {
     return { schemaTable, columnsTable }
   }
 
-  async *export(filter: { db?: string; table?: string } = {}) {
+  async importRecords(
+    rows: AsyncIterable<{ db: string; table: string; record: Json }>,
+  ) {
+    for await (const row of rows) {
+      const schemas = await this.getSchemasOrThrow(row.db, row.table)
+      const table = await this.tableManager.getTable(row.db, schemas[0].schema)
+      if (table == null) {
+        throw new Error(`Table ${row.db}.${row.table} not found`)
+      }
+      const record = table.data.recordStruct.fromJSON(row.record)
+      await table.data.insert(record)
+    }
+  }
+
+  async *exportRecords(filter: { db?: string; table?: string } = {}) {
     debugLog("DbFile.export()")
     const tables = await this.tableManager.tablesTable.iterate().toArray()
     for (const tableRecord of tables) {

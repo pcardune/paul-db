@@ -44,7 +44,9 @@ new Command().name("paul-db").version("0.0.1")
         if (output) {
           await Deno.open(output, { create: true, write: true, truncate: true })
         }
-        for await (const record of db.dbFile.export({ table, db: dbName })) {
+        for await (
+          const record of db.dbFile.exportRecords({ table, db: dbName })
+        ) {
           const json = JSON.stringify(recordsOnly ? record.record : record)
 
           if (output) {

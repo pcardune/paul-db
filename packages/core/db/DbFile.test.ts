@@ -9,6 +9,8 @@ import {
 } from "../testing.ts"
 import { tableSchemaMigration } from "./migrations.ts"
 import { HeapFileTableInfer } from "../tables/TableStorage.ts"
+import { AsyncIterableWrapper } from "../async.ts"
+import { Json } from "../types.ts"
 
 Deno.test("DbFile initialization", async (t) => {
   using tempFile = generateTestFilePath("DbFile.db")
@@ -214,4 +216,63 @@ Deno.test("DbFile.getDBModel()", async () => {
     }>
   >()
   assertType<DBModel<typeof dbSchema>>(model)
+})
+
+Deno.test("DbFile.export() and DbFile.importRecords()", async () => {
+  const rows: { db: string; table: string; record: Json }[] = []
+  const dbSchema = s.db().withTables(
+    s.table("users")
+      .with(
+        s.column("id", s.type.uint32()).unique(),
+        s.column("name", s.type.string()),
+      ),
+    s.table("todos")
+      .with(
+        s.column("id", s.type.uint32()).unique(),
+        s.column("text", s.type.string()),
+      ),
+  )
+
+  {
+    using tempFile = generateTestFilePath("DbFile.db")
+    using dbFile = await DbFile.open(tempFile.filePath, {
+      create: true,
+      truncate: true,
+    })
+    const model = await dbFile.getDBModel(dbSchema)
+    await model.users.insert({ id: 1, name: "Mr. Blue" })
+    await model.todos.insert({ id: 1, text: "Buy milk" })
+    for await (const row of dbFile.exportRecords({ db: "default" })) {
+      rows.push(row)
+    }
+  }
+  expect(rows).toEqual([
+    {
+      db: "default",
+      table: "users",
+      record: { id: 1, name: "Mr. Blue" },
+    },
+    {
+      db: "default",
+      table: "todos",
+      record: { id: 1, text: "Buy milk" },
+    },
+  ])
+
+  {
+    using tempFile = generateTestFilePath("DbFile.db")
+    using dbFile = await DbFile.open(tempFile.filePath, {
+      create: true,
+      truncate: true,
+    })
+    const model = await dbFile.getDBModel(dbSchema)
+    await dbFile.importRecords(new AsyncIterableWrapper(rows))
+
+    expect(await model.users.iterate().toArray()).toEqual([
+      { id: 1, name: "Mr. Blue" },
+    ])
+    expect(await model.todos.iterate().toArray()).toEqual([
+      { id: 1, text: "Buy milk" },
+    ])
+  }
 })

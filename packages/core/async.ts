@@ -85,12 +85,21 @@ export class AsyncIterableWrapper<T> {
   private iterable: AsyncIterable<T>
 
   constructor(
-    iterable: AsyncIterable<T> | (() => AsyncGenerator<T, void, unknown>),
+    iterable:
+      | Iterable<T>
+      | AsyncIterable<T>
+      | (() => AsyncGenerator<T, void, unknown>),
   ) {
     if (typeof iterable === "function") {
       this.iterable = iterable()
-    } else {
+    } else if (Symbol.asyncIterator in iterable) {
       this.iterable = iterable
+    } else {
+      this.iterable = {
+        [Symbol.asyncIterator]: async function* () {
+          yield* iterable
+        },
+      }
     }
   }
 
