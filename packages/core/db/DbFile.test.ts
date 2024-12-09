@@ -274,5 +274,8 @@ Deno.test("DbFile.export() and DbFile.importRecords()", async () => {
     expect(await model.todos.iterate().toArray()).toEqual([
       { id: 1, text: "Buy milk" },
     ])
+    expect(await model.users.lookupUniqueOrThrow("id", 1)).toEqual(
+      { id: 1, name: "Mr. Blue" },
+    )
   }
 })

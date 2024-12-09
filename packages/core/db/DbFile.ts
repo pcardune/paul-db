@@ -60,7 +60,7 @@ export class DbFile {
         throw new Error(`Table ${row.db}.${row.table} not found`)
       }
       const record = table.data.recordStruct.fromJSON(row.record)
-      await table.data.insert(record)
+      await table.insert(record)
     }
   }
 
