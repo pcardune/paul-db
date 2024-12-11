@@ -52,6 +52,11 @@ describe("ColumnSchemas", () => {
       "name",
       ColumnTypes.string(),
     )
+    const nameAndAgeColumn = computedColumn(
+      "nameAndAnge",
+      ColumnTypes.string(),
+      (input: { name: string; age: number }) => `${input.name} ${input.age}`,
+    )
     assertTrue<TypeEquals<number, Column.Stored.GetValue<typeof ageColumn>>>()
 
     type StoredRecord = StoredRecordForColumnSchemas<
@@ -59,6 +64,21 @@ describe("ColumnSchemas", () => {
     >
     assertTrue<TypeEquals<{ age: number; name: string }, StoredRecord>>()
     assertTrue<TypeEquals<undefined, typeof ageColumn["defaultValueFactory"]>>()
+
+    assertTrue<TypeEquals<string, Column.GetOutput<typeof nameAndAgeColumn>>>()
+    assertTrue<TypeEquals<number, Column.GetOutput<typeof ageColumn>>>()
+    assertTrue<
+      TypeEquals<
+        { age: number },
+        Column.GetRecordContainingColumn<typeof ageColumn>
+      >
+    >()
+    assertTrue<
+      TypeEquals<
+        { age: number; name: string },
+        Column.GetRecordContainingColumn<typeof nameAndAgeColumn>
+      >
+    >()
   })
 
   it("lets you make a column unique", () => {

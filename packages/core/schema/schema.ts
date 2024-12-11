@@ -9,6 +9,8 @@ import { ColumnType } from "./columns/ColumnType.ts"
 import { NonEmptyTuple, Simplify } from "npm:type-fest"
 import * as Column from "./columns/index.ts"
 
+export { Column }
+
 type InsertRecordForColumnSchemas<CS extends Column.Stored.Any[]> =
   & {
     [K in Extract<CS[number], { defaultValueFactory: undefined }>["name"]]:
@@ -62,8 +64,20 @@ export class TableSchema<
     return new TableSchema(name, this.columns, this.computedColumns)
   }
 
-  getColumnByName(name: string): Column.Any | null {
-    return this.columnsByName[name] ?? null
+  getColumnByName(
+    name: ColumnSchemasT[number]["name"] | ComputedColumnsT[number]["name"],
+  ): Column.Any | undefined {
+    return this.columnsByName[name]
+  }
+
+  getColumnByNameOrThrow(
+    name: ColumnSchemasT[number]["name"] | ComputedColumnsT[number]["name"],
+  ): Column.Any {
+    const column = this.columnsByName[name]
+    if (column == null) {
+      throw new Error(`Column '${name}' not found`)
+    }
+    return column
   }
 
   static create<TableName extends string>(

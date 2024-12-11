@@ -31,3 +31,21 @@ export type FindIndexed<CS extends Any[]> = Exclude<
   CS[number],
   { indexed: { shouldIndex: false } }
 >
+
+/**
+ * Get the value type of a column. If the column is computed, this will be the
+ * output type of the computation. If the column is stored, this will be the
+ * value type of the column.
+ */
+export type GetOutput<C extends Any> = C extends Computed.Any
+  ? Computed.GetOutput<C>
+  : Stored.GetValue<C>
+
+/**
+ * Gets the record you would need if you wanted it to contain this column.
+ */
+export type GetRecordContainingColumn<C extends Any> = C extends Computed.Any
+  ? Computed.GetInput<C>
+  : {
+    [Property in C["name"]]: Stored.GetValue<C>
+  }

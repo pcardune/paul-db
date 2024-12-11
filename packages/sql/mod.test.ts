@@ -1,15 +1,10 @@
 import { DbFile } from "@paul-db/core"
 import { SQLExecutor } from "./mod.ts"
 import { expect } from "jsr:@std/expect"
-import { omit, pick } from "jsr:@std/collections"
+import { pick } from "jsr:@std/collections"
 
 async function getExecutor() {
-  const dbFile = await DbFile.open({
-    type: "file",
-    path: "/tmp/paul-db-test",
-    create: true,
-    truncate: true,
-  })
+  const dbFile = await DbFile.open({ type: "memory" })
   const sql = new SQLExecutor(dbFile)
   return { sql, dbFile, [Symbol.dispose]: () => dbFile.close() }
 }
@@ -62,24 +57,78 @@ Deno.test("INSERT INTO", async (t) => {
     )
 
     expect(
-      await e.table.iterate().map((row) => omit(row, ["id"]))
-        .toArray(),
+      await e.table.iterate().toArray(),
     ).toEqual([
       { x: 1.0, y: 2.0, color: "green" },
     ])
   })
 })
 
-Deno.test("SELECT", async (t) => {
-  await t.step("SELECT * FROM points", async () => {
-    using e = await getPointsTable()
-    await e.sql.execute(
-      "INSERT INTO points (x, y, color) VALUES (1.0, 2.0, 'green')",
-    )
+type Suite = {
+  setup: string[]
+  cases: [sql: string, result: unknown][]
+}
 
-    const result = await e.sql.execute<{ id: string }[]>("SELECT * FROM points")
-    expect(result?.map((r) => omit(r, ["id"]))).toEqual([
-      { x: 1.0, y: 2.0, color: "green" },
-    ])
+function testSuite(name: string, suite: Suite) {
+  Deno.test(name, async (t) => {
+    using e = await getExecutor()
+    for (const setup of suite.setup) {
+      await e.sql.execute(setup)
+    }
+    for (const [sql, result] of suite.cases) {
+      await t.step(sql, async () => {
+        expect(await e.sql.execute(sql)).toEqual(result)
+      })
+    }
   })
+}
+
+testSuite("SELECT", {
+  setup: [
+    `
+    CREATE TABLE points (x float, y float, color TEXT);
+    INSERT INTO points (x, y, color) VALUES (1.0, 2.0, 'green');
+    INSERT INTO points (x, y, color) VALUES (3.0, 4.0, 'blue');
+    INSERT INTO points (x, y, color) VALUES (5.0, 6.0, 'red');
+    `,
+  ],
+  cases: [
+    ["SELECT * FROM points", [
+      { x: 1.0, y: 2.0, color: "green" },
+      { x: 3.0, y: 4.0, color: "blue" },
+      { x: 5.0, y: 6.0, color: "red" },
+    ]],
+    ["SELECT * FROM points WHERE color = 'green'", [
+      { x: 1.0, y: 2.0, color: "green" },
+    ]],
+    ["SELECT * FROM points WHERE color != 'green'", [
+      { x: 3.0, y: 4.0, color: "blue" },
+      { x: 5.0, y: 6.0, color: "red" },
+    ]],
+    ["SELECT * FROM points WHERE color >= 'green'", [
+      { x: 1.0, y: 2.0, color: "green" },
+      { x: 5.0, y: 6.0, color: "red" },
+    ]],
+    ["SELECT * FROM points WHERE color > 'green'", [
+      { x: 5.0, y: 6.0, color: "red" },
+    ]],
+    ["SELECT * FROM points WHERE color < 'green'", [
+      { x: 3.0, y: 4.0, color: "blue" },
+    ]],
+    ["SELECT * FROM points WHERE color <= 'green'", [
+      { x: 1.0, y: 2.0, color: "green" },
+      { x: 3.0, y: 4.0, color: "blue" },
+    ]],
+    ["SELECT * FROM points WHERE x <= 3.5", [
+      { x: 1.0, y: 2.0, color: "green" },
+      { x: 3.0, y: 4.0, color: "blue" },
+    ]],
+    ["SELECT * FROM points WHERE x <= 3.5 AND color < 'green'", [
+      { x: 3.0, y: 4.0, color: "blue" },
+    ]],
+    ["SELECT * FROM points WHERE x <= 3.5 AND color < 'green' OR y < 3.0", [
+      { x: 1.0, y: 2.0, color: "green" },
+      { x: 3.0, y: 4.0, color: "blue" },
+    ]],
+  ],
 })

@@ -1,9 +1,12 @@
-import { type DbFile, s, TableSchema } from "@paul-db/core"
+import { type DbFile, plan, s } from "@paul-db/core"
 import SQLParser, { Column } from "npm:node-sql-parser"
 import { Create } from "npm:node-sql-parser/types"
 import { SomeTableSchema } from "../core/schema/schema.ts"
 import { getColumnTypeFromSQLType } from "../core/schema/columns/ColumnType.ts"
-
+import { UnknownRecord } from "npm:type-fest"
+import { NotImplementedError, TableNotFoundError } from "./errors.ts"
+import { isColumnRefItem } from "./parser.ts"
+import { handleWhere } from "./where.ts"
 type CreateDefinition = Exclude<
   Create["create_definitions"],
   null | undefined
@@ -11,8 +14,6 @@ type CreateDefinition = Exclude<
 type CreateColumnDefinition = Extract<CreateDefinition, { resource: "column" }>
 
 export class SQLParseError extends Error {}
-export class NotImplementedError extends Error {}
-export class TableNotFoundError extends Error {}
 export class SQLExecutor {
   private parser: SQLParser.Parser
 
@@ -33,30 +34,28 @@ export class SQLExecutor {
     return await this.handleAST(ast) as T
   }
 
-  handleAST(ast: SQLParser.TableColumnAst) {
+  async handleAST(ast: SQLParser.TableColumnAst) {
     const commands = Array.isArray(ast.ast) ? ast.ast : [ast.ast]
-    if (commands.length > 1) {
-      throw new NotImplementedError("Only one command at a time for now...")
+
+    const results = []
+    for (const command of commands) {
+      if (command.type === "create") {
+        results.push(await this.handleCreate(command))
+      } else if (command.type === "insert") {
+        results.push(await this.handleInsert(command))
+      } else if (command.type === "select") {
+        results.push(await this.handleSelect(command))
+      } else {
+        throw new NotImplementedError(
+          `Command type ${command.type} not implemented`,
+        )
+      }
     }
-    const command = commands[0]
-    if (command.type === "create") {
-      return this.handleCreate(command)
-    }
-    if (command.type === "insert") {
-      return this.handleInsert(command)
-    }
-    if (command.type === "select") {
-      return this.handleSelect(command)
-    }
-    throw new NotImplementedError(
-      `Command type ${command.type} not implemented`,
-    )
+    if (results.length === 1) return results[0]
+    return results
   }
 
-  async handleSelect(ast: SQLParser.Select) {
-    if (ast.where != null) {
-      throw new NotImplementedError(`WHERE clause not supported yet`)
-    }
+  async handleSelect(ast: SQLParser.Select): Promise<UnknownRecord[]> {
     if (ast.groupby != null) {
       throw new NotImplementedError(`GROUP BY clause not supported yet`)
     }
@@ -96,14 +95,13 @@ export class SQLExecutor {
     }
     const tableName = astFrom.table
     const db = astFrom.db ? astFrom.db : "default"
-    const schemas = await this.dbFile.getSchemasOrThrow(db, tableName)
-    if (schemas.length === 0) {
-      throw new TableNotFoundError(`Table ${db}.${tableName} not found`)
+
+    const tableScan = new plan.TableScan(db, tableName)
+    let rootPlan: plan.IQueryPlanNode = tableScan
+    if (ast.where != null) {
+      const schema = await tableScan.getSchema(this.dbFile)
+      rootPlan = handleWhere(rootPlan, schema, ast.where)
     }
-    const tableInstance = await this.dbFile.getOrCreateTable(
-      schemas[0].schema,
-      { db },
-    )
     const astColumns = ast.columns as Column[]
     if (astColumns.length != 1) {
       throw new NotImplementedError(`Only SELECT * is supported for now`)
@@ -116,10 +114,11 @@ export class SQLExecutor {
     if (expr.column != "*") {
       throw new NotImplementedError(`Only SELECT * is supported for now`)
     }
-    return await tableInstance.iterate().toArray()
+
+    return await rootPlan.execute(this.dbFile).toArray()
   }
 
-  async handleInsert(ast: SQLParser.Insert_Replace) {
+  async handleInsert(ast: SQLParser.Insert_Replace): Promise<void> {
     const astTables: unknown = ast.table
     if (!Array.isArray(astTables)) {
       throw new NotImplementedError(`Do not understand this AST format`)
@@ -195,11 +194,10 @@ export class SQLExecutor {
       }
       insertObject[columnName] = insertValue.value
     }
-    const rowId = await tableInstance.insert(insertObject)
-    return rowId
+    await tableInstance.insert(insertObject)
   }
 
-  async handleCreate(ast: SQLParser.Create) {
+  async handleCreate(ast: SQLParser.Create): Promise<void> {
     if (ast.table == null) {
       throw new NotImplementedError(
         "Can't handle CREATE without table name provided",
@@ -214,10 +212,10 @@ export class SQLExecutor {
 
     const columnsToCreate: CreateColumnDefinition[] =
       (ast.create_definitions ?? []).filter((c) => c.resource === "column")
-    let schema: SomeTableSchema = TableSchema.create(table.table)
+    let schema: SomeTableSchema = s.table(table.table)
     if (columnsToCreate.length > 0) {
       for (const columnDef of columnsToCreate) {
-        if (columnDef.column.type != "column_ref") {
+        if (!isColumnRefItem(columnDef.column)) {
           throw new NotImplementedError("Only column_ref columns are supported")
         }
         if (typeof columnDef.column.column != "string") {
