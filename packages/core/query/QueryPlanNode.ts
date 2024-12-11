@@ -7,6 +7,8 @@ import { ColumnTypes } from "../schema/columns/ColumnType.ts"
 
 export class TableNotFoundError extends Error {}
 
+export { QueryBuilder } from "./QueryBuilder.ts"
+
 export interface IQueryPlanNode {
   describe(): string
   execute(dbFile: DbFile): AsyncIterableWrapper<UnknownRecord>
