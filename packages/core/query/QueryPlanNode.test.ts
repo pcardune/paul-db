@@ -4,6 +4,7 @@ import {
   Compare,
   Filter,
   LiteralValueExpr,
+  Select,
   TableScan,
 } from "./QueryPlanNode.ts"
 import { DbFile, s } from "../mod.ts"
@@ -30,31 +31,40 @@ const dbSchema = s.db().withTables(
 
 Deno.test("QueryPlanNode", async () => {
   const dbFile = await DbFile.open({ type: "memory" })
-
   const model = await dbFile.getDBModel(dbSchema)
   await model.cats.insert({ name: "fluffy", age: 3 })
   await model.cats.insert({ name: "mittens", age: 5 })
 
-  const plan = new Filter(
-    new TableScan("default", "cats"),
-    new Compare(
-      new ColumnRefExpr(
-        model.cats.schema.getColumnByNameOrThrow("name"),
+  const nameCol = model.cats.schema.getColumnByNameOrThrow("name")
+  const ageCol = model.cats.schema.getColumnByNameOrThrow("age")
+  const plan = new Select(
+    new Filter(
+      new TableScan("default", "cats"),
+      new Compare(
+        new ColumnRefExpr(nameCol),
+        "=",
+        new LiteralValueExpr("fluffy", ColumnTypes.string()),
       ),
-      "=",
-      new LiteralValueExpr("fluffy", ColumnTypes.string()),
     ),
+    {
+      name: new ColumnRefExpr(nameCol),
+      age: new ColumnRefExpr(ageCol),
+      isOld: new Compare(
+        new ColumnRefExpr(ageCol),
+        ">",
+        new LiteralValueExpr(3, ColumnTypes.uint32()),
+      ),
+    },
   )
 
   expect(plan.describe()).toEqual(
-    'Filter(TableScan(default.cats), Compare(name = "fluffy"))',
+    'Select(name AS name, age AS age, Compare(age > 3) AS isOld, Filter(TableScan(default.cats), Compare(name = "fluffy")))',
   )
 
   expect(await plan.execute(dbFile).toArray()).toEqual([{
-    id: 1,
     name: "fluffy",
     age: 3,
-    likesTreats: true,
+    isOld: false,
   }])
 
   // via the builder API:

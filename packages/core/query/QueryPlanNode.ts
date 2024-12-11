@@ -202,3 +202,34 @@ export class Filter extends AbstractQueryPlan {
     )
   }
 }
+
+export class Select extends AbstractQueryPlan {
+  constructor(
+    readonly child: IQueryPlanNode,
+    readonly columns: Record<string, Expr<any>>,
+  ) {
+    super()
+  }
+
+  describe(): string {
+    return `Select(${
+      Object.entries(this.columns).map(([key, value]) =>
+        `${value.describe()} AS ${key}`
+      ).join(", ")
+    }, ${this.child.describe()})`
+  }
+
+  override getIter(dbFile: DbFile): AsyncIterableWrapper<UnknownRecord> {
+    return this.child.execute(dbFile).map((row) => {
+      const result = {} as UnknownRecord
+      for (const [key, column] of Object.entries(this.columns)) {
+        result[key] = column.resolve(row)
+      }
+      return result
+    })
+  }
+
+  addColumn(name: string, expr: Expr<any>): Select {
+    return new Select(this.child, { ...this.columns, [name]: expr })
+  }
+}

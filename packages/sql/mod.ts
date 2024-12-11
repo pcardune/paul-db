@@ -7,6 +7,7 @@ import { UnknownRecord } from "npm:type-fest"
 import { NotImplementedError, TableNotFoundError } from "./errors.ts"
 import { isColumnRefItem } from "./parser.ts"
 import { handleWhere } from "./where.ts"
+import { parseExpr } from "./expr.ts"
 type CreateDefinition = Exclude<
   Create["create_definitions"],
   null | undefined
@@ -103,19 +104,35 @@ export class SQLExecutor {
       rootPlan = handleWhere(rootPlan, schema, ast.where)
     }
     const astColumns = ast.columns as Column[]
-    if (astColumns.length != 1) {
-      throw new NotImplementedError(`Only SELECT * is supported for now`)
-    }
-    const expr = astColumns[0].expr as SQLParser.ColumnRefItem
-    if (expr.type !== "column_ref") {
-      throw new NotImplementedError(`Only column references are supported`)
+    const schema = await tableScan.getSchema(this.dbFile)
+    let select = new plan.Select(rootPlan, {})
+    for (const astColumn of astColumns) {
+      const expr = astColumn.expr as SQLParser.ColumnRefItem
+      if (isColumnRefItem(expr) && expr.column === "*") {
+        for (const column of schema.columns) {
+          select = select.addColumn(column.name, new plan.ColumnRefExpr(column))
+        }
+      } else {
+        const planExpr = parseExpr(schema, astColumn.expr)
+        let columnName = planExpr.describe()
+          .replace(/\s/g, "")
+          .replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase()
+        if (astColumn.as != null) {
+          if (typeof astColumn.as !== "string") {
+            throw new NotImplementedError(
+              `Only string column names are supported`,
+            )
+          }
+          columnName = astColumn.as
+        }
+        select = select.addColumn(
+          columnName,
+          planExpr,
+        )
+      }
     }
 
-    if (expr.column != "*") {
-      throw new NotImplementedError(`Only SELECT * is supported for now`)
-    }
-
-    return await rootPlan.execute(this.dbFile).toArray()
+    return await select.execute(this.dbFile).toArray()
   }
 
   async handleInsert(ast: SQLParser.Insert_Replace): Promise<void> {

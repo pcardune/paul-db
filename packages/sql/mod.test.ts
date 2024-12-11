@@ -130,5 +130,35 @@ testSuite("SELECT", {
       { x: 1.0, y: 2.0, color: "green" },
       { x: 3.0, y: 4.0, color: "blue" },
     ]],
+    ["SELECT color FROM points WHERE x <= 3.5 AND color < 'green' OR y < 3.0", [
+      { color: "green" },
+      { color: "blue" },
+    ]],
+    ["SELECT x, y FROM points WHERE x <= 3.5 AND color < 'green' OR y < 3.0", [
+      { x: 1.0, y: 2.0 },
+      { x: 3.0, y: 4.0 },
+    ]],
+    [
+      "SELECT x as pointx FROM points WHERE x <= 3.5 AND color < 'green' OR y < 3.0",
+      [
+        { pointx: 1.0 },
+        { pointx: 3.0 },
+      ],
+    ],
+    [
+      "SELECT color, x > 1 as x_gt_1 FROM points WHERE x <= 3.5 AND color < 'green' OR y < 3.0",
+      [
+        { color: "green", x_gt_1: false },
+        { color: "blue", x_gt_1: true },
+      ],
+    ],
+    [
+      "SELECT color, x > 1 FROM points",
+      [
+        { color: "green", compare_x_1_: false },
+        { color: "blue", compare_x_1_: true },
+        { color: "red", compare_x_1_: true },
+      ],
+    ],
   ],
 })
