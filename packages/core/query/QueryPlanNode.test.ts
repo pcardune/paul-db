@@ -11,6 +11,7 @@ import {
 import { DbFile, s } from "../mod.ts"
 import { ColumnTypes } from "../schema/columns/ColumnType.ts"
 import { QueryBuilder } from "./QueryBuilder.ts"
+import { assertTrue, TypeEquals } from "../testing.ts"
 
 const dbSchema = s.db().withTables(
   s.table("humans").with(
@@ -83,10 +84,19 @@ Deno.test("QueryPlanNode", async () => {
   expect(plan2.describe()).toEqual(
     'Filter(TableScan(default.cats), (Compare(name = "fluffy") OR Compare(age > 3)))',
   )
-  expect(await plan2.execute(dbFile).toArray()).toEqual([
+  const oldOrFluffyCats = await plan2.execute(dbFile).toArray()
+  expect(await oldOrFluffyCats).toEqual([
     { id: 1, name: "fluffy", age: 3, likesTreats: true },
     { id: 2, name: "mittens", age: 5, likesTreats: true },
   ])
+
+  // types flow through the query builder API:
+  assertTrue<
+    TypeEquals<
+      typeof oldOrFluffyCats,
+      Array<{ id: number; name: string; age: number; likesTreats: boolean }>
+    >
+  >()
 
   const limitedOldAndFluffy = oldAndFluffyQuery.limit(1)
   const plan3 = limitedOldAndFluffy.plan()
@@ -108,4 +118,15 @@ Deno.test("QueryPlanNode", async () => {
   expect(await plan4.execute(dbFile).toArray()).toEqual([
     { id: 2, name: "mittens", age: 5, likesTreats: true },
   ])
+
+  const namesOnly = await limitedAndOrderedOldAndFluffy.select({
+    catName: (t) => t.column("name"),
+    isOld: (t) => t.column("age").gt(3),
+  }).plan().execute(dbFile).toArray()
+  expect(namesOnly).toEqual([
+    { catName: "mittens", isOld: true },
+  ])
+  assertTrue<
+    TypeEquals<typeof namesOnly, Array<{ catName: string; isOld: boolean }>>
+  >()
 })

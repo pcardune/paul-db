@@ -26,7 +26,7 @@ function columnRef(
 export function parseExpr(
   schema: SomeTableSchema,
   expr: SQLParser.ExpressionValue | SQLParser.ExprList,
-): plan.Expr<boolean> {
+): plan.Expr<any> {
   if (!isExpressionValue(expr)) {
     throw new NotImplementedError(
       `Only single expressions are supported in WHERE clause`,

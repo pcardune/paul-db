@@ -1,5 +1,9 @@
 import { ColumnType, plan } from "../mod.ts"
-import { Column, TableSchemaColumns } from "../schema/schema.ts"
+import {
+  Column,
+  StoredRecordForTableSchema,
+  TableSchemaColumns,
+} from "../schema/schema.ts"
 import { DBSchema } from "../schema/DBSchema.ts"
 import {
   AndOrExpr,
@@ -21,7 +25,7 @@ export class QueryBuilder<DBSchemaT extends DBSchema = DBSchema> {
   scan<TName extends Extract<keyof DBSchemaT["schemas"], string>>(
     table: TName,
   ): TableQueryBuilder<this, TName> {
-    return new TableQueryBuilder(this, table)
+    return new TableQueryBuilder(this, table) as TableQueryBuilder<this, TName>
   }
 }
 
@@ -46,7 +50,10 @@ class TableQueryBuilder<
   QB extends QueryBuilder = QueryBuilder,
   TableName extends TableNames<QB> = TableNames<QB>,
 > {
-  constructor(readonly queryBuilder: QB, readonly tableName: TableName) {}
+  constructor(
+    readonly queryBuilder: QB,
+    readonly tableName: TableName,
+  ) {}
 
   private whereClause: ExprBuilder<this, boolean> | undefined
 
@@ -78,8 +85,32 @@ class TableQueryBuilder<
     return this
   }
 
-  plan(): IQueryPlanNode {
-    let root: plan.IQueryPlanNode = new TableScan("default", this.tableName)
+  // private selectClause: Record<string, ExprBuilder<any>>
+  select<SelectT extends Record<string, ExprBuilder<this, any>>>(
+    selection: {
+      [Property in keyof SelectT]: (
+        tqb: ExprBuilder<this, never>,
+      ) => SelectT[Property]
+    },
+  ): SelectBuilder<this, SelectT> {
+    return new SelectBuilder(
+      this,
+      Object.fromEntries(
+        Object.entries(selection).map((
+          [key, func],
+        ) => [key, func(new ExprBuilder(this, new NeverExpr()))]),
+      ) as SelectT,
+    )
+  }
+
+  plan(): IQueryPlanNode<
+    StoredRecordForTableSchema<QB["dbSchema"]["schemas"][TableName]>
+  > {
+    let root: plan.IQueryPlanNode<
+      StoredRecordForTableSchema<QB["dbSchema"]["schemas"][TableName]>
+    > = new TableScan<
+      StoredRecordForTableSchema<QB["dbSchema"]["schemas"][TableName]>
+    >(this.queryBuilder.dbSchema.name, this.tableName)
     if (this.whereClause != null) {
       root = new Filter(root, this.whereClause.expr)
     }
@@ -99,6 +130,28 @@ class TableQueryBuilder<
   }
 }
 
+class SelectBuilder<
+  QB extends TableQueryBuilder = TableQueryBuilder,
+  SelectT extends Record<string, ExprBuilder> = Record<string, ExprBuilder>,
+> {
+  constructor(readonly tqb: QB, readonly select: SelectT) {}
+  plan(): IQueryPlanNode<
+    {
+      [Property in keyof SelectT]: SelectT[Property] extends
+        ExprBuilder<infer TQB, infer T> ? T : never
+    }
+  > {
+    return new plan.Select(
+      this.tqb.plan(),
+      Object.fromEntries(
+        Object.entries(this.select).map((
+          [key, valueExpr],
+        ) => [key, valueExpr.expr]),
+      ),
+    )
+  }
+}
+
 type SchemaForTQB<TQB extends TableQueryBuilder> =
   TQB["queryBuilder"]["dbSchema"]["schemas"][TQB["tableName"]]
 type ColumnNames<TQB extends TableQueryBuilder> = TableSchemaColumns<
@@ -111,7 +164,7 @@ type ColumnWithName<
 
 class ExprBuilder<
   TQB extends TableQueryBuilder = TableQueryBuilder,
-  T = unknown,
+  T = any,
 > {
   constructor(readonly tqb: TQB, readonly expr: Expr<T>) {}
 
