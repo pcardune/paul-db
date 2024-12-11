@@ -166,5 +166,17 @@ testSuite("SELECT", {
         { color: "blue" },
       ],
     ],
+    [
+      "SELECT color FROM points WHERE x > 1 ORDER BY x DESC LIMIT 1",
+      [
+        { color: "red" },
+      ],
+    ],
+    [
+      "SELECT color FROM points WHERE x > 1 ORDER BY x ASC LIMIT 1",
+      [
+        { color: "blue" },
+      ],
+    ],
   ],
 })

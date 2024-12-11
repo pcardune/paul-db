@@ -96,4 +96,16 @@ Deno.test("QueryPlanNode", async () => {
   expect(await plan3.execute(dbFile).toArray()).toEqual([
     { id: 1, name: "fluffy", age: 3, likesTreats: true },
   ])
+
+  const limitedAndOrderedOldAndFluffy = oldAndFluffyQuery.limit(1).orderBy(
+    (t) => t.column("name"),
+    "DESC",
+  )
+  const plan4 = limitedAndOrderedOldAndFluffy.plan()
+  expect(plan4.describe()).toEqual(
+    'Limit(OrderBy(Filter(TableScan(default.cats), (Compare(name = "fluffy") OR Compare(age > 3))), name DESC), 1)',
+  )
+  expect(await plan4.execute(dbFile).toArray()).toEqual([
+    { id: 2, name: "mittens", age: 5, likesTreats: true },
+  ])
 })

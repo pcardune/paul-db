@@ -11,6 +11,7 @@ import {
   IQueryPlanNode,
   Limit,
   LiteralValueExpr,
+  OrderBy,
   TableScan,
 } from "./QueryPlanNode.ts"
 
@@ -62,10 +63,34 @@ class TableQueryBuilder<
     return this
   }
 
+  private orderByClauses: {
+    expr: ExprBuilder<TableQueryBuilder<QB, TableName>, any>
+    order: "ASC" | "DESC"
+  }[] = []
+  orderBy(
+    func: (tqb: ExprBuilder<this, never>) => ExprBuilder<this, any>,
+    order: "ASC" | "DESC",
+  ): this {
+    this.orderByClauses.push({
+      expr: func(new ExprBuilder(this, new NeverExpr())),
+      order,
+    })
+    return this
+  }
+
   plan(): IQueryPlanNode {
     let root: plan.IQueryPlanNode = new TableScan("default", this.tableName)
     if (this.whereClause != null) {
       root = new Filter(root, this.whereClause.expr)
+    }
+    if (this.orderByClauses.length > 0) {
+      root = new OrderBy(
+        root,
+        this.orderByClauses.map((c) => ({
+          expr: c.expr.expr,
+          direction: c.order,
+        })),
+      )
     }
     if (this.limitClause != null) {
       root = new Limit(root, this.limitClause)

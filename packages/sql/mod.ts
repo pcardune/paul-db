@@ -61,9 +61,6 @@ export class SQLExecutor {
     if (ast.groupby != null) {
       throw new NotImplementedError(`GROUP BY clause not supported yet`)
     }
-    if (ast.orderby != null) {
-      throw new NotImplementedError(`ORDER BY clause not supported yet`)
-    }
     if (ast.having != null) {
       throw new NotImplementedError(`HAVING clause not supported yet`)
     }
@@ -97,12 +94,25 @@ export class SQLExecutor {
 
     const tableScan = new plan.TableScan(db, tableName)
     let rootPlan: plan.IQueryPlanNode = tableScan
+    const schema = await tableScan.getSchema(this.dbFile)
     if (ast.where != null) {
-      const schema = await tableScan.getSchema(this.dbFile)
       rootPlan = handleWhere(rootPlan, schema, ast.where)
     }
+    if (ast.orderby != null) {
+      rootPlan = new plan.OrderBy(
+        rootPlan,
+        ast.orderby.map((ordering) => {
+          const expr = parseExpr(schema, ordering.expr)
+          const direction = ordering.type
+          return { expr, direction }
+        }),
+      )
+    }
+    if (ast.limit != null) {
+      rootPlan = handleLimit(rootPlan, ast.limit)
+    }
+
     const astColumns = ast.columns as Column[]
-    const schema = await tableScan.getSchema(this.dbFile)
     let select = new plan.Select(rootPlan, {})
     for (const astColumn of astColumns) {
       const expr = astColumn.expr as SQLParser.ColumnRefItem
@@ -130,9 +140,6 @@ export class SQLExecutor {
       }
     }
     rootPlan = select
-    if (ast.limit != null) {
-      rootPlan = handleLimit(rootPlan, ast.limit)
-    }
 
     return await rootPlan.execute(this.dbFile).toArray()
   }

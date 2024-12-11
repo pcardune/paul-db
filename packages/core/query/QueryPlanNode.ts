@@ -247,3 +247,40 @@ export class Limit extends AbstractQueryPlan {
     return this.child.execute(dbFile).take(this.limit)
   }
 }
+
+export class OrderBy extends AbstractQueryPlan {
+  constructor(
+    readonly child: IQueryPlanNode,
+    readonly orderBy: { expr: Expr<any>; direction: "ASC" | "DESC" }[],
+  ) {
+    super()
+  }
+
+  describe(): string {
+    return `OrderBy(${this.child.describe()}, ${
+      this.orderBy
+        .map((o) => `${o.expr.describe()} ${o.direction}`)
+        .join(", ")
+    })`
+  }
+
+  override async getIter(
+    dbFile: DbFile,
+  ): Promise<AsyncIterableWrapper<UnknownRecord>> {
+    const orderBy = this.orderBy
+    const allValues = await this.child.execute(dbFile).toArray()
+    allValues.sort((a, b) => {
+      for (const { expr, direction } of orderBy) {
+        const aValue = expr.resolve(a)
+        const bValue = expr.resolve(b)
+        if (expr.getType().compare(aValue, bValue) < 0) {
+          return direction === "ASC" ? -1 : 1
+        } else if (expr.getType().compare(aValue, bValue) > 0) {
+          return direction === "ASC" ? 1 : -1
+        }
+      }
+      return 0
+    })
+    return new AsyncIterableWrapper(allValues)
+  }
+}
