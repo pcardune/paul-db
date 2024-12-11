@@ -41,6 +41,10 @@ export type SomeTableSchema = TableSchema<
   Column.Computed.Any[]
 >
 
+export type TableSchemaColumns<TS extends SomeTableSchema> =
+  | TS["columns"][number]
+  | TS["computedColumns"][number]
+
 export class TableSchema<
   TableName extends string,
   ColumnSchemasT extends Column.Stored.Any[],

@@ -129,7 +129,7 @@ export class ColumnRefExpr<C extends Column.Any>
   }
 }
 
-type CompareOperator = typeof Compare.operators[number]
+export type CompareOperator = typeof Compare.operators[number]
 export class Compare<T> implements Expr<boolean> {
   constructor(
     readonly left: Expr<T>,
@@ -180,7 +180,7 @@ export class Compare<T> implements Expr<boolean> {
   }
 
   describe(): string {
-    return `Predicate(${this.left.describe()} ${this.operator} ${this.right.describe()})`
+    return `Compare(${this.left.describe()} ${this.operator} ${this.right.describe()})`
   }
 }
 
