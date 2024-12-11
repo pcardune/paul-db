@@ -233,3 +233,17 @@ export class Select extends AbstractQueryPlan {
     return new Select(this.child, { ...this.columns, [name]: expr })
   }
 }
+
+export class Limit extends AbstractQueryPlan {
+  constructor(readonly child: IQueryPlanNode, readonly limit: number) {
+    super()
+  }
+
+  describe(): string {
+    return `Limit(${this.child.describe()}, ${this.limit})`
+  }
+
+  override getIter(dbFile: DbFile): AsyncIterableWrapper<UnknownRecord> {
+    return this.child.execute(dbFile).take(this.limit)
+  }
+}

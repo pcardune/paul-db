@@ -3,6 +3,7 @@ import {
   ColumnRefExpr,
   Compare,
   Filter,
+  Limit,
   LiteralValueExpr,
   Select,
   TableScan,
@@ -37,28 +38,31 @@ Deno.test("QueryPlanNode", async () => {
 
   const nameCol = model.cats.schema.getColumnByNameOrThrow("name")
   const ageCol = model.cats.schema.getColumnByNameOrThrow("age")
-  const plan = new Select(
-    new Filter(
-      new TableScan("default", "cats"),
-      new Compare(
-        new ColumnRefExpr(nameCol),
-        "=",
-        new LiteralValueExpr("fluffy", ColumnTypes.string()),
+  const plan = new Limit(
+    new Select(
+      new Filter(
+        new TableScan("default", "cats"),
+        new Compare(
+          new ColumnRefExpr(nameCol),
+          "=",
+          new LiteralValueExpr("fluffy", ColumnTypes.string()),
+        ),
       ),
+      {
+        name: new ColumnRefExpr(nameCol),
+        age: new ColumnRefExpr(ageCol),
+        isOld: new Compare(
+          new ColumnRefExpr(ageCol),
+          ">",
+          new LiteralValueExpr(3, ColumnTypes.uint32()),
+        ),
+      },
     ),
-    {
-      name: new ColumnRefExpr(nameCol),
-      age: new ColumnRefExpr(ageCol),
-      isOld: new Compare(
-        new ColumnRefExpr(ageCol),
-        ">",
-        new LiteralValueExpr(3, ColumnTypes.uint32()),
-      ),
-    },
+    1,
   )
 
   expect(plan.describe()).toEqual(
-    'Select(name AS name, age AS age, Compare(age > 3) AS isOld, Filter(TableScan(default.cats), Compare(name = "fluffy")))',
+    'Limit(Select(name AS name, age AS age, Compare(age > 3) AS isOld, Filter(TableScan(default.cats), Compare(name = "fluffy"))), 1)',
   )
 
   expect(await plan.execute(dbFile).toArray()).toEqual([{
@@ -68,13 +72,13 @@ Deno.test("QueryPlanNode", async () => {
   }])
 
   // via the builder API:
-  const plan2 = new QueryBuilder(dbSchema)
+  const oldAndFluffyQuery = new QueryBuilder(dbSchema)
     .scan("cats")
     .where((t) =>
       t.column("name").eq("fluffy")
         .or(t.column("age").gt(3))
     )
-    .plan()
+  const plan2 = oldAndFluffyQuery.plan()
 
   expect(plan2.describe()).toEqual(
     'Filter(TableScan(default.cats), (Compare(name = "fluffy") OR Compare(age > 3)))',
@@ -82,5 +86,14 @@ Deno.test("QueryPlanNode", async () => {
   expect(await plan2.execute(dbFile).toArray()).toEqual([
     { id: 1, name: "fluffy", age: 3, likesTreats: true },
     { id: 2, name: "mittens", age: 5, likesTreats: true },
+  ])
+
+  const limitedOldAndFluffy = oldAndFluffyQuery.limit(1)
+  const plan3 = limitedOldAndFluffy.plan()
+  expect(plan3.describe()).toEqual(
+    'Limit(Filter(TableScan(default.cats), (Compare(name = "fluffy") OR Compare(age > 3))), 1)',
+  )
+  expect(await plan3.execute(dbFile).toArray()).toEqual([
+    { id: 1, name: "fluffy", age: 3, likesTreats: true },
   ])
 })

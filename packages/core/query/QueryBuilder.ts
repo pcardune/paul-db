@@ -1,4 +1,4 @@
-import { ColumnType } from "../mod.ts"
+import { ColumnType, plan } from "../mod.ts"
 import { Column, TableSchemaColumns } from "../schema/schema.ts"
 import { DBSchema } from "../schema/DBSchema.ts"
 import {
@@ -9,6 +9,7 @@ import {
   Expr,
   Filter,
   IQueryPlanNode,
+  Limit,
   LiteralValueExpr,
   TableScan,
 } from "./QueryPlanNode.ts"
@@ -47,6 +48,7 @@ class TableQueryBuilder<
   constructor(readonly queryBuilder: QB, readonly tableName: TableName) {}
 
   private whereClause: ExprBuilder<this, boolean> | undefined
+
   where(
     func: (tqb: ExprBuilder<this, never>) => ExprBuilder<this, boolean>,
   ): this {
@@ -54,12 +56,21 @@ class TableQueryBuilder<
     return this
   }
 
+  private limitClause: number | undefined
+  limit(limit: number): this {
+    this.limitClause = limit
+    return this
+  }
+
   plan(): IQueryPlanNode {
-    const tableScan = new TableScan("default", this.tableName)
-    if (this.whereClause == null) {
-      return tableScan
+    let root: plan.IQueryPlanNode = new TableScan("default", this.tableName)
+    if (this.whereClause != null) {
+      root = new Filter(root, this.whereClause.expr)
     }
-    return new Filter(tableScan, this.whereClause.expr)
+    if (this.limitClause != null) {
+      root = new Limit(root, this.limitClause)
+    }
+    return root
   }
 }
 

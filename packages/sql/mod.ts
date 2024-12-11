@@ -8,6 +8,7 @@ import { NotImplementedError, TableNotFoundError } from "./errors.ts"
 import { isColumnRefItem } from "./parser.ts"
 import { handleWhere } from "./where.ts"
 import { parseExpr } from "./expr.ts"
+import { handleLimit } from "./limit.ts"
 type CreateDefinition = Exclude<
   Create["create_definitions"],
   null | undefined
@@ -65,9 +66,6 @@ export class SQLExecutor {
     }
     if (ast.having != null) {
       throw new NotImplementedError(`HAVING clause not supported yet`)
-    }
-    if (ast.limit != null) {
-      throw new NotImplementedError(`LIMIT clause not supported yet`)
     }
     if (ast.distinct != null) {
       throw new NotImplementedError(`DISTINCT clause not supported yet`)
@@ -131,8 +129,12 @@ export class SQLExecutor {
         )
       }
     }
+    rootPlan = select
+    if (ast.limit != null) {
+      rootPlan = handleLimit(rootPlan, ast.limit)
+    }
 
-    return await select.execute(this.dbFile).toArray()
+    return await rootPlan.execute(this.dbFile).toArray()
   }
 
   async handleInsert(ast: SQLParser.Insert_Replace): Promise<void> {

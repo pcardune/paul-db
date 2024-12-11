@@ -160,5 +160,11 @@ testSuite("SELECT", {
         { color: "red", compare_x_1_: true },
       ],
     ],
+    [
+      "SELECT color FROM points WHERE x > 1 LIMIT 1",
+      [
+        { color: "blue" },
+      ],
+    ],
   ],
 })
