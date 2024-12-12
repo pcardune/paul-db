@@ -85,7 +85,7 @@ Deno.test("QueryPlanNode", async () => {
   )
 
   expect(await plan.execute(dbFile).toArray()).toEqual([{
-    "0": {
+    "$0": {
       name: "fluffy",
       age: 3,
       isOld: false,
@@ -148,12 +148,12 @@ Deno.test("QueryPlanNode", async () => {
     isOld: (t) => t.column("cats.age").gt(3),
   }).plan().execute(dbFile).toArray()
   expect(namesOnly).toEqual([
-    { "0": { catName: "mittens", isOld: true } },
+    { "$0": { catName: "mittens", isOld: true } },
   ])
   assertTrue<
     TypeEquals<
       typeof namesOnly,
-      Array<{ "0": { catName: string; isOld: boolean } }>
+      Array<{ "$0": { catName: string; isOld: boolean } }>
     >
   >()
 })
@@ -170,7 +170,7 @@ Deno.test("QueryPlanNode Aggregates", async () => {
     }),
   )
   expect(await plan.execute(dbFile).toArray()).toEqual([
-    { "0": { count: 2, max: 5 } },
+    { "$0": { count: 2, max: 5 } },
   ])
 })
 
@@ -214,11 +214,31 @@ Deno.test("QueryPlanNode JOINS", async () => {
     },
   )
   expect(await plan.execute(dbFile).toArray()).toEqual([
-    { "0": { name: "fluffy", ownerId: 1, ownerName: "Alice" } },
-    { "0": { name: "fluffy", ownerId: 2, ownerName: "Bob" } },
-    { "0": { name: "mittens", ownerId: 2, ownerName: "Bob" } },
+    { "$0": { name: "fluffy", ownerId: 1, ownerName: "Alice" } },
+    { "$0": { name: "fluffy", ownerId: 2, ownerName: "Bob" } },
+    { "$0": { name: "mittens", ownerId: 2, ownerName: "Bob" } },
   ])
 })
+
+// Deno.test("QueryPlanNode Subqueries", async () => {
+//   const { model, dbFile } = await init()
+//   const catNameCol = model.cats.schema.getColumnByNameOrThrow("name")
+//   const ownerNameCol = model.humans.schema.getColumnByNameOrThrow("firstName")
+//   const ownerIdCol = model.catOwners.schema.getColumnByNameOrThrow("ownerId")
+
+//   const plan = new Select(
+//     new TableScan("default", "catOwners"),
+//     {
+//       ownerId: new ColumnRefExpr(ownerIdCol, "catOwners"),
+//       numCats: new QueryExpr
+//     },
+//   )
+//   expect(await plan.execute(dbFile).toArray()).toEqual([
+//     { "$0": { ownerId: 1 } },
+//     { "$0": { ownerId: 2 } },
+//     { "$0": { ownerId: 2 } },
+//   ])
+// })
 
 Deno.test("QueryBuilder JOINS", async () => {
   const { dbFile } = await init()
@@ -239,9 +259,9 @@ Deno.test("QueryBuilder JOINS", async () => {
     }).plan().execute(dbFile).toArray()
 
   expect(cats).toEqual([
-    { "0": { catName: "fluffy", owner: "Alice" } },
-    { "0": { catName: "fluffy", owner: "Bob" } },
-    { "0": { catName: "mittens", owner: "Bob" } },
+    { "$0": { catName: "fluffy", owner: "Alice" } },
+    { "$0": { catName: "fluffy", owner: "Bob" } },
+    { "$0": { catName: "mittens", owner: "Bob" } },
   ])
 
   const plan = dbSchema.query()
@@ -262,9 +282,9 @@ Deno.test("QueryBuilder JOINS", async () => {
     .plan()
 
   expect(await plan.execute(dbFile).toArray()).toEqual([
-    { "0": { name: "fluffy", ownerId: 1, ownerName: "Alice" } },
-    { "0": { name: "fluffy", ownerId: 2, ownerName: "Bob" } },
-    { "0": { name: "mittens", ownerId: 2, ownerName: "Bob" } },
+    { "$0": { name: "fluffy", ownerId: 1, ownerName: "Alice" } },
+    { "$0": { name: "fluffy", ownerId: 2, ownerName: "Bob" } },
+    { "$0": { name: "mittens", ownerId: 2, ownerName: "Bob" } },
   ])
 })
 
@@ -280,8 +300,8 @@ Deno.test("QueryBuilder .in()", async () => {
     `Select(name AS name, Filter(TableScan(default.cats), In(name, ["fluffy", "Mr. Blue"])))`,
   )
   expect(await plan.execute(dbFile).toArray()).toEqual([
-    { "0": { name: "fluffy" } },
-    { "0": { name: "Mr. Blue" } },
+    { "$0": { name: "fluffy" } },
+    { "$0": { name: "Mr. Blue" } },
   ])
 })
 
@@ -297,8 +317,8 @@ Deno.test("QueryBuilder .not()", async () => {
     `Select(name AS name, Filter(TableScan(default.cats), NOT(Compare(name = "fluffy"))))`,
   )
   expect(await plan.execute(dbFile).toArray()).toEqual([
-    { "0": { name: "mittens" } },
-    { "0": { name: "Mr. Blue" } },
+    { "$0": { name: "mittens" } },
+    { "$0": { name: "Mr. Blue" } },
   ])
 
   const plan2 = dbSchema.query()
@@ -325,12 +345,45 @@ Deno.test("QueryBuilder .aggregate()", async () => {
   )
   const data = await plan.execute(dbFile).toArray()
   expect(data).toEqual([
-    { "0": { count: 2, maxAge: 5, maxName: "mittens" } },
+    { "$0": { count: 2, maxAge: 5, maxName: "mittens" } },
   ])
   assertTrue<
     TypeEquals<
       typeof data,
-      Array<{ "0": { count: number; maxAge: number; maxName: string } }>
+      Array<{ "$0": { count: number; maxAge: number; maxName: string } }>
+    >
+  >()
+})
+
+Deno.test("QueryBuilder subqueries", async () => {
+  const { dbFile } = await init()
+  const query = dbSchema.query()
+    .from("humans")
+    .select({
+      name: (t) => t.column("humans.firstName"),
+      numCats: (t) =>
+        t.subquery((rowData) => {
+          const subplan = dbSchema.query()
+            .from("catOwners")
+            .where((t) => t.column("catOwners.ownerId").eq(rowData.humans.id))
+            .aggregate({ count: (agg) => agg.count() })
+            .plan()
+          return subplan
+        }),
+    })
+  const plan = query.plan()
+  expect(plan.describe()).toEqual(
+    "Select(firstName AS name, Subquery() AS numCats, TableScan(default.humans))",
+  )
+  const data = await plan.execute(dbFile).toArray()
+  expect(data).toEqual([
+    { "$0": { name: "Alice", numCats: 1 } },
+    { "$0": { name: "Bob", numCats: 2 } },
+  ])
+  assertTrue<
+    TypeEquals<
+      typeof data,
+      Array<{ "$0": { name: string; numCats: number } }>
     >
   >()
 })

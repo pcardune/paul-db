@@ -17,12 +17,12 @@ export async function collectAsync<T>(
  */
 export function filterAsync<T>(
   iterable: AsyncIterable<T>,
-  predicate: (item: T) => boolean,
+  predicate: (item: T) => Promisable<boolean>,
 ): AsyncIterable<T> {
   return {
     [Symbol.asyncIterator]: async function* () {
       for await (const item of iterable) {
-        if (predicate(item)) {
+        if (await predicate(item)) {
           yield item
         }
       }
@@ -111,7 +111,7 @@ export class AsyncIterableWrapper<T> {
     return collectAsync(this.iterable)
   }
 
-  filter(predicate: (item: T) => boolean): AsyncIterableWrapper<T> {
+  filter(predicate: (item: T) => Promisable<boolean>): AsyncIterableWrapper<T> {
     return new AsyncIterableWrapper(filterAsync(this.iterable, predicate))
   }
 

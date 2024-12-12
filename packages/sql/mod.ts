@@ -287,7 +287,7 @@ export class SQLExecutor {
       rootPlan = select
     }
 
-    return await rootPlan.execute(this.dbFile).map((rowData) => rowData["0"])
+    return await rootPlan.execute(this.dbFile).map((rowData) => rowData.$0)
       .toArray()
   }
 

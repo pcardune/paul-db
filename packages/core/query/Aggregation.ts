@@ -1,9 +1,9 @@
-import type { Expr, RowData } from "./QueryPlanNode.ts"
-import { UnknownRecord } from "npm:type-fest"
+import type { ExecutionContext, Expr, RowData } from "./QueryPlanNode.ts"
+import { Promisable, UnknownRecord } from "npm:type-fest"
 
 export interface Aggregation<T> {
   init(): T
-  update(accumulator: T, row: RowData): T
+  update(accumulator: T, row: RowData, ctx: ExecutionContext): Promisable<T>
   result(accumulator: T): T
   describe(): string
 }
@@ -37,8 +37,12 @@ export class MaxAggregation<T> implements Aggregation<T> {
     return minValue
   }
 
-  update(accumulator: T, row: RowData): T {
-    const value = this.expr.resolve(row)
+  async update(
+    accumulator: T,
+    row: RowData,
+    ctx: ExecutionContext,
+  ): Promise<T> {
+    const value = await this.expr.resolve(row, ctx)
     return this.expr.getType().compare(value, accumulator) > 0
       ? value
       : accumulator
@@ -60,8 +64,12 @@ export class ArrayAggregation<T> implements Aggregation<T[]> {
     return []
   }
 
-  update(accumulator: T[], row: RowData): T[] {
-    accumulator.push(this.expr.resolve(row))
+  async update(
+    accumulator: T[],
+    row: RowData,
+    ctx: ExecutionContext,
+  ): Promise<T[]> {
+    accumulator.push(await this.expr.resolve(row, ctx))
     return accumulator
   }
 
@@ -86,9 +94,12 @@ export class MultiAggregation<T extends UnknownRecord>
     ) as T
   }
 
-  update(accumulator: T, row: RowData): T {
+  async update(accumulator: T, row: RowData): Promise<T> {
     for (const [key, value] of Object.entries(this.aggregations)) {
-      ;(accumulator as UnknownRecord)[key] = value.update(accumulator[key], row)
+      ;(accumulator as UnknownRecord)[key] = await value.update(
+        accumulator[key],
+        row,
+      )
     }
     return accumulator
   }

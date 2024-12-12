@@ -16,17 +16,20 @@ export type RowData = Record<string, UnknownRecord>
 
 export interface IQueryPlanNode<T extends RowData = RowData> {
   describe(): string
-  execute(dbFile: DbFile): AsyncIterableWrapper<T>
+  execute(ctx: ExecutionContext | DbFile): AsyncIterableWrapper<T>
 }
 
 abstract class AbstractQueryPlan<T extends RowData>
   implements IQueryPlanNode<T> {
   abstract describe(): string
 
-  abstract getIter(dbFile: DbFile): Promisable<AsyncIterableWrapper<T>>
+  abstract getIter(ctx: ExecutionContext): Promisable<AsyncIterableWrapper<T>>
 
-  execute(dbFile: DbFile): AsyncIterableWrapper<T> {
-    const iter = this.getIter(dbFile)
+  execute(ctx: ExecutionContext | DbFile): AsyncIterableWrapper<T> {
+    if (!(ctx instanceof ExecutionContext)) {
+      ctx = new ExecutionContext(ctx)
+    }
+    const iter = this.getIter(ctx)
     return new AsyncIterableWrapper(async function* () {
       const wrapper = await iter
       for await (const row of wrapper) {
@@ -58,7 +61,9 @@ export class TableScan<T extends RowData> extends AbstractQueryPlan<T> {
     return schemas[0].schema
   }
 
-  override async getIter(dbFile: DbFile): Promise<AsyncIterableWrapper<T>> {
+  override async getIter(
+    { dbFile }: ExecutionContext,
+  ): Promise<AsyncIterableWrapper<T>> {
     const schema = await this.getSchema(dbFile)
     const tableInstance = await dbFile.getOrCreateTable(schema, { db: this.db })
     return tableInstance.iterate().map((row) => ({
@@ -68,7 +73,7 @@ export class TableScan<T extends RowData> extends AbstractQueryPlan<T> {
 }
 
 export class Aggregate<T extends UnknownRecord>
-  extends AbstractQueryPlan<Record<"0", T>> {
+  extends AbstractQueryPlan<Record<"$0", T>> {
   constructor(
     readonly child: IQueryPlanNode,
     readonly aggregation: MultiAggregation<T>,
@@ -81,29 +86,33 @@ export class Aggregate<T extends UnknownRecord>
   }
 
   override async getIter(
-    dbFile: DbFile,
-  ): Promise<AsyncIterableWrapper<Record<"0", T>>> {
+    ctx: ExecutionContext,
+  ): Promise<AsyncIterableWrapper<Record<"$0", T>>> {
     const aggregation = this.aggregation
     let accumulator = aggregation.init()
-    for await (const row of this.child.execute(dbFile)) {
-      accumulator = aggregation.update(accumulator, row)
+    for await (const row of this.child.execute(ctx)) {
+      accumulator = await aggregation.update(accumulator, row)
     }
     return new AsyncIterableWrapper([
-      { "0": aggregation.result(accumulator) },
+      { "$0": aggregation.result(accumulator) },
     ])
   }
 }
 
+export class ExecutionContext {
+  constructor(readonly dbFile: DbFile) {}
+}
+
 export interface Expr<T> {
-  resolve(row: RowData): T
+  resolve(row: RowData, ctx: ExecutionContext): Promisable<T>
   getType(): ColumnType<T>
   describe(): string
 }
 
 export class NotExpr implements Expr<boolean> {
   constructor(readonly expr: Expr<boolean>) {}
-  resolve(row: RowData): boolean {
-    return !this.expr.resolve(row)
+  async resolve(row: RowData, ctx: ExecutionContext): Promise<boolean> {
+    return !(await this.expr.resolve(row, ctx))
   }
   getType(): ColumnType<boolean> {
     return ColumnTypes.boolean()
@@ -118,9 +127,9 @@ export class AndOrExpr implements Expr<boolean> {
     readonly operator: "AND" | "OR",
     readonly right: Expr<boolean>,
   ) {}
-  resolve(row: RowData): boolean {
-    const left = this.left.resolve(row)
-    const right = this.right.resolve(row)
+  async resolve(row: RowData, ctx: ExecutionContext): Promise<boolean> {
+    const left = await this.left.resolve(row, ctx)
+    const right = await this.right.resolve(row, ctx)
     if (this.operator === "AND") {
       return left && right
     } else {
@@ -151,6 +160,7 @@ export class LiteralValueExpr<T> implements Expr<T> {
     return JSON.stringify(this.value)
   }
 }
+
 export class ColumnRefExpr<
   C extends Column.Any,
   TableNameT extends string = string,
@@ -185,9 +195,14 @@ export type CompareOperator = typeof Compare.operators[number]
 export class In<T> implements Expr<boolean> {
   constructor(readonly left: Expr<T>, readonly right: Expr<T>[]) {}
 
-  resolve(row: RowData): boolean {
-    const left = this.left.resolve(row)
-    return this.right.some((right) => right.resolve(row) === left)
+  async resolve(row: RowData, ctx: ExecutionContext): Promise<boolean> {
+    const left = await this.left.resolve(row, ctx)
+    for (const right of this.right) {
+      if (await right.resolve(row, ctx) === left) {
+        return true
+      }
+    }
+    return false
   }
 
   getType(): ColumnType<boolean> {
@@ -200,6 +215,46 @@ export class In<T> implements Expr<boolean> {
     }])`
   }
 }
+
+export class SubqueryExpr<T, RowDataT extends RowData> implements Expr<T> {
+  constructor(
+    // TODO: passing in a factory function means we don't know
+    // the plan until runtime, which makes it impossible to
+    // optimize ahead of time. Need to figure out some way to capture
+    // the plan at compile time.
+    readonly subplanFactory: (
+      rowData: RowDataT,
+      ctx: ExecutionContext,
+    ) => IQueryPlanNode<Record<"$0", Record<string, T>>>,
+  ) {}
+
+  getType(): ColumnType<T> {
+    // TODO: we don't know the type until we run the subquery,
+    // which is not ideal. So we are using the "any" type for now.
+    return ColumnTypes.any()
+  }
+
+  async resolve(row: RowDataT, ctx: ExecutionContext): Promise<T> {
+    const values = await this.subplanFactory(row, ctx).execute(ctx).take(2)
+      .toArray()
+    if (values.length === 0) {
+      throw new Error("Subquery returned no rows")
+    }
+    if (values.length > 1) {
+      throw new Error("Subquery returned more than one row")
+    }
+    const val = values[0].$0
+    const cellValues = Object.values(val)
+    if (cellValues.length !== 1) {
+      throw new Error("Subquery returned more than one column")
+    }
+    return cellValues[0]
+  }
+
+  describe(): string {
+    return "Subquery()"
+  }
+}
 export class Compare<T> implements Expr<boolean> {
   constructor(
     readonly left: Expr<T>,
@@ -207,11 +262,11 @@ export class Compare<T> implements Expr<boolean> {
     readonly right: Expr<T>,
   ) {}
 
-  resolve(row: RowData): boolean {
+  async resolve(row: RowData, ctx: ExecutionContext): Promise<boolean> {
     const leftType = this.left.getType()
     const rightType = this.right.getType()
-    const left = this.left.resolve(row)
-    const right = this.right.resolve(row)
+    const left = await this.left.resolve(row, ctx)
+    const right = await this.right.resolve(row, ctx)
     if (!leftType.isValid(right)) {
       throw new Error(
         `Type mismatch: ${this.left.describe()} is of type ${leftType.name}, but ${this.right.describe()} is of type ${rightType.name}, value ${right} doesn't work`,
@@ -266,15 +321,15 @@ export class Filter<T extends RowData = RowData> extends AbstractQueryPlan<T> {
     return `Filter(${this.child.describe()}, ${this.predicate.describe()})`
   }
 
-  override getIter(dbFile: DbFile): AsyncIterableWrapper<T> {
-    return this.child.execute(dbFile).filter(
-      this.predicate.resolve.bind(this.predicate),
+  override getIter(ctx: ExecutionContext): AsyncIterableWrapper<T> {
+    return this.child.execute(ctx).filter(
+      (row) => this.predicate.resolve(row, ctx),
     )
   }
 }
 
 export class Select<T extends UnknownRecord>
-  extends AbstractQueryPlan<Record<"0", T>> {
+  extends AbstractQueryPlan<Record<"$0", T>> {
   constructor(
     readonly child: IQueryPlanNode,
     readonly columns: Record<string, Expr<any>>,
@@ -290,13 +345,15 @@ export class Select<T extends UnknownRecord>
     }, ${this.child.describe()})`
   }
 
-  override getIter(dbFile: DbFile): AsyncIterableWrapper<Record<"0", T>> {
-    return this.child.execute(dbFile).map((row) => {
+  override getIter(
+    ctx: ExecutionContext,
+  ): AsyncIterableWrapper<Record<"$0", T>> {
+    return this.child.execute(ctx).map(async (row) => {
       const result = {} as T
       for (const [key, column] of Object.entries(this.columns)) {
-        ;(result as UnknownRecord)[key] = column.resolve(row)
+        ;(result as UnknownRecord)[key] = await column.resolve(row, ctx)
       }
-      return { "0": result }
+      return { "$0": result }
     })
   }
 
@@ -317,8 +374,8 @@ export class Limit<T extends RowData = RowData> extends AbstractQueryPlan<T> {
     return `Limit(${this.child.describe()}, ${this.limit})`
   }
 
-  override getIter(dbFile: DbFile): AsyncIterableWrapper<T> {
-    return this.child.execute(dbFile).take(this.limit)
+  override getIter(ctx: ExecutionContext): AsyncIterableWrapper<T> {
+    return this.child.execute(ctx).take(this.limit)
   }
 }
 
@@ -339,16 +396,16 @@ export class Join<
     return `Join(${this.left.describe()}, ${this.right.describe()}, ${this.predicate.describe()})`
   }
   override async getIter(
-    dbFile: DbFile,
+    ctx: ExecutionContext,
   ): Promise<AsyncIterableWrapper<LeftT & RightT>> {
-    const leftIter = await this.left.execute(dbFile).toArray()
-    const rightIter = await this.right.execute(dbFile).toArray()
+    const leftIter = await this.left.execute(ctx).toArray()
+    const rightIter = await this.right.execute(ctx).toArray()
     const predicate = this.predicate
     return new AsyncIterableWrapper(async function* () {
       for (const leftRow of leftIter) {
         for (const rightRow of rightIter) {
           const row = { ...leftRow, ...rightRow }
-          if (predicate.resolve(row)) {
+          if (await predicate.resolve(row, ctx)) {
             yield row
           }
         }
@@ -374,14 +431,22 @@ export class OrderBy<T extends RowData = RowData> extends AbstractQueryPlan<T> {
   }
 
   override async getIter(
-    dbFile: DbFile,
+    ctx: ExecutionContext,
   ): Promise<AsyncIterableWrapper<T>> {
-    const orderBy = this.orderBy
-    const allValues = await this.child.execute(dbFile).toArray()
+    const allValues = await this.child.execute(ctx).toArray()
+    const valueMaps: Map<T, unknown>[] = []
+    for (const { expr } of this.orderBy) {
+      const resolvedMap = new Map<T, unknown>()
+      for (const v of allValues) {
+        resolvedMap.set(v, await expr.resolve(v, ctx))
+      }
+      valueMaps.push(resolvedMap)
+    }
+
     allValues.sort((a, b) => {
-      for (const { expr, direction } of orderBy) {
-        const aValue = expr.resolve(a)
-        const bValue = expr.resolve(b)
+      for (const [i, { expr, direction }] of this.orderBy.entries()) {
+        const aValue = valueMaps[i].get(a)!
+        const bValue = valueMaps[i].get(b)!
         if (expr.getType().compare(aValue, bValue) < 0) {
           return direction === "ASC" ? -1 : 1
         } else if (expr.getType().compare(aValue, bValue) > 0) {

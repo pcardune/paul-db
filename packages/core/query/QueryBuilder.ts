@@ -21,7 +21,12 @@ import {
   OrderBy,
   TableScan,
 } from "./QueryPlanNode.ts"
-import { NonEmptyTuple, TupleToUnion } from "npm:type-fest"
+import {
+  NonEmptyTuple,
+  Promisable,
+  TupleToUnion,
+  UnknownRecord,
+} from "npm:type-fest"
 import { ColumnType } from "../schema/columns/ColumnType.ts"
 
 export class QueryBuilder<DBSchemaT extends DBSchema = DBSchema> {
@@ -226,14 +231,11 @@ class SelectBuilder<
   SelectT extends Record<string, ExprBuilder> = Record<string, ExprBuilder>,
 > {
   constructor(readonly tqb: TQB, readonly select: SelectT) {}
-  plan(): IQueryPlanNode<
-    Record<
-      "0",
-      {
-        [Property in keyof SelectT]: SelectT[Property] extends
-          ExprBuilder<infer TQB, infer T> ? T : never
-      }
-    >
+  plan(): plan.Select<
+    {
+      [Property in keyof SelectT]: SelectT[Property] extends
+        ExprBuilder<infer TQB, infer T> ? T : never
+    }
   > {
     return new plan.Select(
       this.tqb.plan(),
@@ -270,7 +272,7 @@ class AggregateBuilder<
 
   plan(): IQueryPlanNode<
     Record<
-      "0",
+      "$0",
       {
         [Key in keyof AggT]: AggT[Key] extends plan.Aggregation<infer T> ? T
           : never
@@ -297,6 +299,12 @@ export type ColumnNames<
 export type TQBTableNames<TQB extends ITQB> = TupleToUnion<
   TQB["tableNames"]
 >
+
+type TQBRowData<TQB extends ITQB> = {
+  [Key in TQBTableNames<TQB>]: StoredRecordForTableSchema<
+    SchemaWithName<TQB, Key>
+  >
+}
 
 export type ColumnWithName<
   TQB extends ITQB,
@@ -443,5 +451,17 @@ class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
   literal<T>(value: T, type: ColumnType<T>): ExprBuilder<TQB, T> {
     const expr = new LiteralValueExpr(value, type)
     return new ExprBuilder(this.tqb, expr)
+  }
+
+  subquery<T>(
+    subplanFactory: (
+      rowData: TQBRowData<TQB>,
+      ctx: plan.ExecutionContext,
+    ) => IQueryPlanNode<{ "$0": Record<string, T> }>,
+  ): ExprBuilder<TQB, T> {
+    return new ExprBuilder(
+      this.tqb,
+      new plan.SubqueryExpr(subplanFactory),
+    ) as ExprBuilder<TQB, T>
   }
 }
