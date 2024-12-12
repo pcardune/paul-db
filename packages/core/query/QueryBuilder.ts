@@ -1,10 +1,10 @@
-import { ColumnType, plan } from "../mod.ts"
 import {
   Column,
   StoredRecordForTableSchema,
   TableSchemaColumns,
 } from "../schema/schema.ts"
-import { DBSchema } from "../schema/DBSchema.ts"
+import * as plan from "./QueryPlanNode.ts"
+import type { DBSchema } from "../schema/DBSchema.ts"
 import {
   AndOrExpr,
   ColumnRefExpr,
@@ -16,16 +16,18 @@ import {
   IQueryPlanNode,
   Limit,
   LiteralValueExpr,
+  MultiAggregation,
   NotExpr,
   OrderBy,
   TableScan,
 } from "./QueryPlanNode.ts"
 import { NonEmptyTuple, TupleToUnion } from "npm:type-fest"
+import { ColumnType } from "../schema/columns/ColumnType.ts"
 
 export class QueryBuilder<DBSchemaT extends DBSchema = DBSchema> {
   constructor(readonly dbSchema: DBSchemaT) {}
 
-  scan<TName extends Extract<keyof DBSchemaT["schemas"], string>>(
+  from<TName extends Extract<keyof DBSchemaT["schemas"], string>>(
     table: TName,
   ): TableQueryBuilder<this, [TName]> {
     return new TableQueryBuilder(this, [table]) as TableQueryBuilder<
@@ -126,7 +128,6 @@ class TableQueryBuilder<
     return this
   }
 
-  // private selectClause: Record<string, ExprBuilder<any>>
   select<SelectT extends Record<string, ExprBuilder<this, any>>>(
     selection: {
       [Property in keyof SelectT]: (
@@ -141,6 +142,32 @@ class TableQueryBuilder<
           [key, func],
         ) => [key, func(new ExprBuilder(this, new NeverExpr()))]),
       ) as SelectT,
+    )
+  }
+
+  aggregate<
+    AggregateT extends Record<string, plan.Aggregation<any>>, // TODO: fix this any
+  >(
+    aggregations: {
+      [K in keyof AggregateT]: (
+        aggFuncs: AggregationFuncs<this>,
+        exprFuncs: ExprBuilder<this, never>,
+      ) => AggregateT[K]
+    },
+  ): AggregateBuilder<this, AggregateT> {
+    return new AggregateBuilder(
+      this,
+      Object.fromEntries(
+        Object.entries(aggregations).map((
+          [key, func],
+        ) => [
+          key,
+          func(
+            new AggregationFuncs(this),
+            new ExprBuilder(this, new NeverExpr()),
+          ),
+        ]),
+      ) as AggregateT,
     )
   }
 
@@ -219,6 +246,41 @@ class SelectBuilder<
   }
 }
 
+class AggregationFuncs<TQB extends ITQB = ITQB> {
+  constructor(readonly tqb: TQB) {}
+  count(): plan.Aggregation<number> {
+    return new plan.CountAggregation()
+  }
+  max<T>(expr: ExprBuilder<TQB, T>): plan.MaxAggregation<T> {
+    return new plan.MaxAggregation(expr.expr)
+  }
+}
+
+class AggregateBuilder<
+  TQB extends ITQB = ITQB,
+  AggT extends Record<string, plan.Aggregation<any>> = Record<
+    string,
+    plan.Aggregation<any>
+  >,
+> {
+  constructor(readonly tqb: TQB, readonly aggregations: AggT) {}
+
+  plan(): IQueryPlanNode<
+    Record<
+      "0",
+      {
+        [Key in keyof AggT]: AggT[Key] extends plan.Aggregation<infer T> ? T
+          : never
+      }
+    >
+  > {
+    return new plan.Aggregate(
+      this.tqb.plan(),
+      new MultiAggregation(this.aggregations),
+    ) as any // TODO: fix this
+  }
+}
+
 export type SchemasForTQB<TQB extends ITQB> =
   TQB["queryBuilder"]["dbSchema"]["schemas"][TQBTableNames<TQB>]
 type SchemaWithName<TQB extends ITQB, SchemaName extends string> = Extract<
@@ -239,10 +301,7 @@ export type ColumnWithName<
   CName extends ColumnNames<TQB, SchemaName>,
 > = Column.FindWithName<SchemasForTQB<TQB>["columns"], CName>
 
-class ExprBuilder<
-  TQB extends ITQB = ITQB,
-  T = any,
-> {
+class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
   constructor(readonly tqb: TQB, readonly expr: Expr<T>) {}
 
   column<

@@ -208,3 +208,23 @@ testSuite("JOINS", {
     ],
   ],
 })
+
+testSuite("Aggregations", {
+  setup: [
+    `CREATE TABLE cats (id INT, name TEXT, age INT)`,
+    `INSERT INTO cats (id, name, age) VALUES (1, 'fluffy', 3)`,
+    `INSERT INTO cats (id, name, age) VALUES (2, 'mittens', 5)`,
+  ],
+  cases: [
+    [
+      `SELECT MAX(age) as max_age FROM cats`,
+      [
+        { max_age: 5 },
+      ],
+    ],
+    [
+      `SELECT COUNT(*) as num_cats FROM cats`,
+      [{ num_cats: 2 }],
+    ],
+  ],
+})

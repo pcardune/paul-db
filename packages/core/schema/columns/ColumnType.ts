@@ -86,23 +86,32 @@ export class ColumnType<T = unknown> {
   isValid: (value: T) => boolean
   isEqual: EqualityChecker<T>
   compare: Comparator<T>
+
+  /**
+   * When doing aggregation queries, the minimum value is used to
+   * initialize the aggregation
+   */
+  minValue?: T
   serializer?: IStruct<T>
 
   constructor({
     name,
     isValid,
+    minValue,
     equals = (a: T, b: T) => a === b,
     compare = (a: T, b: T) => (a > b ? 1 : a < b ? -1 : 0),
     serializer,
   }: {
     name: string
     isValid: (value: T) => boolean
+    minValue?: T
     equals?: EqualityChecker<T>
     compare?: Comparator<T>
     serializer?: IStruct<T>
   }) {
     this.name = name
     this.isValid = isValid
+    this.minValue = minValue
     this.isEqual = equals
     this.compare = compare
     this.serializer = serializer

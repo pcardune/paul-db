@@ -1,4 +1,5 @@
 import { Struct } from "../../binary/Struct.ts"
+import { In } from "../../query/QueryPlanNode.ts"
 import { Json } from "../../types.ts"
 import { ColumnType } from "./ColumnType.ts"
 import * as stdUUID from "jsr:@std/uuid"
@@ -24,6 +25,7 @@ export function uuid() {
     name: "uuid",
     isValid: (value) => stdUUID.validate(value),
     serializer: Struct.unicodeStringStruct,
+    minValue: "00000000-0000-0000-0000-000000000000",
   })
 }
 
@@ -31,6 +33,7 @@ export function positiveNumber() {
   return new ColumnType<number>({
     name: "positiveNumber",
     isValid: (value) => value > 0,
+    minValue: 0,
   })
 }
 
@@ -39,6 +42,7 @@ export function boolean() {
     name: "boolean",
     isValid: (value) => typeof value === "boolean",
     serializer: Struct.boolean,
+    minValue: false,
   })
 }
 
@@ -47,6 +51,7 @@ export function string() {
     name: "string",
     isValid: (value) => typeof value === "string",
     serializer: Struct.unicodeStringStruct,
+    minValue: "",
   })
 }
 
@@ -55,6 +60,7 @@ export function float() {
     name: "float",
     isValid: (value) => typeof value === "number",
     serializer: Struct.float64,
+    minValue: -Infinity,
   })
 }
 
@@ -65,6 +71,7 @@ export function int16() {
       typeof value === "number" && Number.isInteger(value) &&
       value >= -(2 ** 15 - 1) && value <= 2 ** 15 - 1,
     serializer: Struct.int16,
+    minValue: -(2 ** 15 - 1),
   })
 }
 
@@ -75,6 +82,7 @@ export function uint16() {
       typeof value === "number" && Number.isInteger(value) && value >= 0 &&
       value <= 2 ** 16 - 1,
     serializer: Struct.uint16,
+    minValue: 0,
   })
 }
 
@@ -85,6 +93,7 @@ export function int32() {
       typeof value === "number" && Number.isInteger(value) &&
       value >= -(2 ** 31 - 1) && value <= 2 ** 31 - 1,
     serializer: Struct.int32,
+    minValue: -(2 ** 31 - 1),
   })
 }
 
@@ -95,6 +104,7 @@ export function uint32() {
       typeof value === "number" && Number.isInteger(value) && value >= 0 &&
       value <= 2 ** 32 - 1,
     serializer: Struct.uint32,
+    minValue: 0,
   })
 }
 
@@ -105,6 +115,7 @@ export function int64() {
       typeof value === "bigint" && value >= -(2n ** 63n - 1n) &&
       value <= 2n ** 63n - 1n,
     serializer: Struct.bigInt64,
+    minValue: -(2n ** 63n - 1n),
   })
 }
 
@@ -114,6 +125,7 @@ export function uint64() {
     isValid: (value) =>
       typeof value === "bigint" && value >= 0 && value <= 2n ** 64n - 1n,
     serializer: Struct.bigUint64,
+    minValue: 0n,
   })
 }
 
@@ -137,6 +149,7 @@ export function timestamp() {
     name: "timestamp",
     isValid: (value) => value instanceof Date,
     serializer: Struct.timestamp,
+    minValue: new Date(-Infinity),
   })
 }
 
@@ -145,6 +158,7 @@ export function date() {
     name: "date",
     isValid: (value) => value instanceof Date,
     serializer: Struct.date,
+    minValue: new Date(-Infinity),
   })
 }
 

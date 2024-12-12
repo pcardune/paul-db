@@ -5,10 +5,11 @@ import { SomeTableSchema } from "../core/schema/schema.ts"
 import { getColumnTypeFromSQLType } from "../core/schema/columns/ColumnType.ts"
 import { UnknownRecord } from "npm:type-fest"
 import { NotImplementedError, TableNotFoundError } from "./errors.ts"
-import { isColumnRefItem } from "./parser.ts"
+import { isAggrFunc, isColumnRefItem, isExpressionValue } from "./parser.ts"
 import { handleWhere } from "./where.ts"
 import { parseExpr } from "./expr.ts"
 import { handleLimit } from "./limit.ts"
+import { MultiAggregation } from "../core/query/QueryPlanNode.ts"
 type CreateDefinition = Exclude<
   Create["create_definitions"],
   null | undefined
@@ -143,39 +144,84 @@ export class SQLExecutor {
     }
 
     const astColumns = ast.columns as Column[]
-    let select = new plan.Select(rootPlan, {})
-    for (const astColumn of astColumns) {
-      const expr = astColumn.expr as SQLParser.ColumnRefItem
-      if (isColumnRefItem(expr) && expr.column === "*") {
-        const schemaEntries = Object.entries(schemas)
-        for (const [tableName, schema] of schemaEntries) {
-          for (const column of schema.columns) {
-            select = select.addColumn(
-              schemaEntries.length === 1
-                ? column.name
-                : `${tableName}_${column.name}`,
-              new plan.ColumnRefExpr(column, schema.name),
-            )
-          }
+
+    if (astColumns.some((col) => col.expr.type === "aggr_func")) {
+      // this is an aggregation query
+      let multiAgg = new MultiAggregation({})
+      for (const astColumn of astColumns) {
+        const exprAst = astColumn.expr
+        if (!isAggrFunc(exprAst)) {
+          throw new NotImplementedError(
+            `Only aggregate functions are supported in aggregation queries`,
+          )
         }
-      } else {
-        const planExpr = parseExpr(schemas, astColumn.expr)
-        let columnName = planExpr.describe()
-          .replace(/\s/g, "")
-          .replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase()
+        let colName: string | null = null
         if (astColumn.as != null) {
           if (typeof astColumn.as !== "string") {
             throw new NotImplementedError(
               `Only string column names are supported`,
             )
           }
-          columnName = astColumn.as
+          colName = astColumn.as
         }
-        select = select.addColumn(columnName, planExpr)
+        if (exprAst.name === "MAX") {
+          const expr = parseExpr(schemas, exprAst.args.expr)
+          const aggregation = new plan.MaxAggregation(expr)
+          multiAgg = multiAgg.withAggregation(
+            colName ?? aggregation.describe(),
+            aggregation,
+          )
+        } else if (exprAst.name === "COUNT") {
+          const aggregation = new plan.CountAggregation()
+          multiAgg = multiAgg.withAggregation(
+            colName ?? aggregation.describe(),
+            aggregation,
+          )
+        } else {
+          throw new NotImplementedError(
+            `Aggregate function ${exprAst.name} not supported: ${
+              JSON.stringify(exprAst)
+            }`,
+          )
+        }
       }
+      rootPlan = new plan.Aggregate(rootPlan, multiAgg)
+    } else {
+      let select = new plan.Select(rootPlan, {})
+      for (const astColumn of astColumns) {
+        const expr = astColumn.expr as SQLParser.ColumnRefItem
+        if (isColumnRefItem(expr) && expr.column === "*") {
+          const schemaEntries = Object.entries(schemas)
+          for (const [tableName, schema] of schemaEntries) {
+            for (const column of schema.columns) {
+              select = select.addColumn(
+                schemaEntries.length === 1
+                  ? column.name
+                  : `${tableName}_${column.name}`,
+                new plan.ColumnRefExpr(column, schema.name),
+              )
+            }
+          }
+        } else {
+          const planExpr = parseExpr(schemas, astColumn.expr)
+          let columnName = planExpr.describe()
+            .replace(/\s/g, "")
+            .replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase()
+          if (astColumn.as != null) {
+            if (typeof astColumn.as !== "string") {
+              throw new NotImplementedError(
+                `Only string column names are supported`,
+              )
+            }
+            columnName = astColumn.as
+          }
+          select = select.addColumn(columnName, planExpr)
+        }
+      }
+      rootPlan = select
     }
 
-    return await select.execute(this.dbFile).map((rowData) => rowData["0"])
+    return await rootPlan.execute(this.dbFile).map((rowData) => rowData["0"])
       .toArray()
   }
 

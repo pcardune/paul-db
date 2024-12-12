@@ -2,6 +2,7 @@ import { EmptyObject, NonEmptyTuple, Simplify } from "npm:type-fest"
 import { SomeTableSchema } from "./schema.ts"
 import { associateBy } from "jsr:@std/collections"
 import { SYSTEM_DB } from "../db/metadataSchemas.ts"
+import { QueryBuilder } from "../query/QueryPlanNode.ts"
 
 type SchemaMap<TableSchemasT extends NonEmptyTuple<SomeTableSchema>> = {
   [K in TableSchemasT[number]["name"]]: Extract<
@@ -41,5 +42,9 @@ export class DBSchema<
       DBName,
       SchemasT & SchemaMap<TableSchemasT>
     >
+  }
+
+  query(): QueryBuilder<this> {
+    return new QueryBuilder(this)
   }
 }

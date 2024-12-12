@@ -1,17 +1,20 @@
 import { expect } from "jsr:@std/expect"
 import {
+  Aggregate,
   ColumnRefExpr,
   Compare,
+  CountAggregation,
   Filter,
   Join,
   Limit,
   LiteralValueExpr,
+  MaxAggregation,
+  MultiAggregation,
   Select,
   TableScan,
 } from "./QueryPlanNode.ts"
 import { DbFile, s } from "../mod.ts"
 import { ColumnTypes } from "../schema/columns/ColumnType.ts"
-import { QueryBuilder } from "./QueryBuilder.ts"
 import { assertTrue, TypeEquals } from "../testing.ts"
 
 const dbSchema = s.db().withTables(
@@ -90,8 +93,8 @@ Deno.test("QueryPlanNode", async () => {
   }])
 
   // via the builder API:
-  const oldAndFluffyQuery = new QueryBuilder(dbSchema)
-    .scan("cats")
+  const oldAndFluffyQuery = dbSchema.query()
+    .from("cats")
     .where((t) =>
       t.column("cats", "name").eq("fluffy")
         .or(t.column("cats", "age").gt(3))
@@ -155,6 +158,22 @@ Deno.test("QueryPlanNode", async () => {
   >()
 })
 
+Deno.test("QueryPlanNode Aggregates", async () => {
+  const { model, dbFile } = await init()
+
+  const ageCol = model.cats.schema.getColumnByNameOrThrow("age")
+  const plan = new Aggregate(
+    new TableScan("default", "cats"),
+    new MultiAggregation({
+      count: new CountAggregation(),
+      max: new MaxAggregation(new ColumnRefExpr(ageCol, "cats")),
+    }),
+  )
+  expect(await plan.execute(dbFile).toArray()).toEqual([
+    { "0": { count: 2, max: 5 } },
+  ])
+})
+
 Deno.test("QueryPlanNode JOINS", async () => {
   const { model, dbFile } = await init()
 
@@ -201,11 +220,11 @@ Deno.test("QueryPlanNode JOINS", async () => {
   ])
 })
 
-Deno.test("QueryPlanNode JOINS via QueryBuilder", async () => {
+Deno.test("QueryBuilder JOINS", async () => {
   const { dbFile } = await init()
 
-  const cats = await new QueryBuilder(dbSchema)
-    .scan("cats")
+  const cats = await dbSchema.query()
+    .from("cats")
     .join(
       "catOwners",
       (t) => t.column("catOwners", "petId").eq(t.column("cats", "id")),
@@ -225,8 +244,8 @@ Deno.test("QueryPlanNode JOINS via QueryBuilder", async () => {
     { "0": { catName: "mittens", owner: "Bob" } },
   ])
 
-  const plan = new QueryBuilder(dbSchema)
-    .scan("cats")
+  const plan = dbSchema.query()
+    .from("cats")
     .join(
       "catOwners",
       (t) => t.column("cats.id").eq(t.column("catOwners.petId")),
@@ -252,8 +271,8 @@ Deno.test("QueryPlanNode JOINS via QueryBuilder", async () => {
 Deno.test("QueryBuilder .in()", async () => {
   const { dbFile, model } = await init()
   await model.cats.insert({ name: "Mr. Blue", age: 3, id: 3 })
-  const plan = new QueryBuilder(dbSchema)
-    .scan("cats")
+  const plan = dbSchema.query()
+    .from("cats")
     .where((t) => t.column("cats", "name").in("fluffy", "Mr. Blue"))
     .select({ name: (t) => t.column("cats", "name") })
     .plan()
@@ -269,8 +288,8 @@ Deno.test("QueryBuilder .in()", async () => {
 Deno.test("QueryBuilder .not()", async () => {
   const { dbFile, model } = await init()
   await model.cats.insert({ name: "Mr. Blue", age: 3, id: 3 })
-  const plan = new QueryBuilder(dbSchema)
-    .scan("cats")
+  const plan = dbSchema.query()
+    .from("cats")
     .where((t) => t.column("cats", "name").eq("fluffy").not())
     .select({ name: (t) => t.column("cats", "name") })
     .plan()
@@ -282,10 +301,36 @@ Deno.test("QueryBuilder .not()", async () => {
     { "0": { name: "Mr. Blue" } },
   ])
 
-  const plan2 = new QueryBuilder(dbSchema)
-    .scan("cats")
+  const plan2 = dbSchema.query()
+    .from("cats")
     .where((t) => t.not(t.column("cats", "name").eq("fluffy")))
     .select({ name: (t) => t.column("cats", "name") })
     .plan()
   expect(plan2.describe()).toEqual(plan.describe())
+})
+
+Deno.test("QueryBuilder .aggregate()", async () => {
+  const { dbFile } = await init()
+  const plan = dbSchema.query()
+    .from("cats")
+    .aggregate({
+      count: (agg) => agg.count(),
+      maxAge: (agg, t) => agg.max(t.column("cats", "age")),
+      maxName: (agg, t) => agg.max(t.column("cats", "name")),
+    })
+    .plan()
+
+  expect(plan.describe()).toEqual(
+    "Aggregate(TableScan(default.cats), MultiAggregation(count: COUNT(*), maxAge: MAX(age), maxName: MAX(name)))",
+  )
+  const data = await plan.execute(dbFile).toArray()
+  expect(data).toEqual([
+    { "0": { count: 2, maxAge: 5, maxName: "mittens" } },
+  ])
+  assertTrue<
+    TypeEquals<
+      typeof data,
+      Array<{ "0": { count: number; maxAge: number; maxName: string } }>
+    >
+  >()
 })
