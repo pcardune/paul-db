@@ -9,17 +9,19 @@ export class TableNotFoundError extends Error {}
 
 export { QueryBuilder } from "./QueryBuilder.ts"
 
-export interface IQueryPlanNode<T extends UnknownRecord = UnknownRecord> {
+type RowData = Record<string, UnknownRecord>
+
+export interface IQueryPlanNode<T extends RowData = RowData> {
   describe(): string
   execute(dbFile: DbFile): AsyncIterableWrapper<T>
 }
 
-abstract class AbstractQueryPlan<T extends UnknownRecord>
+abstract class AbstractQueryPlan<T extends RowData>
   implements IQueryPlanNode<T> {
   abstract describe(): string
-  abstract getIter(
-    dbFile: DbFile,
-  ): Promisable<AsyncIterableWrapper<T>>
+
+  abstract getIter(dbFile: DbFile): Promisable<AsyncIterableWrapper<T>>
+
   execute(dbFile: DbFile): AsyncIterableWrapper<T> {
     const iter = this.getIter(dbFile)
     return new AsyncIterableWrapper(async function* () {
@@ -31,9 +33,14 @@ abstract class AbstractQueryPlan<T extends UnknownRecord>
   }
 }
 
-export class TableScan<T extends UnknownRecord> extends AbstractQueryPlan<T> {
-  constructor(readonly db: string, readonly table: string) {
+export class TableScan<T extends RowData> extends AbstractQueryPlan<T> {
+  readonly alias: string
+
+  constructor(db: string, table: string)
+  constructor(db: string, table: string, alias: string)
+  constructor(readonly db: string, readonly table: string, alias?: string) {
     super()
+    this.alias = alias ?? table
   }
 
   describe(): string {
@@ -48,24 +55,24 @@ export class TableScan<T extends UnknownRecord> extends AbstractQueryPlan<T> {
     return schemas[0].schema
   }
 
-  override async getIter(
-    dbFile: DbFile,
-  ): Promise<AsyncIterableWrapper<T>> {
+  override async getIter(dbFile: DbFile): Promise<AsyncIterableWrapper<T>> {
     const schema = await this.getSchema(dbFile)
     const tableInstance = await dbFile.getOrCreateTable(schema, { db: this.db })
-    return tableInstance.iterate() as AsyncIterableWrapper<T>
+    return tableInstance.iterate().map((row) => ({
+      [this.alias]: row,
+    })) as AsyncIterableWrapper<T>
   }
 }
 
 export interface Expr<T> {
-  resolve(row: UnknownRecord): T
+  resolve(row: RowData): T
   getType(): ColumnType<T>
   describe(): string
 }
 
 export class NotExpr implements Expr<boolean> {
   constructor(readonly expr: Expr<boolean>) {}
-  resolve(row: UnknownRecord): boolean {
+  resolve(row: RowData): boolean {
     return !this.expr.resolve(row)
   }
   getType(): ColumnType<boolean> {
@@ -81,7 +88,7 @@ export class AndOrExpr implements Expr<boolean> {
     readonly operator: "AND" | "OR",
     readonly right: Expr<boolean>,
   ) {}
-  resolve(row: UnknownRecord): boolean {
+  resolve(row: RowData): boolean {
     const left = this.left.resolve(row)
     const right = this.right.resolve(row)
     if (this.operator === "AND") {
@@ -114,19 +121,30 @@ export class LiteralValueExpr<T> implements Expr<T> {
     return JSON.stringify(this.value)
   }
 }
-export class ColumnRefExpr<C extends Column.Any>
-  implements Expr<Column.GetOutput<C>> {
-  constructor(readonly column: C) {}
-  resolve(row: Column.GetRecordContainingColumn<C>): Column.GetOutput<C> {
+export class ColumnRefExpr<
+  C extends Column.Any,
+  TableNameT extends string = string,
+> implements Expr<Column.GetOutput<C>> {
+  constructor(readonly column: C, readonly tableName: TableNameT) {}
+
+  resolve(
+    row: { [Property in TableNameT]: Column.GetRecordContainingColumn<C> },
+  ): Column.GetOutput<C> {
+    const data: Column.GetRecordContainingColumn<C> = this.tableName != null
+      ? row[this.tableName]
+      : row as Column.GetRecordContainingColumn<C>
+
     if (this.column.kind === "stored") {
-      return row[this.column.name]
+      return data[this.column.name]
     } else {
-      return this.column.compute(row)
+      return this.column.compute(data)
     }
   }
+
   getType(): C["type"] {
     return this.column.type
   }
+
   describe(): string {
     return this.column.name
   }
@@ -140,14 +158,14 @@ export class Compare<T> implements Expr<boolean> {
     readonly right: Expr<T>,
   ) {}
 
-  resolve(row: UnknownRecord): boolean {
+  resolve(row: RowData): boolean {
     const leftType = this.left.getType()
     const rightType = this.right.getType()
     const left = this.left.resolve(row)
     const right = this.right.resolve(row)
     if (!leftType.isValid(right)) {
       throw new Error(
-        `Type mismatch: ${this.left.describe()} is of type ${leftType.name}, but ${this.right.describe()} is of type ${rightType.name}`,
+        `Type mismatch: ${this.left.describe()} is of type ${leftType.name}, but ${this.right.describe()} is of type ${rightType.name}, value ${right} doesn't work`,
       )
     }
     if (!rightType.isValid(right)) {
@@ -187,8 +205,7 @@ export class Compare<T> implements Expr<boolean> {
   }
 }
 
-export class Filter<T extends UnknownRecord = UnknownRecord>
-  extends AbstractQueryPlan<T> {
+export class Filter<T extends RowData = RowData> extends AbstractQueryPlan<T> {
   constructor(
     readonly child: IQueryPlanNode<T>,
     readonly predicate: Expr<boolean>,
@@ -207,7 +224,8 @@ export class Filter<T extends UnknownRecord = UnknownRecord>
   }
 }
 
-export class Select<T extends UnknownRecord> extends AbstractQueryPlan<T> {
+export class Select<T extends UnknownRecord>
+  extends AbstractQueryPlan<Record<"0", T>> {
   constructor(
     readonly child: IQueryPlanNode,
     readonly columns: Record<string, Expr<any>>,
@@ -223,13 +241,13 @@ export class Select<T extends UnknownRecord> extends AbstractQueryPlan<T> {
     }, ${this.child.describe()})`
   }
 
-  override getIter(dbFile: DbFile): AsyncIterableWrapper<T> {
+  override getIter(dbFile: DbFile): AsyncIterableWrapper<Record<"0", T>> {
     return this.child.execute(dbFile).map((row) => {
       const result = {} as T
       for (const [key, column] of Object.entries(this.columns)) {
         ;(result as UnknownRecord)[key] = column.resolve(row)
       }
-      return result
+      return { "0": result }
     })
   }
 
@@ -241,8 +259,7 @@ export class Select<T extends UnknownRecord> extends AbstractQueryPlan<T> {
   }
 }
 
-export class Limit<T extends UnknownRecord = UnknownRecord>
-  extends AbstractQueryPlan<T> {
+export class Limit<T extends RowData = RowData> extends AbstractQueryPlan<T> {
   constructor(readonly child: IQueryPlanNode<T>, readonly limit: number) {
     super()
   }
@@ -256,8 +273,42 @@ export class Limit<T extends UnknownRecord = UnknownRecord>
   }
 }
 
-export class OrderBy<T extends UnknownRecord = UnknownRecord>
-  extends AbstractQueryPlan<T> {
+export class Join<
+  LeftT extends RowData = RowData,
+  RightT extends RowData = RowData,
+> extends AbstractQueryPlan<
+  LeftT & RightT
+> {
+  constructor(
+    readonly left: IQueryPlanNode<LeftT>,
+    readonly right: IQueryPlanNode<RightT>,
+    readonly predicate: Expr<boolean>,
+  ) {
+    super()
+  }
+  override describe(): string {
+    return `Join(${this.left.describe()}, ${this.right.describe()}, ${this.predicate.describe()})`
+  }
+  override async getIter(
+    dbFile: DbFile,
+  ): Promise<AsyncIterableWrapper<LeftT & RightT>> {
+    const leftIter = await this.left.execute(dbFile).toArray()
+    const rightIter = await this.right.execute(dbFile).toArray()
+    const predicate = this.predicate
+    return new AsyncIterableWrapper(async function* () {
+      for (const leftRow of leftIter) {
+        for (const rightRow of rightIter) {
+          const row = { ...leftRow, ...rightRow }
+          if (predicate.resolve(row)) {
+            yield row
+          }
+        }
+      }
+    })
+  }
+}
+
+export class OrderBy<T extends RowData = RowData> extends AbstractQueryPlan<T> {
   constructor(
     readonly child: IQueryPlanNode<T>,
     readonly orderBy: { expr: Expr<any>; direction: "ASC" | "DESC" }[],

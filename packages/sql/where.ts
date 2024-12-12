@@ -6,7 +6,7 @@ import { parseExpr } from "./expr.ts"
 
 export function handleWhere(
   rootPlan: plan.IQueryPlanNode,
-  schema: SomeTableSchema,
+  schemas: Record<string, SomeTableSchema>,
   where: SQLParser.Binary | SQLParser.Function,
 ): plan.Filter {
   const ast = { where }
@@ -16,7 +16,7 @@ export function handleWhere(
     )
   }
 
-  const predicate = parseExpr(schema, ast.where)
+  const predicate = parseExpr(schemas, ast.where)
   return new plan.Filter(
     rootPlan,
     predicate,

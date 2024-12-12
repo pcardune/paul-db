@@ -18,14 +18,18 @@ import {
   OrderBy,
   TableScan,
 } from "./QueryPlanNode.ts"
+import { NonEmptyTuple, TupleToUnion } from "npm:type-fest"
 
 export class QueryBuilder<DBSchemaT extends DBSchema = DBSchema> {
   constructor(readonly dbSchema: DBSchemaT) {}
 
   scan<TName extends Extract<keyof DBSchemaT["schemas"], string>>(
     table: TName,
-  ): TableQueryBuilder<this, TName> {
-    return new TableQueryBuilder(this, table) as TableQueryBuilder<this, TName>
+  ): TableQueryBuilder<this, [TName]> {
+    return new TableQueryBuilder(this, [table]) as TableQueryBuilder<
+      this,
+      [TName]
+    >
   }
 }
 
@@ -46,19 +50,54 @@ class NeverExpr implements Expr<never> {
   }
 }
 
+interface ITQB<
+  QB extends QueryBuilder = QueryBuilder,
+  TableNamesT extends NonEmptyTuple<TableNames<QB>> = NonEmptyTuple<
+    TableNames<QB>
+  >,
+> {
+  readonly queryBuilder: QB
+  readonly tableNames: TableNamesT
+  plan(): IQueryPlanNode
+}
+
 class TableQueryBuilder<
   QB extends QueryBuilder = QueryBuilder,
-  TableName extends TableNames<QB> = TableNames<QB>,
-> {
+  TableNamesT extends NonEmptyTuple<TableNames<QB>> = NonEmptyTuple<
+    TableNames<QB>
+  >,
+> implements ITQB<QB, TableNamesT> {
   constructor(
     readonly queryBuilder: QB,
-    readonly tableName: TableName,
+    readonly tableNames: TableNamesT,
+    // TODO: surey this is a nasty type to figure out.
+    private joinPredicates: Array<
+      (e: ExprBuilder<ITQB, never>) => ExprBuilder<ITQB, boolean>
+    > = [],
   ) {}
 
-  private whereClause: ExprBuilder<this, boolean> | undefined
+  join<JoinTableNameT extends TableNames<QB>>(
+    table: JoinTableNameT,
+    on: (
+      tqb: ExprBuilder<
+        ITQB<QB, [...TableNamesT, JoinTableNameT]>,
+        never
+      >,
+    ) => ExprBuilder<ITQB<QB, [...TableNamesT, JoinTableNameT]>, boolean>,
+  ): TableQueryBuilder<QB, [...TableNamesT, JoinTableNameT]> {
+    return new TableQueryBuilder(
+      this.queryBuilder,
+      [...this.tableNames, table] as [...TableNamesT, JoinTableNameT],
+      [...this.joinPredicates, on as any],
+    )
+  }
+
+  private whereClause: ExprBuilder<ITQB<QB, TableNamesT>, boolean> | undefined
 
   where(
-    func: (tqb: ExprBuilder<this, never>) => ExprBuilder<this, boolean>,
+    func: (
+      tqb: ExprBuilder<ITQB<QB, TableNamesT>, never>,
+    ) => ExprBuilder<ITQB<QB, TableNamesT>, boolean>,
   ): this {
     this.whereClause = func(new ExprBuilder(this, new NeverExpr()))
     return this
@@ -71,7 +110,7 @@ class TableQueryBuilder<
   }
 
   private orderByClauses: {
-    expr: ExprBuilder<TableQueryBuilder<QB, TableName>, any>
+    expr: ExprBuilder<ITQB<QB, TableNamesT>, any>
     order: "ASC" | "DESC"
   }[] = []
   orderBy(
@@ -104,13 +143,36 @@ class TableQueryBuilder<
   }
 
   plan(): IQueryPlanNode<
-    StoredRecordForTableSchema<QB["dbSchema"]["schemas"][TableName]>
+    {
+      [K in TupleToUnion<TableNamesT>]: StoredRecordForTableSchema<
+        QB["dbSchema"]["schemas"][K]
+      >
+    }
   > {
-    let root: plan.IQueryPlanNode<
-      StoredRecordForTableSchema<QB["dbSchema"]["schemas"][TableName]>
-    > = new TableScan<
-      StoredRecordForTableSchema<QB["dbSchema"]["schemas"][TableName]>
-    >(this.queryBuilder.dbSchema.name, this.tableName)
+    type T = {
+      [K in TupleToUnion<TableNamesT>]: StoredRecordForTableSchema<
+        QB["dbSchema"]["schemas"][K]
+      >
+    }
+
+    let root: plan.IQueryPlanNode<T> = new TableScan<T>(
+      this.queryBuilder.dbSchema.name,
+      this.tableNames[0],
+    )
+    if (this.tableNames.length > 1) {
+      for (let i = 1; i < this.tableNames.length; i++) {
+        root = new plan.Join(
+          root,
+          new TableScan<T>(
+            this.queryBuilder.dbSchema.name,
+            this.tableNames[i],
+          ),
+          this.joinPredicates[i - 1](new ExprBuilder(this, new NeverExpr()))
+            .expr,
+        )
+      }
+    }
+
     if (this.whereClause != null) {
       root = new Filter(root, this.whereClause.expr)
     }
@@ -131,15 +193,18 @@ class TableQueryBuilder<
 }
 
 class SelectBuilder<
-  QB extends TableQueryBuilder = TableQueryBuilder,
+  TQB extends ITQB = ITQB,
   SelectT extends Record<string, ExprBuilder> = Record<string, ExprBuilder>,
 > {
-  constructor(readonly tqb: QB, readonly select: SelectT) {}
+  constructor(readonly tqb: TQB, readonly select: SelectT) {}
   plan(): IQueryPlanNode<
-    {
-      [Property in keyof SelectT]: SelectT[Property] extends
-        ExprBuilder<infer TQB, infer T> ? T : never
-    }
+    Record<
+      "0",
+      {
+        [Property in keyof SelectT]: SelectT[Property] extends
+          ExprBuilder<infer TQB, infer T> ? T : never
+      }
+    >
   > {
     return new plan.Select(
       this.tqb.plan(),
@@ -152,31 +217,65 @@ class SelectBuilder<
   }
 }
 
-type SchemaForTQB<TQB extends TableQueryBuilder> =
-  TQB["queryBuilder"]["dbSchema"]["schemas"][TQB["tableName"]]
-type ColumnNames<TQB extends TableQueryBuilder> = TableSchemaColumns<
-  SchemaForTQB<TQB>
->["name"]
-type ColumnWithName<
-  TQB extends TableQueryBuilder,
-  CName extends ColumnNames<TQB>,
-> = Column.FindWithName<SchemaForTQB<TQB>["columns"], CName>
+export type SchemasForTQB<TQB extends ITQB> =
+  TQB["queryBuilder"]["dbSchema"]["schemas"][TQBTableNames<TQB>]
+type SchemaWithName<TQB extends ITQB, SchemaName extends string> = Extract<
+  SchemasForTQB<TQB>,
+  { name: SchemaName }
+>
+export type ColumnNames<
+  TQB extends ITQB,
+  SchemaName extends string,
+> = TableSchemaColumns<SchemaWithName<TQB, SchemaName>>["name"]
+export type TQBTableNames<TQB extends ITQB> = TupleToUnion<
+  TQB["tableNames"]
+>
+
+export type ColumnWithName<
+  TQB extends ITQB,
+  SchemaName extends SchemasForTQB<TQB>["name"],
+  CName extends ColumnNames<TQB, SchemaName>,
+> = Column.FindWithName<SchemasForTQB<TQB>["columns"], CName>
 
 class ExprBuilder<
-  TQB extends TableQueryBuilder = TableQueryBuilder,
+  TQB extends ITQB = ITQB,
   T = any,
 > {
   constructor(readonly tqb: TQB, readonly expr: Expr<T>) {}
 
-  column<CName extends ColumnNames<TQB>>(
+  column<
+    TName extends TQBTableNames<TQB>,
+    CName extends ColumnNames<TQB, TName>,
+  >(
+    column: `${TName}.${CName}`,
+  ): ExprBuilder<TQB, Column.GetOutput<ColumnWithName<TQB, TName, CName>>>
+  column<
+    TName extends TQBTableNames<TQB>,
+    CName extends ColumnNames<TQB, TName>,
+  >(
+    table: TName,
     column: CName,
-  ): ExprBuilder<TQB, Column.GetOutput<ColumnWithName<TQB, CName>>> {
-    const ref = new ColumnRefExpr(
-      this.tqb.queryBuilder.dbSchema
-        .schemas[this.tqb.tableName].getColumnByNameOrThrow(
-          column,
-        ),
-    ) as ColumnRefExpr<ColumnWithName<TQB, CName>>
+  ): ExprBuilder<TQB, Column.GetOutput<ColumnWithName<TQB, TName, CName>>>
+  column<
+    TName extends TQBTableNames<TQB>,
+    CName extends ColumnNames<TQB, TName>,
+  >(
+    tableOrColumn: string,
+    column?: string,
+  ): ExprBuilder<TQB, Column.GetOutput<ColumnWithName<TQB, TName, CName>>> {
+    let table: string
+    if (column == null) {
+      const parts = tableOrColumn.split(".")
+      table = parts[0]
+      column = parts[1]
+    } else {
+      table = tableOrColumn
+    }
+    const schema = this.tqb.queryBuilder.dbSchema.schemas[
+      table
+    ]
+    const columnSchema = schema.getColumnByNameOrThrow(column)
+    const ref = new ColumnRefExpr(columnSchema, table)
     return new ExprBuilder(this.tqb, ref)
   }
 

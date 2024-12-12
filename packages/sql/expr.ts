@@ -1,6 +1,10 @@
 import { plan } from "../core/mod.ts"
 import { Column, SomeTableSchema } from "../core/schema/schema.ts"
-import { ColumnNotFoundError, NotImplementedError } from "./errors.ts"
+import {
+  AmbiguousError,
+  ColumnNotFoundError,
+  NotImplementedError,
+} from "./errors.ts"
 import SQLParser from "npm:node-sql-parser"
 import {
   isBinary,
@@ -20,11 +24,11 @@ function columnRef(
       `Column ${column} not found in table ${schema.name}`,
     )
   }
-  return new plan.ColumnRefExpr(columnSchema)
+  return new plan.ColumnRefExpr(columnSchema, schema.name)
 }
 
 export function parseExpr(
-  schema: SomeTableSchema,
+  schemas: Record<string, SomeTableSchema>,
   expr: SQLParser.ExpressionValue | SQLParser.ExprList,
 ): plan.Expr<any> {
   if (!isExpressionValue(expr)) {
@@ -34,15 +38,38 @@ export function parseExpr(
   }
 
   if (isColumnRefItem(expr)) {
-    if (expr.table != null) {
-      throw new NotImplementedError(
-        `Only column references without table are supported in WHERE clause`,
-      )
-    }
     if (typeof expr.column !== "string") {
       throw new NotImplementedError(
         `Only string column names are supported in WHERE clause`,
       )
+    }
+    const columnName = expr.column
+    let schema: SomeTableSchema
+    if (expr.table == null) {
+      // find all the schemas with a matching column name
+      const matchingSchemas = Object.values(schemas).filter((schema) =>
+        schema.getColumnByName(columnName) != null
+      )
+      if (matchingSchemas.length === 0) {
+        throw new ColumnNotFoundError(
+          `Column ${columnName} not found in tables ${
+            Object.keys(schemas).join(", ")
+          }`,
+        )
+      }
+      if (matchingSchemas.length > 1) {
+        throw new AmbiguousError(
+          `Column ${columnName} is ambiguous. Found in multiple tables: ${
+            matchingSchemas.map((s) => s.name).join(", ")
+          }`,
+        )
+      }
+      schema = matchingSchemas[0]
+    } else {
+      schema = schemas[expr.table]
+      if (schema == null) {
+        throw new ColumnNotFoundError(`Table ${expr.table} not available here`)
+      }
     }
     return columnRef(schema, expr.column)
   }
@@ -66,8 +93,8 @@ export function parseExpr(
   }
 
   if (isBinary(expr)) {
-    const leftExpr = parseExpr(schema, expr.left)
-    const rightExpr = parseExpr(schema, expr.right)
+    const leftExpr = parseExpr(schemas, expr.left)
+    const rightExpr = parseExpr(schemas, expr.right)
 
     // parse operator
     if (plan.Compare.isSupportedOperator(expr.operator)) {

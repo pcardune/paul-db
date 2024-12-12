@@ -180,3 +180,31 @@ testSuite("SELECT", {
     ],
   ],
 })
+
+testSuite("JOINS", {
+  setup: [
+    `CREATE TABLE cats (id INT, name TEXT, age INT)`,
+    `CREATE TABLE humans (id INT, name TEXT)`,
+    `CREATE TABLE cat_owners (cat_id INT, human_id INT)`,
+    `INSERT INTO cats (id, name, age) VALUES (1, 'fluffy', 3)`,
+    `INSERT INTO cats (id, name, age) VALUES (2, 'mittens', 5)`,
+    `INSERT INTO humans (id, name) VALUES (1, 'alice')`,
+    `INSERT INTO humans (id, name) VALUES (2, 'bob')`,
+    `INSERT INTO cat_owners (cat_id, human_id) VALUES (1, 1)`,
+    `INSERT INTO cat_owners (cat_id, human_id) VALUES (2, 2)`,
+    `INSERT INTO cat_owners (cat_id, human_id) VALUES (2, 1)`,
+  ],
+  cases: [
+    [
+      `SELECT cats.name as cat, humans.name as owner
+       FROM cats
+       JOIN cat_owners ON cats.id = cat_owners.cat_id
+       JOIN humans ON humans.id = cat_owners.human_id`,
+      [
+        { cat: "fluffy", owner: "alice" },
+        { cat: "mittens", owner: "bob" },
+        { cat: "mittens", owner: "alice" },
+      ],
+    ],
+  ],
+})

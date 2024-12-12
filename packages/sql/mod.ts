@@ -78,10 +78,8 @@ export class SQLExecutor {
         `Only FROM lists are supported. Found ${JSON.stringify(ast.from)}`,
       )
     }
-    if (ast.from.length != 1) {
-      throw new NotImplementedError(
-        `Only one table in FROM list supported. Found ${ast.from.length}`,
-      )
+    if (ast.from.length < 1) {
+      throw new NotImplementedError(`Must speficy FROM for now`)
     }
     const astFrom = ast.from[0]
     if (!("table" in astFrom)) {
@@ -89,20 +87,52 @@ export class SQLExecutor {
         `Only table names are supported in FROM lists`,
       )
     }
-    const tableName = astFrom.table
-    const db = astFrom.db ? astFrom.db : "default"
-
-    const tableScan = new plan.TableScan(db, tableName)
+    const tableScan = new plan.TableScan(
+      astFrom.db ? astFrom.db : "default",
+      astFrom.table,
+    )
     let rootPlan: plan.IQueryPlanNode = tableScan
-    const schema = await tableScan.getSchema(this.dbFile)
+    const schemas: Record<string, SomeTableSchema> = {}
+    schemas[astFrom.table] = await tableScan.getSchema(this.dbFile)
+    if (ast.from.length > 1) {
+      // we're doing joins!
+      for (let i = 1; i < ast.from.length; i++) {
+        const joinAst = ast.from[i]
+        if (!("table" in joinAst)) {
+          throw new NotImplementedError(
+            `Only table names are supported in JOIN lists`,
+          )
+        }
+        if ("join" in joinAst) {
+          if (joinAst.on == null) {
+            throw new NotImplementedError(
+              `JOIN without ON clause not supported`,
+            )
+          }
+          const joinTableScan = new plan.TableScan(
+            joinAst.db ? joinAst.db : "default",
+            joinAst.table,
+          )
+          schemas[joinAst.table] = await joinTableScan.getSchema(this.dbFile)
+          rootPlan = new plan.Join(
+            rootPlan,
+            joinTableScan,
+            parseExpr(schemas, joinAst.on),
+          )
+        } else {
+          throw new NotImplementedError(`Only JOINs are supported`)
+        }
+      }
+    }
+
     if (ast.where != null) {
-      rootPlan = handleWhere(rootPlan, schema, ast.where)
+      rootPlan = handleWhere(rootPlan, schemas, ast.where)
     }
     if (ast.orderby != null) {
       rootPlan = new plan.OrderBy(
         rootPlan,
         ast.orderby.map((ordering) => {
-          const expr = parseExpr(schema, ordering.expr)
+          const expr = parseExpr(schemas, ordering.expr)
           const direction = ordering.type
           return { expr, direction }
         }),
@@ -117,11 +147,19 @@ export class SQLExecutor {
     for (const astColumn of astColumns) {
       const expr = astColumn.expr as SQLParser.ColumnRefItem
       if (isColumnRefItem(expr) && expr.column === "*") {
-        for (const column of schema.columns) {
-          select = select.addColumn(column.name, new plan.ColumnRefExpr(column))
+        const schemaEntries = Object.entries(schemas)
+        for (const [tableName, schema] of schemaEntries) {
+          for (const column of schema.columns) {
+            select = select.addColumn(
+              schemaEntries.length === 1
+                ? column.name
+                : `${tableName}_${column.name}`,
+              new plan.ColumnRefExpr(column, schema.name),
+            )
+          }
         }
       } else {
-        const planExpr = parseExpr(schema, astColumn.expr)
+        const planExpr = parseExpr(schemas, astColumn.expr)
         let columnName = planExpr.describe()
           .replace(/\s/g, "")
           .replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase()
@@ -133,15 +171,12 @@ export class SQLExecutor {
           }
           columnName = astColumn.as
         }
-        select = select.addColumn(
-          columnName,
-          planExpr,
-        )
+        select = select.addColumn(columnName, planExpr)
       }
     }
-    rootPlan = select
 
-    return await rootPlan.execute(this.dbFile).toArray()
+    return await select.execute(this.dbFile).map((rowData) => rowData["0"])
+      .toArray()
   }
 
   async handleInsert(ast: SQLParser.Insert_Replace): Promise<void> {
