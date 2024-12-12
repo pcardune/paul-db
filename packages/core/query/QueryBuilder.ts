@@ -16,6 +16,7 @@ import {
   IQueryPlanNode,
   Limit,
   LiteralValueExpr,
+  NotExpr,
   OrderBy,
   TableScan,
 } from "./QueryPlanNode.ts"
@@ -331,6 +332,26 @@ class ExprBuilder<
   }
   neq(value: ExprBuilder<TQB, T> | T): ExprBuilder<TQB, boolean> {
     return this.compare("!=", value)
+  }
+
+  not(this: ExprBuilder<TQB, boolean>): ExprBuilder<TQB, boolean>
+  not(
+    this: ExprBuilder<TQB, never>,
+    value: ExprBuilder<TQB, boolean>,
+  ): ExprBuilder<TQB, boolean>
+  not(value?: ExprBuilder<TQB, boolean>): ExprBuilder<TQB, boolean> {
+    if (value == null) {
+      if (this.expr.getType().name !== "boolean") {
+        throw new Error(
+          `Expected boolean, got ${this.expr.getType().name} for expression ${this.expr.describe()}`,
+        )
+      }
+      return new ExprBuilder(
+        this.tqb,
+        new NotExpr(this.expr as unknown as Expr<boolean>),
+      )
+    }
+    return new ExprBuilder(this.tqb, new NotExpr(value.expr))
   }
 
   private andOr(

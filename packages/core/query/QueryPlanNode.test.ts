@@ -260,12 +260,32 @@ Deno.test("QueryBuilder .in()", async () => {
   expect(plan.describe()).toEqual(
     `Select(name AS name, Filter(TableScan(default.cats), In(name, ["fluffy", "Mr. Blue"])))`,
   )
-  expect(
-    await plan
-      .execute(dbFile)
-      .toArray(),
-  ).toEqual([
+  expect(await plan.execute(dbFile).toArray()).toEqual([
     { "0": { name: "fluffy" } },
     { "0": { name: "Mr. Blue" } },
   ])
+})
+
+Deno.test("QueryBuilder .not()", async () => {
+  const { dbFile, model } = await init()
+  await model.cats.insert({ name: "Mr. Blue", age: 3, id: 3 })
+  const plan = new QueryBuilder(dbSchema)
+    .scan("cats")
+    .where((t) => t.column("cats", "name").eq("fluffy").not())
+    .select({ name: (t) => t.column("cats", "name") })
+    .plan()
+  expect(plan.describe()).toEqual(
+    `Select(name AS name, Filter(TableScan(default.cats), NOT(Compare(name = "fluffy"))))`,
+  )
+  expect(await plan.execute(dbFile).toArray()).toEqual([
+    { "0": { name: "mittens" } },
+    { "0": { name: "Mr. Blue" } },
+  ])
+
+  const plan2 = new QueryBuilder(dbSchema)
+    .scan("cats")
+    .where((t) => t.not(t.column("cats", "name").eq("fluffy")))
+    .select({ name: (t) => t.column("cats", "name") })
+    .plan()
+  expect(plan2.describe()).toEqual(plan.describe())
 })
