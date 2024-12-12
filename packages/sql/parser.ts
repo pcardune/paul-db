@@ -47,7 +47,7 @@ export function isValue(t: ExpressionValue): t is Value {
     !isAggrFunc(t) && !isBinary(t) && !isCast(t) && !isInterval(t)
 }
 
-function isExprList(expr: ExpressionValue | ExprList): expr is ExprList {
+export function isExprList(expr: ExpressionValue | ExprList): expr is ExprList {
   return expr.type === "expr_list"
 }
 export function isExpressionValue(

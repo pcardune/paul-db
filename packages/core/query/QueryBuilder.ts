@@ -254,6 +254,9 @@ class AggregationFuncs<TQB extends ITQB = ITQB> {
   max<T>(expr: ExprBuilder<TQB, T>): plan.MaxAggregation<T> {
     return new plan.MaxAggregation(expr.expr)
   }
+  arrayAgg<T>(expr: ExprBuilder<TQB, T>): plan.ArrayAggregation<T> {
+    return new plan.ArrayAggregation(expr.expr)
+  }
 }
 
 class AggregateBuilder<

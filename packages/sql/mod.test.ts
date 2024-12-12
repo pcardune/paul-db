@@ -226,5 +226,9 @@ testSuite("Aggregations", {
       `SELECT COUNT(*) as num_cats FROM cats`,
       [{ num_cats: 2 }],
     ],
+    [
+      `SELECT ARRAY_AGG(name) as names FROM cats`,
+      [{ names: ["fluffy", "mittens"] }],
+    ],
   ],
 })

@@ -5,11 +5,15 @@ import { SomeTableSchema } from "../core/schema/schema.ts"
 import { getColumnTypeFromSQLType } from "../core/schema/columns/ColumnType.ts"
 import { UnknownRecord } from "npm:type-fest"
 import { NotImplementedError, TableNotFoundError } from "./errors.ts"
-import { isAggrFunc, isColumnRefItem, isExpressionValue } from "./parser.ts"
+import {
+  isAggrFunc,
+  isColumnRefItem,
+  isExprList,
+  isFunction,
+} from "./parser.ts"
 import { handleWhere } from "./where.ts"
 import { parseExpr } from "./expr.ts"
 import { handleLimit } from "./limit.ts"
-import { MultiAggregation } from "../core/query/QueryPlanNode.ts"
 type CreateDefinition = Exclude<
   Create["create_definitions"],
   null | undefined
@@ -27,7 +31,8 @@ export class SQLExecutor {
   async execute<T>(sql: string): Promise<T> {
     let ast: SQLParser.TableColumnAst
     try {
-      ast = this.parser.parse(sql)
+      ast = this.parser.parse(sql // {database: "Postgresql"} // TODO: Turn this on.
+      )
     } catch (e) {
       if (e instanceof Error) {
         throw new SQLParseError(e.message)
@@ -144,17 +149,14 @@ export class SQLExecutor {
     }
 
     const astColumns = ast.columns as Column[]
-
-    if (astColumns.some((col) => col.expr.type === "aggr_func")) {
+    if (
+      astColumns.some((col) =>
+        col.expr.type === "aggr_func" || col.expr.type === "function"
+      )
+    ) {
       // this is an aggregation query
-      let multiAgg = new MultiAggregation({})
+      let multiAgg = new plan.MultiAggregation({})
       for (const astColumn of astColumns) {
-        const exprAst = astColumn.expr
-        if (!isAggrFunc(exprAst)) {
-          throw new NotImplementedError(
-            `Only aggregate functions are supported in aggregation queries`,
-          )
-        }
         let colName: string | null = null
         if (astColumn.as != null) {
           if (typeof astColumn.as !== "string") {
@@ -164,22 +166,86 @@ export class SQLExecutor {
           }
           colName = astColumn.as
         }
-        if (exprAst.name === "MAX") {
-          const expr = parseExpr(schemas, exprAst.args.expr)
-          const aggregation = new plan.MaxAggregation(expr)
-          multiAgg = multiAgg.withAggregation(
-            colName ?? aggregation.describe(),
-            aggregation,
-          )
-        } else if (exprAst.name === "COUNT") {
-          const aggregation = new plan.CountAggregation()
-          multiAgg = multiAgg.withAggregation(
-            colName ?? aggregation.describe(),
-            aggregation,
-          )
+
+        const exprAst = astColumn.expr
+        if (isAggrFunc(exprAst)) {
+          if (exprAst.name === "MAX") {
+            const expr = parseExpr(schemas, exprAst.args.expr)
+            const aggregation = new plan.MaxAggregation(expr)
+            multiAgg = multiAgg.withAggregation(
+              colName ?? aggregation.describe(),
+              aggregation,
+            )
+          } else if (exprAst.name === "COUNT") {
+            const aggregation = new plan.CountAggregation()
+            multiAgg = multiAgg.withAggregation(
+              colName ?? aggregation.describe(),
+              aggregation,
+            )
+          } else if (exprAst.name === "ARRAY_AGG") {
+            console.log("HERE YOU GO", exprAst)
+            const expr = parseExpr(schemas, exprAst.args.expr)
+            const aggregation = new plan.ArrayAggregation(expr)
+            multiAgg = multiAgg.withAggregation(
+              colName ?? aggregation.describe(),
+              aggregation,
+            )
+          } else {
+            throw new NotImplementedError(
+              `Aggregate function ${exprAst.name} not supported: ${
+                JSON.stringify(exprAst)
+              }`,
+            )
+          }
+        } else if (isFunction(exprAst)) {
+          if (exprAst.name.name.length != 1) {
+            throw new NotImplementedError(
+              `Only one function name allowed, found: ${
+                JSON.stringify(exprAst.name.name)
+              }`,
+            )
+          }
+          const funcName = exprAst.name.name[0]
+          if (funcName.type !== "default") {
+            throw new NotImplementedError(
+              `Only default function names allowed, found: ${
+                JSON.stringify(funcName)
+              }`,
+            )
+          }
+          if (funcName.value === "ARRAY_AGG") {
+            if (exprAst.args == null) {
+              throw new NotImplementedError(
+                `ARRAY_AGG must have arguments, found: ${
+                  JSON.stringify(exprAst)
+                }`,
+              )
+            }
+            if (!isExprList(exprAst.args)) {
+              throw new NotImplementedError(
+                `ARRAY_AGG arguments must be an expr_list, found: ${
+                  JSON.stringify(exprAst.args)
+                }`,
+              )
+            }
+            if (exprAst.args.value.length != 1) {
+              throw new NotImplementedError(
+                `ARRAY_AGG must have exactly one argument, found: ${
+                  JSON.stringify(exprAst.args.value)
+                }`,
+              )
+            }
+            const aggregation = new plan.ArrayAggregation(
+              parseExpr(schemas, exprAst.args.value[0]),
+            )
+            multiAgg = multiAgg.withAggregation(
+              colName ?? aggregation.describe(),
+              aggregation,
+            )
+          }
         } else {
           throw new NotImplementedError(
-            `Aggregate function ${exprAst.name} not supported: ${
+            `Only aggregate functions are supported in aggregation queries found ${
               JSON.stringify(exprAst)
             }`,
           )
