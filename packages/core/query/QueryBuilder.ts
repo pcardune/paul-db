@@ -12,6 +12,7 @@ import {
   CompareOperator,
   Expr,
   Filter,
+  In,
   IQueryPlanNode,
   Limit,
   LiteralValueExpr,
@@ -277,6 +278,26 @@ class ExprBuilder<
     const columnSchema = schema.getColumnByNameOrThrow(column)
     const ref = new ColumnRefExpr(columnSchema, table)
     return new ExprBuilder(this.tqb, ref)
+  }
+
+  in(
+    ...values: NonEmptyTuple<ExprBuilder<TQB, T>> | NonEmptyTuple<T>
+  ): ExprBuilder<TQB, boolean> {
+    if (values[0] instanceof ExprBuilder) {
+      const expr = new In(
+        this.expr,
+        (values as NonEmptyTuple<ExprBuilder<TQB, T>>).map((v) => v.expr),
+      )
+      return new ExprBuilder(this.tqb, expr)
+    } else {
+      const expr = new In(
+        this.expr,
+        (values as NonEmptyTuple<T>).map((v) =>
+          new LiteralValueExpr(v, this.expr.getType())
+        ),
+      )
+      return new ExprBuilder(this.tqb, expr)
+    }
   }
 
   private compare(

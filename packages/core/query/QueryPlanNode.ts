@@ -151,6 +151,25 @@ export class ColumnRefExpr<
 }
 
 export type CompareOperator = typeof Compare.operators[number]
+
+export class In<T> implements Expr<boolean> {
+  constructor(readonly left: Expr<T>, readonly right: Expr<T>[]) {}
+
+  resolve(row: RowData): boolean {
+    const left = this.left.resolve(row)
+    return this.right.some((right) => right.resolve(row) === left)
+  }
+
+  getType(): ColumnType<boolean> {
+    return ColumnTypes.boolean()
+  }
+
+  describe(): string {
+    return `In(${this.left.describe()}, [${
+      this.right.map((r) => r.describe()).join(", ")
+    }])`
+  }
+}
 export class Compare<T> implements Expr<boolean> {
   constructor(
     readonly left: Expr<T>,

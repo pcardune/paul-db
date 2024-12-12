@@ -248,3 +248,24 @@ Deno.test("QueryPlanNode JOINS via QueryBuilder", async () => {
     { "0": { name: "mittens", ownerId: 2, ownerName: "Bob" } },
   ])
 })
+
+Deno.test("QueryBuilder .in()", async () => {
+  const { dbFile, model } = await init()
+  await model.cats.insert({ name: "Mr. Blue", age: 3, id: 3 })
+  const plan = new QueryBuilder(dbSchema)
+    .scan("cats")
+    .where((t) => t.column("cats", "name").in("fluffy", "Mr. Blue"))
+    .select({ name: (t) => t.column("cats", "name") })
+    .plan()
+  expect(plan.describe()).toEqual(
+    `Select(name AS name, Filter(TableScan(default.cats), In(name, ["fluffy", "Mr. Blue"])))`,
+  )
+  expect(
+    await plan
+      .execute(dbFile)
+      .toArray(),
+  ).toEqual([
+    { "0": { name: "fluffy" } },
+    { "0": { name: "Mr. Blue" } },
+  ])
+})
