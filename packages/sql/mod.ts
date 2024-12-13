@@ -1,4 +1,4 @@
-import { type DbFile, s } from "@paul-db/core"
+import { type PaulDB, s } from "@paul-db/core"
 import SQLParser from "npm:node-sql-parser"
 import { Create } from "npm:node-sql-parser/types"
 import { SomeTableSchema } from "../core/schema/schema.ts"
@@ -17,7 +17,7 @@ export class SQLParseError extends Error {}
 export class SQLExecutor {
   private parser: SQLParser.Parser
 
-  constructor(private dbFile: DbFile) {
+  constructor(private db: PaulDB) {
     this.parser = new SQLParser.Parser()
   }
 
@@ -56,8 +56,8 @@ export class SQLExecutor {
   }
 
   async handleSelect(ast: SQLParser.Select): Promise<UnknownRecord[]> {
-    const rootPlan = await parseSelect(ast, this.dbFile)
-    return await rootPlan.execute(this.dbFile).map((rowData) => rowData.$0)
+    const rootPlan = await parseSelect(ast, this.db.dbFile)
+    return await rootPlan.execute(this.db).map((rowData) => rowData.$0)
       .toArray()
   }
 
@@ -87,12 +87,12 @@ export class SQLExecutor {
     const db = astTable.db ? astTable.db : "default"
     const tableName = astTable.table
 
-    const schemas = await this.dbFile.getSchemasOrThrow(db, tableName)
+    const schemas = await this.db.dbFile.getSchemasOrThrow(db, tableName)
     if (schemas.length === 0) {
       throw new TableNotFoundError(`Table ${db}.${tableName} not found`)
     }
     // TODO: support correct schema version
-    const tableInstance = await this.dbFile.getOrCreateTable(
+    const tableInstance = await this.db.dbFile.getOrCreateTable(
       schemas[0].schema,
       { db },
     )
@@ -183,7 +183,7 @@ export class SQLExecutor {
       }
     }
 
-    await this.dbFile.getOrCreateTable(schema, {
+    await this.db.dbFile.getOrCreateTable(schema, {
       db: table.db ? table.db : "default",
     })
   }

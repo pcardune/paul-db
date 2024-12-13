@@ -1,19 +1,22 @@
-import { DbFile } from "@paul-db/core"
+import { PaulDB } from "@paul-db/core"
 import { SQLExecutor } from "./mod.ts"
 import { expect } from "jsr:@std/expect"
 import { pick } from "jsr:@std/collections"
 
 async function getExecutor() {
-  const dbFile = await DbFile.open({ type: "memory" })
-  const sql = new SQLExecutor(dbFile)
-  return { sql, dbFile, [Symbol.dispose]: () => dbFile.close() }
+  const db = await PaulDB.inMemory()
+  const sql = new SQLExecutor(db)
+  return { sql, db, [Symbol.dispose]: () => db[Symbol.dispose]() }
 }
 
 Deno.test("CREATE TABLE", async (t) => {
   await t.step("CREATE TABLE test", async () => {
     using e = await getExecutor()
     await e.sql.execute("CREATE TABLE test")
-    const tables = await e.dbFile.tableManager.tablesTable.scan("name", "test")
+    const tables = await e.db.dbFile.tableManager.tablesTable.scan(
+      "name",
+      "test",
+    )
     expect(tables).toHaveLength(1)
     expect(tables[0].db).toEqual("default")
   })
@@ -23,14 +26,14 @@ Deno.test("CREATE TABLE", async (t) => {
     async () => {
       using e = await getExecutor()
       await e.sql.execute("CREATE TABLE points (x float, y float, color TEXT)")
-      const tables = await e.dbFile.tableManager.tablesTable.scan(
+      const tables = await e.db.dbFile.tableManager.tablesTable.scan(
         "name",
         "points",
       )
       expect(tables).toHaveLength(1)
       expect(tables[0].db).toEqual("default")
 
-      const schemas = await e.dbFile.getSchemasOrThrow("default", "points")
+      const schemas = await e.db.dbFile.getSchemasOrThrow("default", "points")
       expect(schemas.length).toEqual(1)
       const colRecs = schemas[0].columnRecords.map((c) =>
         pick(c, ["name", "type"])
@@ -44,8 +47,8 @@ Deno.test("CREATE TABLE", async (t) => {
 async function getPointsTable() {
   const e = await getExecutor()
   await e.sql.execute("CREATE TABLE points (x float, y float, color TEXT)")
-  const schemas = await e.dbFile.getSchemasOrThrow("default", "points")
-  const table = await e.dbFile.getOrCreateTable(schemas[0].schema)
+  const schemas = await e.db.dbFile.getSchemasOrThrow("default", "points")
+  const table = await e.db.dbFile.getOrCreateTable(schemas[0].schema)
   return { ...e, table }
 }
 

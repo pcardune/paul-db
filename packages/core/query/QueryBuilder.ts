@@ -21,13 +21,7 @@ import {
   OrderBy,
   TableScan,
 } from "./QueryPlanNode.ts"
-import {
-  NonEmptyTuple,
-  Promisable,
-  TupleToUnion,
-  UnknownRecord,
-  Writable,
-} from "npm:type-fest"
+import { NonEmptyTuple, TupleToUnion } from "npm:type-fest"
 import { ColumnType } from "../schema/columns/ColumnType.ts"
 import { Json } from "../types.ts"
 
@@ -69,7 +63,7 @@ class NeverExpr implements Expr<never> {
   }
 }
 
-interface IPlanBuilder<T extends plan.RowData = plan.RowData> {
+export interface IPlanBuilder<T extends plan.RowData = plan.RowData> {
   plan(): IQueryPlanNode<T>
 }
 

@@ -5,6 +5,7 @@ import { assertUnreachable, Json } from "../types.ts"
 import { ColumnType, ColumnTypes } from "../schema/columns/ColumnType.ts"
 import { DbFile } from "../db/DbFile.ts"
 import type { MultiAggregation } from "./Aggregation.ts"
+import { PaulDB } from "../PaulDB.ts"
 
 export * from "./Aggregation.ts"
 
@@ -17,7 +18,7 @@ export type RowData = Record<string, UnknownRecord>
 export interface IQueryPlanNode<T extends RowData = RowData> {
   describe(): string
   toJSON(): Json
-  execute(ctx: ExecutionContext | DbFile): AsyncIterableWrapper<T>
+  execute(ctx: ExecutionContext | PaulDB): AsyncIterableWrapper<T>
 }
 
 abstract class AbstractQueryPlan<T extends RowData>
@@ -27,7 +28,7 @@ abstract class AbstractQueryPlan<T extends RowData>
 
   abstract getIter(ctx: ExecutionContext): Promisable<AsyncIterableWrapper<T>>
 
-  execute(ctx: ExecutionContext | DbFile): AsyncIterableWrapper<T> {
+  execute(ctx: ExecutionContext | PaulDB): AsyncIterableWrapper<T> {
     if (!(ctx instanceof ExecutionContext)) {
       ctx = new ExecutionContext(ctx, {})
     }
@@ -73,10 +74,12 @@ export class TableScan<T extends RowData> extends AbstractQueryPlan<T> {
   }
 
   override async getIter(
-    { dbFile }: ExecutionContext,
+    ctx: ExecutionContext,
   ): Promise<AsyncIterableWrapper<T>> {
-    const schema = await this.getSchema(dbFile)
-    const tableInstance = await dbFile.getOrCreateTable(schema, { db: this.db })
+    const schema = await this.getSchema(ctx.db.dbFile)
+    const tableInstance = await ctx.db.dbFile.getOrCreateTable(schema, {
+      db: this.db,
+    })
     return tableInstance.iterate().map((row) => ({
       [this.alias]: row,
     })) as AsyncIterableWrapper<T>
@@ -119,11 +122,12 @@ export class Aggregate<T extends UnknownRecord>
 }
 
 export class ExecutionContext<RowDataT extends RowData = RowData> {
-  constructor(readonly dbFile: DbFile, readonly rowData: RowDataT) {}
+  constructor(readonly db: PaulDB, readonly rowData: RowDataT) {
+  }
   withRowData<RowDataT2 extends RowData>(
     rowData: RowDataT2,
   ): ExecutionContext<RowDataT2> {
-    return new ExecutionContext(this.dbFile, { ...this.rowData, ...rowData })
+    return new ExecutionContext(this.db, { ...this.rowData, ...rowData })
   }
 }
 
