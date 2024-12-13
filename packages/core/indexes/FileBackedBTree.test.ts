@@ -1,4 +1,4 @@
-import { expect } from "jsr:@std/expect/expect"
+import { expect } from "@std/expect/expect"
 import { Struct } from "../binary/Struct.ts"
 import { FileBackedBufferPool } from "../pages/BufferPool.ts"
 import { generateTestFilePath, spyOnBufferPool } from "../testing.ts"

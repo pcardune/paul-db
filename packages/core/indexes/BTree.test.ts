@@ -1,4 +1,4 @@
-import { expect } from "jsr:@std/expect"
+import { expect } from "@std/expect"
 import { BTree } from "../indexes/BTree.ts"
 import { randomIntegerBetween, randomSeeded } from "@std/random"
 import {

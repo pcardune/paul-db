@@ -1,6 +1,6 @@
 import { column } from "../schema/columns/ColumnBuilder.ts"
 import { ColumnTypes } from "../schema/columns/ColumnType.ts"
-import { ulid } from "jsr:@std/ulid"
+import { ulid } from "@std/ulid"
 import { StoredRecordForTableSchema, TableSchema } from "../schema/schema.ts"
 
 const ulidIdColumn = column("id", ColumnTypes.string())

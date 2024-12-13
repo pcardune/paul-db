@@ -1,5 +1,5 @@
-import { expect } from "jsr:@std/expect"
-import { it } from "jsr:@std/testing/bdd"
+import { expect } from "@std/expect"
+import { it } from "@std/testing/bdd"
 import { randomIntegerBetween, randomSeeded } from "@std/random"
 import { binarySearch } from "./binarySearch.ts"
 

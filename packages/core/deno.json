@@ -3,8 +3,15 @@
   "version": "0.0.1",
   "exports": "./mod.ts",
   "imports": {
+    "@std/collections": "jsr:@std/collections@^1.0.9",
+    "@std/expect": "jsr:@std/expect@^1.0.9",
     "@std/fs": "jsr:@std/fs@^1.0.5",
     "@std/path": "jsr:@std/path@^1.0.8",
-    "@std/random": "jsr:@std/random@^0.1.0"
+    "@std/random": "jsr:@std/random@^0.1.0",
+    "@std/bytes": "jsr:@std/bytes@^1.0.4",
+    "@std/encoding": "jsr:@std/encoding@^1.0.5",
+    "@std/testing": "jsr:@std/testing@^1.0.6",
+    "@std/ulid": "jsr:@std/ulid@^1.0.0",
+    "@std/uuid": "jsr:@std/uuid@^1.0.4"
   }
 }

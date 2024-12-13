@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, it } from "jsr:@std/testing/bdd"
+import { afterEach, beforeEach, describe, it } from "@std/testing/bdd"
 import { FileBackedBufferPool } from "./BufferPool.ts"
-import { expect } from "jsr:@std/expect"
+import { expect } from "@std/expect"
 import { generateTestFilePath } from "../testing.ts"
 
 describe("FileBackedBufferPool", () => {

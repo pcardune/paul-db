@@ -1,4 +1,4 @@
-import { expect } from "jsr:@std/expect"
+import { expect } from "@std/expect"
 import { s } from "../mod.ts"
 import { DbFile, DBModel } from "./DbFile.ts"
 import {

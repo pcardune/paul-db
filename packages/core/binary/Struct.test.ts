@@ -1,6 +1,6 @@
-import { describe, it } from "jsr:@std/testing/bdd"
+import { describe, it } from "@std/testing/bdd"
 import { FixedWidthStruct, Struct, VariableWidthStruct } from "./Struct.ts"
-import { expect } from "jsr:@std/expect"
+import { expect } from "@std/expect"
 import { WriteableDataView } from "./dataview.ts"
 
 const pointStruct = new FixedWidthStruct<{ x: number; y: number }>({

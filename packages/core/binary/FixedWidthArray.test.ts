@@ -1,6 +1,6 @@
-import { expect } from "jsr:@std/expect"
+import { expect } from "@std/expect"
 import { ReadableFixedWidthArray } from "./FixedWidthArray.ts"
-import { describe, it } from "jsr:@std/testing/bdd"
+import { describe, it } from "@std/testing/bdd"
 import { FixedWidthStruct } from "./Struct.ts"
 
 const pointType = new FixedWidthStruct<{ x: number; y: number }>({

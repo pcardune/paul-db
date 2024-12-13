@@ -1,4 +1,4 @@
-import { expect } from "jsr:@std/expect"
+import { expect } from "@std/expect"
 import { column } from "../public.ts"
 import { ColumnTypes } from "./columns/ColumnType.ts"
 import { DBSchema } from "./DBSchema.ts"

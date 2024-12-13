@@ -1,5 +1,5 @@
-import { expect } from "jsr:@std/expect"
-import { afterEach, beforeEach, describe, it } from "jsr:@std/testing/bdd"
+import { expect } from "@std/expect"
+import { afterEach, beforeEach, describe, it } from "@std/testing/bdd"
 import { FileBackedBufferPool } from "./BufferPool.ts"
 import { HeapPageFile } from "./HeapPageFile.ts"
 import { generateTestFilePath, spyOnBufferPool } from "../testing.ts"

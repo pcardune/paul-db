@@ -1,7 +1,7 @@
 import { Json, JsonRecord } from "../types.ts"
 import { ReadonlyDataView, WriteableDataView } from "./dataview.ts"
-import { copy } from "jsr:@std/bytes/copy"
-import { decodeBase64, encodeBase64 } from "jsr:@std/encoding"
+import { copy } from "@std/bytes/copy"
+import { decodeBase64, encodeBase64 } from "@std/encoding"
 import { UnknownRecord } from "npm:type-fest"
 export abstract class IStruct<ValueT> {
   abstract sizeof(value: ValueT): number

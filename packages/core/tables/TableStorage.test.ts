@@ -1,4 +1,4 @@
-import { expect } from "jsr:@std/expect"
+import { expect } from "@std/expect"
 import { Struct } from "../binary/Struct.ts"
 import { InMemoryBufferPool } from "../pages/BufferPool.ts"
 import { HeapFileTableStorage } from "./TableStorage.ts"

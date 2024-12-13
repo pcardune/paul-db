@@ -1,6 +1,6 @@
 import { ensureDirSync } from "@std/fs"
 import * as path from "@std/path"
-import { spy, stub } from "jsr:@std/testing/mock"
+import { spy, stub } from "@std/testing/mock"
 import { IBufferPool } from "./pages/BufferPool.ts"
 
 const subdir = `${Date.now()}`

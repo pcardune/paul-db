@@ -1,6 +1,6 @@
-import { beforeEach, describe, it } from "jsr:@std/testing/bdd"
+import { beforeEach, describe, it } from "@std/testing/bdd"
 import { WriteableVariableLengthRecordPage } from "./VariableLengthRecordPage.ts"
-import { expect } from "jsr:@std/expect"
+import { expect } from "@std/expect"
 import { randomIntegerBetween, randomSeeded } from "@std/random"
 import { WriteableDataView } from "../binary/dataview.ts"
 

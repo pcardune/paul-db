@@ -1,8 +1,7 @@
 import { Struct } from "../../binary/Struct.ts"
-import { In } from "../../query/QueryPlanNode.ts"
 import { Json } from "../../types.ts"
 import { ColumnType } from "./ColumnType.ts"
-import * as stdUUID from "jsr:@std/uuid"
+import * as stdUUID from "@std/uuid"
 
 export function any<T>() {
   return new ColumnType<T>({

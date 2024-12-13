@@ -1,6 +1,6 @@
-import { beforeAll, describe, it } from "jsr:@std/testing/bdd"
-import { expect } from "jsr:@std/expect"
-import { assertSnapshot } from "jsr:@std/testing/snapshot"
+import { beforeAll, describe, it } from "@std/testing/bdd"
+import { expect } from "@std/expect"
+import { assertSnapshot } from "@std/testing/snapshot"
 import { Table, TableInfer } from "./Table.ts"
 import { StoredRecordForTableSchema, TableSchema } from "../schema/schema.ts"
 import {
@@ -12,7 +12,7 @@ import { ColumnType, ColumnTypes } from "../schema/columns/ColumnType.ts"
 import { DbFile } from "../db/DbFile.ts"
 import { generateTestFilePath, spyOnBufferPool } from "../testing.ts"
 import { column, computedColumn } from "../schema/columns/ColumnBuilder.ts"
-import { pick } from "jsr:@std/collections"
+import { pick } from "@std/collections"
 
 const peopleSchema = TableSchema.create("people")
   .with(column("name", ColumnTypes.any<string>()))
