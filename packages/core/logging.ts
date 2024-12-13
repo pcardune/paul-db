@@ -11,7 +11,10 @@ export const debugLogger = (cond: boolean) =>
     : () => {}
 
 export const debugLog = debugLogger(
-  globalThis.Deno?.env.get("DEBUG") === "true",
+  globalThis.Deno != null &&
+    Deno.permissions.querySync({ name: "env", variable: "DEBUG" })
+        .state === "granted" &&
+    Deno.env.get("DEBUG") === "true",
 )
 
 export function debugJson(obj: unknown, indent = 0): string {
