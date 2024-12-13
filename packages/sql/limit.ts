@@ -4,9 +4,17 @@ import { plan } from "../core/mod.ts"
 export function handleLimit(
   rootPlan: plan.IQueryPlanNode,
   limitAst: SQLParser.Limit,
-): plan.Limit {
+): plan.IQueryPlanNode {
+  if (limitAst.value.length == 0) {
+    // no-op
+    return rootPlan
+  }
   if (limitAst.value.length !== 1) {
-    throw new Error("Only single limit value is supported")
+    throw new Error(
+      `Only single limit value is supported: ${
+        JSON.stringify(limitAst, null, 2)
+      }`,
+    )
   }
 
   const limit = limitAst.value[0]

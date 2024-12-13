@@ -1,4 +1,4 @@
-import {
+import SQLParser, {
   AggrFunc,
   Binary,
   Case,
@@ -54,4 +54,65 @@ export function isExpressionValue(
   expr: ExpressionValue | ExprList,
 ): expr is ExpressionValue {
   return !isExprList(expr)
+}
+
+/**
+ * This is a replacement for the same type in the node-sql-parser package.
+ *
+ * It corrects the `columns` property to also be SQLParser.ValueExpr<string>[],
+ * which is what you get when parsing for postgresql
+ */
+export interface Insert_Replace {
+  type: "replace" | "insert"
+  table: any
+  columns: string[] | null | SQLParser.ValueExpr<string>[]
+  values: SQLParser.InsertReplaceValue[] | SQLParser.Select
+  partition: any[]
+  prefix: string
+  on_duplicate_update: {
+    keyword: "on duplicate key update"
+    set: SQLParser.SetList[]
+  }
+  loc?: SQLParser.LocationRange
+}
+
+/**
+ * This is a replacement for the same type in the node-sql-parser package.
+ *
+ * it corrects the distinct property, which can be {type: null}
+ */
+export interface Select {
+  with: SQLParser.With[] | null
+  type: "select"
+  options: any[] | null
+  distinct: "DISTINCT" | null | { type: null }
+  columns: any[] | SQLParser.Column[]
+  from: SQLParser.From[] | SQLParser.TableExpr | null
+  where: Binary | Function | null
+  groupby: {
+    columns: ColumnRef[] | null
+    modifiers: SQLParser.ValueExpr<string>[]
+  }
+  having: any[] | null
+  orderby: SQLParser.OrderBy[] | null
+  limit: SQLParser.Limit | null
+  window?: SQLParser.WindowExpr
+  qualify?: any[] | null
+  _orderby?: SQLParser.OrderBy[] | null
+  _limit?: SQLParser.Limit | null
+  parentheses_symbol?: boolean
+  _parentheses?: boolean
+  loc?: SQLParser.LocationRange
+  _next?: Select
+  set_op?: string
+}
+
+export function isInsertReplace(
+  t: SQLParser.AST | Insert_Replace,
+): t is Insert_Replace {
+  return t.type === "insert" || t.type === "replace"
+}
+
+export function isSelect(t: SQLParser.AST | Select): t is Select {
+  return t.type === "select"
 }

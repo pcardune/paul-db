@@ -5,7 +5,7 @@ import { SomeTableSchema } from "../core/schema/schema.ts"
 import { getColumnTypeFromSQLType } from "../core/schema/columns/ColumnType.ts"
 import { UnknownRecord } from "npm:type-fest"
 import { NotImplementedError, TableNotFoundError } from "./errors.ts"
-import { isColumnRefItem } from "./parser.ts"
+import { Insert_Replace, isColumnRefItem, isInsertReplace } from "./parser.ts"
 import { parseSelect } from "./select.ts"
 type CreateDefinition = Exclude<
   Create["create_definitions"],
@@ -24,8 +24,7 @@ export class SQLExecutor {
   async execute<T>(sql: string): Promise<T> {
     let ast: SQLParser.TableColumnAst
     try {
-      ast = this.parser.parse(sql // {database: "Postgresql"} // TODO: Turn this on.
-      )
+      ast = this.parser.parse(sql, { database: "Postgresql" })
     } catch (e) {
       if (e instanceof Error) {
         throw new SQLParseError(e.message)
@@ -42,7 +41,7 @@ export class SQLExecutor {
     for (const command of commands) {
       if (command.type === "create") {
         results.push(await this.handleCreate(command))
-      } else if (command.type === "insert") {
+      } else if (isInsertReplace(command)) {
         results.push(await this.handleInsert(command))
       } else if (command.type === "select") {
         results.push(await this.handleSelect(command))
@@ -62,7 +61,7 @@ export class SQLExecutor {
       .toArray()
   }
 
-  async handleInsert(ast: SQLParser.Insert_Replace): Promise<void> {
+  async handleInsert(ast: Insert_Replace): Promise<void> {
     const astTables: unknown = ast.table
     if (!Array.isArray(astTables)) {
       throw new NotImplementedError(`Do not understand this AST format`)
@@ -115,7 +114,8 @@ export class SQLExecutor {
       throw new NotImplementedError(`Do not understand this AST format`)
     }
     const insertObject: Record<string, unknown> = {}
-    for (const [i, columnName] of ast.columns.entries()) {
+    for (const [i, column] of ast.columns.entries()) {
+      const columnName = typeof column === "string" ? column : column.value
       const insertValue: unknown = values.value[i]
       if (typeof insertValue != "object" || insertValue == null) {
         throw new NotImplementedError(`Do not understand this AST format`)
@@ -162,15 +162,23 @@ export class SQLExecutor {
         if (!isColumnRefItem(columnDef.column)) {
           throw new NotImplementedError("Only column_ref columns are supported")
         }
-        if (typeof columnDef.column.column != "string") {
-          throw new NotImplementedError(
-            `Column name must be a string, column expressions not supported`,
-          )
-        }
         const columnType = getColumnTypeFromSQLType(
           columnDef.definition.dataType,
         )
-        const col = s.column(columnDef.column.column, columnType)
+        let columnName: string
+        if (typeof columnDef.column.column === "string") {
+          columnName = columnDef.column.column
+        } else {
+          const expr = columnDef.column.column.expr
+          if (typeof expr.value === "string") {
+            columnName = expr.value
+          } else {
+            throw new NotImplementedError(
+              "Only string column names are supported",
+            )
+          }
+        }
+        const col = s.column(columnName, columnType)
         schema = schema.with(col)
       }
     }

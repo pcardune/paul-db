@@ -5,18 +5,22 @@ import { parseAggregationColumns } from "./aggregation.ts"
 import { NotImplementedError } from "./errors.ts"
 import { parseExpr } from "./expr.ts"
 import { handleLimit } from "./limit.ts"
-import { isColumnRefItem } from "./parser.ts"
+import { isColumnRefItem, Select } from "./parser.ts"
 import { handleWhere } from "./where.ts"
 
-export async function parseSelect(ast: SQLParser.Select, dbFile: DbFile) {
+export async function parseSelect(ast: Select, dbFile: DbFile) {
   if (ast.groupby != null) {
     throw new NotImplementedError(`GROUP BY clause not supported yet`)
   }
   if (ast.having != null) {
     throw new NotImplementedError(`HAVING clause not supported yet`)
   }
-  if (ast.distinct != null) {
-    throw new NotImplementedError(`DISTINCT clause not supported yet`)
+  if (ast.distinct == "DISTINCT") {
+    throw new NotImplementedError(
+      `DISTINCT clause not supported yet: ${
+        JSON.stringify(ast.distinct, null, 2)
+      }`,
+    )
   }
   if (ast.with != null) {
     throw new NotImplementedError(`WITH clause not supported yet`)

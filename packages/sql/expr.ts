@@ -38,12 +38,16 @@ export function parseExpr(
   }
 
   if (isColumnRefItem(expr)) {
-    if (typeof expr.column !== "string") {
+    const columnName = typeof expr.column === "string"
+      ? expr.column
+      : typeof expr.column.expr.value === "string"
+      ? expr.column.expr.value
+      : null
+    if (columnName == null) {
       throw new NotImplementedError(
         `Only string column names are supported in WHERE clause`,
       )
     }
-    const columnName = expr.column
     let schema: SomeTableSchema
     if (expr.table == null) {
       // find all the schemas with a matching column name
@@ -71,7 +75,7 @@ export function parseExpr(
         throw new ColumnNotFoundError(`Table ${expr.table} not available here`)
       }
     }
-    return columnRef(schema, expr.column)
+    return columnRef(schema, columnName)
   }
 
   if (isValue(expr)) {
