@@ -26,23 +26,30 @@ import {
   Promisable,
   TupleToUnion,
   UnknownRecord,
+  Writable,
 } from "npm:type-fest"
 import { ColumnType } from "../schema/columns/ColumnType.ts"
+import { Json } from "../types.ts"
 
-export class QueryBuilder<DBSchemaT extends DBSchema = DBSchema> {
+interface IQB<DBSchemaT extends DBSchema = DBSchema> {
+  readonly dbSchema: DBSchemaT
+}
+
+export class QueryBuilder<DBSchemaT extends DBSchema = DBSchema>
+  implements IQB<DBSchemaT> {
   constructor(readonly dbSchema: DBSchemaT) {}
 
   from<TName extends Extract<keyof DBSchemaT["schemas"], string>>(
     table: TName,
   ): TableQueryBuilder<this, [TName]> {
-    return new TableQueryBuilder(this, [table]) as TableQueryBuilder<
+    return new TableQueryBuilder(this, [table], table) as TableQueryBuilder<
       this,
       [TName]
     >
   }
 }
 
-type TableNames<QB extends QueryBuilder> = Extract<
+type QBTableNames<QB extends IQB> = Extract<
   keyof QB["dbSchema"]["schemas"],
   string
 >
@@ -57,35 +64,38 @@ class NeverExpr implements Expr<never> {
   describe(): string {
     return "never"
   }
+  toJSON(): Json {
+    return { type: "never" }
+  }
+}
+
+interface IPlanBuilder<T extends plan.RowData = plan.RowData> {
+  plan(): IQueryPlanNode<T>
 }
 
 interface ITQB<
-  QB extends QueryBuilder = QueryBuilder,
-  TableNamesT extends NonEmptyTuple<TableNames<QB>> = NonEmptyTuple<
-    TableNames<QB>
-  >,
-> {
+  QB extends IQB = IQB,
+  TableNamesT extends NonEmptyTuple<string> = NonEmptyTuple<string>,
+> extends IPlanBuilder {
   readonly queryBuilder: QB
   readonly tableNames: TableNamesT
-  plan(): IQueryPlanNode
 }
 
 class TableQueryBuilder<
-  QB extends QueryBuilder = QueryBuilder,
-  TableNamesT extends NonEmptyTuple<TableNames<QB>> = NonEmptyTuple<
-    TableNames<QB>
-  >,
+  QB extends IQB = IQB,
+  TableNamesT extends NonEmptyTuple<string> = NonEmptyTuple<string>,
 > implements ITQB<QB, TableNamesT> {
   constructor(
     readonly queryBuilder: QB,
     readonly tableNames: TableNamesT,
+    readonly rootTable: string,
     // TODO: surey this is a nasty type to figure out.
     private joinPredicates: Array<
-      (e: ExprBuilder<ITQB, never>) => ExprBuilder<ITQB, boolean>
+      [string, (e: ExprBuilder<ITQB, never>) => ExprBuilder<ITQB, boolean>]
     > = [],
   ) {}
 
-  join<JoinTableNameT extends TableNames<QB>>(
+  join<JoinTableNameT extends QBTableNames<QB>>(
     table: JoinTableNameT,
     on: (
       tqb: ExprBuilder<
@@ -97,7 +107,8 @@ class TableQueryBuilder<
     return new TableQueryBuilder(
       this.queryBuilder,
       [...this.tableNames, table] as [...TableNamesT, JoinTableNameT],
-      [...this.joinPredicates, on as any],
+      this.rootTable,
+      [...this.joinPredicates, [table, on as any]],
     )
   }
 
@@ -139,7 +150,7 @@ class TableQueryBuilder<
         tqb: ExprBuilder<this, never>,
       ) => SelectT[Property]
     },
-  ): SelectBuilder<this, SelectT> {
+  ): SelectBuilder<ITQB<QB, TableNamesT>, SelectT> {
     return new SelectBuilder(
       this,
       Object.fromEntries(
@@ -191,18 +202,18 @@ class TableQueryBuilder<
 
     let root: plan.IQueryPlanNode<T> = new TableScan<T>(
       this.queryBuilder.dbSchema.name,
-      this.tableNames[0],
+      this.rootTable,
     )
-    if (this.tableNames.length > 1) {
-      for (let i = 1; i < this.tableNames.length; i++) {
+    if (this.joinPredicates.length > 0) {
+      for (let i = 0; i < this.joinPredicates.length; i++) {
+        const [joinTableName, on] = this.joinPredicates[i]
         root = new plan.Join(
           root,
           new TableScan<T>(
             this.queryBuilder.dbSchema.name,
-            this.tableNames[i],
+            joinTableName,
           ),
-          this.joinPredicates[i - 1](new ExprBuilder(this, new NeverExpr()))
-            .expr,
+          on(new ExprBuilder(this, new NeverExpr())).expr,
         )
       }
     }
@@ -454,14 +465,35 @@ class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
   }
 
   subquery<T>(
-    subplanFactory: (
-      rowData: TQBRowData<TQB>,
-      ctx: plan.ExecutionContext,
-    ) => IQueryPlanNode<{ "$0": Record<string, T> }>,
+    func: (
+      qb: SubQueryBuilder<TQB["queryBuilder"], TQB["tableNames"], TQB>,
+    ) => IPlanBuilder<{ "$0": Record<string, T> }>,
   ): ExprBuilder<TQB, T> {
     return new ExprBuilder(
       this.tqb,
-      new plan.SubqueryExpr(subplanFactory),
-    ) as ExprBuilder<TQB, T>
+      new plan.SubqueryExpr(func(new SubQueryBuilder(this.tqb)).plan()),
+    )
+  }
+}
+
+export class SubQueryBuilder<
+  QB extends IQB = IQB,
+  TableNamesT extends NonEmptyTuple<string> = NonEmptyTuple<string>,
+  TQB extends ITQB<QB, TableNamesT> = ITQB<QB, TableNamesT>,
+> implements IQB<QB["dbSchema"]> {
+  constructor(readonly tqb: TQB) {}
+
+  get dbSchema() {
+    return this.tqb.queryBuilder.dbSchema
+  }
+
+  from<TName extends QBTableNames<QB>>(
+    table: TName,
+  ): TableQueryBuilder<IQB<QB["dbSchema"]>, [...TableNamesT, TName]> {
+    return new TableQueryBuilder(
+      this,
+      [...this.tqb.tableNames, table],
+      table,
+    )
   }
 }

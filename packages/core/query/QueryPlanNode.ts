@@ -1,7 +1,7 @@
 import { Promisable, UnknownRecord } from "npm:type-fest"
 import { AsyncIterableWrapper } from "../async.ts"
 import { Column, SomeTableSchema } from "../schema/schema.ts"
-import { assertUnreachable } from "../types.ts"
+import { assertUnreachable, Json } from "../types.ts"
 import { ColumnType, ColumnTypes } from "../schema/columns/ColumnType.ts"
 import { DbFile } from "../db/DbFile.ts"
 import type { MultiAggregation } from "./Aggregation.ts"
@@ -16,18 +16,20 @@ export type RowData = Record<string, UnknownRecord>
 
 export interface IQueryPlanNode<T extends RowData = RowData> {
   describe(): string
+  toJSON(): Json
   execute(ctx: ExecutionContext | DbFile): AsyncIterableWrapper<T>
 }
 
 abstract class AbstractQueryPlan<T extends RowData>
   implements IQueryPlanNode<T> {
   abstract describe(): string
+  abstract toJSON(): Json
 
   abstract getIter(ctx: ExecutionContext): Promisable<AsyncIterableWrapper<T>>
 
   execute(ctx: ExecutionContext | DbFile): AsyncIterableWrapper<T> {
     if (!(ctx instanceof ExecutionContext)) {
-      ctx = new ExecutionContext(ctx)
+      ctx = new ExecutionContext(ctx, {})
     }
     const iter = this.getIter(ctx)
     return new AsyncIterableWrapper(async function* () {
@@ -51,6 +53,15 @@ export class TableScan<T extends RowData> extends AbstractQueryPlan<T> {
 
   describe(): string {
     return `TableScan(${this.db}.${this.table})`
+  }
+
+  toJSON(): Json {
+    return {
+      type: "TableScan",
+      db: this.db,
+      table: this.table,
+      alias: this.alias,
+    }
   }
 
   async getSchema(dbFile: DbFile): Promise<SomeTableSchema> {
@@ -85,13 +96,21 @@ export class Aggregate<T extends UnknownRecord>
     return `Aggregate(${this.child.describe()}, ${this.aggregation.describe()})`
   }
 
+  override toJSON(): Json {
+    return {
+      type: "Aggregate",
+      child: this.child.toJSON(),
+      aggregation: this.aggregation.toJSON(),
+    }
+  }
+
   override async getIter(
     ctx: ExecutionContext,
   ): Promise<AsyncIterableWrapper<Record<"$0", T>>> {
     const aggregation = this.aggregation
     let accumulator = aggregation.init()
     for await (const row of this.child.execute(ctx)) {
-      accumulator = await aggregation.update(accumulator, row)
+      accumulator = await aggregation.update(accumulator, ctx.withRowData(row))
     }
     return new AsyncIterableWrapper([
       { "$0": aggregation.result(accumulator) },
@@ -99,26 +118,35 @@ export class Aggregate<T extends UnknownRecord>
   }
 }
 
-export class ExecutionContext {
-  constructor(readonly dbFile: DbFile) {}
+export class ExecutionContext<RowDataT extends RowData = RowData> {
+  constructor(readonly dbFile: DbFile, readonly rowData: RowDataT) {}
+  withRowData<RowDataT2 extends RowData>(
+    rowData: RowDataT2,
+  ): ExecutionContext<RowDataT2> {
+    return new ExecutionContext(this.dbFile, { ...this.rowData, ...rowData })
+  }
 }
 
 export interface Expr<T> {
-  resolve(row: RowData, ctx: ExecutionContext): Promisable<T>
+  resolve(ctx: ExecutionContext): Promisable<T>
   getType(): ColumnType<T>
   describe(): string
+  toJSON(): Json
 }
 
 export class NotExpr implements Expr<boolean> {
   constructor(readonly expr: Expr<boolean>) {}
-  async resolve(row: RowData, ctx: ExecutionContext): Promise<boolean> {
-    return !(await this.expr.resolve(row, ctx))
+  async resolve(ctx: ExecutionContext): Promise<boolean> {
+    return !(await this.expr.resolve(ctx))
   }
   getType(): ColumnType<boolean> {
     return ColumnTypes.boolean()
   }
   describe(): string {
     return `NOT(${this.expr.describe()})`
+  }
+  toJSON(): Json {
+    return { type: "not", expr: this.expr.toJSON() }
   }
 }
 export class AndOrExpr implements Expr<boolean> {
@@ -127,9 +155,9 @@ export class AndOrExpr implements Expr<boolean> {
     readonly operator: "AND" | "OR",
     readonly right: Expr<boolean>,
   ) {}
-  async resolve(row: RowData, ctx: ExecutionContext): Promise<boolean> {
-    const left = await this.left.resolve(row, ctx)
-    const right = await this.right.resolve(row, ctx)
+  async resolve(ctx: ExecutionContext): Promise<boolean> {
+    const left = await this.left.resolve(ctx)
+    const right = await this.right.resolve(ctx)
     if (this.operator === "AND") {
       return left && right
     } else {
@@ -146,6 +174,13 @@ export class AndOrExpr implements Expr<boolean> {
   static isSupportedOperator(operator: string): operator is "AND" | "OR" {
     return AndOrExpr.operators.includes(operator as "AND" | "OR")
   }
+  toJSON(): Json {
+    return {
+      type: this.operator.toLowerCase(),
+      left: this.left.toJSON(),
+      right: this.right.toJSON(),
+    }
+  }
 }
 
 export class LiteralValueExpr<T> implements Expr<T> {
@@ -159,6 +194,10 @@ export class LiteralValueExpr<T> implements Expr<T> {
   describe(): string {
     return JSON.stringify(this.value)
   }
+  toJSON(): Json {
+    return this.type.serializer?.toJSON(this.value) ??
+      "<UNSERIALIZABLE LITERAL>"
+  }
 }
 
 export class ColumnRefExpr<
@@ -168,11 +207,13 @@ export class ColumnRefExpr<
   constructor(readonly column: C, readonly tableName: TableNameT) {}
 
   resolve(
-    row: { [Property in TableNameT]: Column.GetRecordContainingColumn<C> },
+    ctx: ExecutionContext<
+      { [Property in TableNameT]: Column.GetRecordContainingColumn<C> }
+    >,
   ): Column.GetOutput<C> {
     const data: Column.GetRecordContainingColumn<C> = this.tableName != null
-      ? row[this.tableName]
-      : row as Column.GetRecordContainingColumn<C>
+      ? ctx.rowData[this.tableName]
+      : ctx.rowData as Column.GetRecordContainingColumn<C>
 
     if (this.column.kind === "stored") {
       return data[this.column.name]
@@ -188,6 +229,10 @@ export class ColumnRefExpr<
   describe(): string {
     return this.column.name
   }
+
+  toJSON(): Json {
+    return { type: "column_ref", column: this.column.name }
+  }
 }
 
 export type CompareOperator = typeof Compare.operators[number]
@@ -195,10 +240,10 @@ export type CompareOperator = typeof Compare.operators[number]
 export class In<T> implements Expr<boolean> {
   constructor(readonly left: Expr<T>, readonly right: Expr<T>[]) {}
 
-  async resolve(row: RowData, ctx: ExecutionContext): Promise<boolean> {
-    const left = await this.left.resolve(row, ctx)
+  async resolve(ctx: ExecutionContext): Promise<boolean> {
+    const left = await this.left.resolve(ctx)
     for (const right of this.right) {
-      if (await right.resolve(row, ctx) === left) {
+      if (await right.resolve(ctx) === left) {
         return true
       }
     }
@@ -214,18 +259,19 @@ export class In<T> implements Expr<boolean> {
       this.right.map((r) => r.describe()).join(", ")
     }])`
   }
+
+  toJSON(): Json {
+    return {
+      type: "in",
+      left: this.left.toJSON(),
+      right: this.right.map((r) => r.toJSON()),
+    }
+  }
 }
 
-export class SubqueryExpr<T, RowDataT extends RowData> implements Expr<T> {
+export class SubqueryExpr<T> implements Expr<T> {
   constructor(
-    // TODO: passing in a factory function means we don't know
-    // the plan until runtime, which makes it impossible to
-    // optimize ahead of time. Need to figure out some way to capture
-    // the plan at compile time.
-    readonly subplanFactory: (
-      rowData: RowDataT,
-      ctx: ExecutionContext,
-    ) => IQueryPlanNode<Record<"$0", Record<string, T>>>,
+    readonly subplan: IQueryPlanNode<Record<"$0", Record<string, T>>>,
   ) {}
 
   getType(): ColumnType<T> {
@@ -234,8 +280,8 @@ export class SubqueryExpr<T, RowDataT extends RowData> implements Expr<T> {
     return ColumnTypes.any()
   }
 
-  async resolve(row: RowDataT, ctx: ExecutionContext): Promise<T> {
-    const values = await this.subplanFactory(row, ctx).execute(ctx).take(2)
+  async resolve(ctx: ExecutionContext): Promise<T> {
+    const values = await this.subplan.execute(ctx).take(2)
       .toArray()
     if (values.length === 0) {
       throw new Error("Subquery returned no rows")
@@ -252,7 +298,14 @@ export class SubqueryExpr<T, RowDataT extends RowData> implements Expr<T> {
   }
 
   describe(): string {
-    return "Subquery()"
+    return `Subquery(${this.subplan.describe()})`
+  }
+
+  toJSON(): Json {
+    return {
+      type: "subquery",
+      subplan: this.subplan.toJSON(),
+    }
   }
 }
 export class Compare<T> implements Expr<boolean> {
@@ -262,11 +315,11 @@ export class Compare<T> implements Expr<boolean> {
     readonly right: Expr<T>,
   ) {}
 
-  async resolve(row: RowData, ctx: ExecutionContext): Promise<boolean> {
+  async resolve(ctx: ExecutionContext): Promise<boolean> {
     const leftType = this.left.getType()
     const rightType = this.right.getType()
-    const left = await this.left.resolve(row, ctx)
-    const right = await this.right.resolve(row, ctx)
+    const left = await this.left.resolve(ctx)
+    const right = await this.right.resolve(ctx)
     if (!leftType.isValid(right)) {
       throw new Error(
         `Type mismatch: ${this.left.describe()} is of type ${leftType.name}, but ${this.right.describe()} is of type ${rightType.name}, value ${right} doesn't work`,
@@ -307,6 +360,15 @@ export class Compare<T> implements Expr<boolean> {
   describe(): string {
     return `Compare(${this.left.describe()} ${this.operator} ${this.right.describe()})`
   }
+
+  toJSON(): Json {
+    return {
+      type: "compare",
+      operator: this.operator,
+      left: this.left.toJSON(),
+      right: this.right.toJSON(),
+    }
+  }
 }
 
 export class Filter<T extends RowData = RowData> extends AbstractQueryPlan<T> {
@@ -323,8 +385,16 @@ export class Filter<T extends RowData = RowData> extends AbstractQueryPlan<T> {
 
   override getIter(ctx: ExecutionContext): AsyncIterableWrapper<T> {
     return this.child.execute(ctx).filter(
-      (row) => this.predicate.resolve(row, ctx),
+      (row) => this.predicate.resolve(ctx.withRowData(row)),
     )
+  }
+
+  toJSON(): Json {
+    return {
+      type: "Filter",
+      child: this.child.toJSON(),
+      predicate: this.predicate.toJSON(),
+    }
   }
 }
 
@@ -351,7 +421,9 @@ export class Select<T extends UnknownRecord>
     return this.child.execute(ctx).map(async (row) => {
       const result = {} as T
       for (const [key, column] of Object.entries(this.columns)) {
-        ;(result as UnknownRecord)[key] = await column.resolve(row, ctx)
+        ;(result as UnknownRecord)[key] = await column.resolve(
+          ctx.withRowData(row),
+        )
       }
       return { "$0": result }
     })
@@ -362,6 +434,18 @@ export class Select<T extends UnknownRecord>
     expr: Expr<T>,
   ): Select<T & { [name in CName]: ValueT }> {
     return new Select(this.child, { ...this.columns, [name]: expr })
+  }
+
+  toJSON(): Json {
+    return {
+      type: "Select",
+      child: this.child.toJSON(),
+      columns: Object.fromEntries(
+        Object.entries(this.columns).map((
+          [key, value],
+        ) => [key, value.toJSON()]),
+      ),
+    }
   }
 }
 
@@ -376,6 +460,14 @@ export class Limit<T extends RowData = RowData> extends AbstractQueryPlan<T> {
 
   override getIter(ctx: ExecutionContext): AsyncIterableWrapper<T> {
     return this.child.execute(ctx).take(this.limit)
+  }
+
+  toJSON(): Json {
+    return {
+      type: "Limit",
+      child: this.child.toJSON(),
+      limit: this.limit,
+    }
   }
 }
 
@@ -405,12 +497,20 @@ export class Join<
       for (const leftRow of leftIter) {
         for (const rightRow of rightIter) {
           const row = { ...leftRow, ...rightRow }
-          if (await predicate.resolve(row, ctx)) {
+          if (await predicate.resolve(ctx.withRowData(row))) {
             yield row
           }
         }
       }
     })
+  }
+  override toJSON(): Json {
+    return {
+      type: "Join",
+      left: this.left.toJSON(),
+      right: this.right.toJSON(),
+      predicate: this.predicate.toJSON(),
+    }
   }
 }
 
@@ -430,6 +530,17 @@ export class OrderBy<T extends RowData = RowData> extends AbstractQueryPlan<T> {
     })`
   }
 
+  override toJSON(): Json {
+    return {
+      type: "OrderBy",
+      child: this.child.toJSON(),
+      orderBy: this.orderBy.map((o) => ({
+        expr: o.expr.toJSON(),
+        direction: o.direction,
+      })),
+    }
+  }
+
   override async getIter(
     ctx: ExecutionContext,
   ): Promise<AsyncIterableWrapper<T>> {
@@ -438,7 +549,7 @@ export class OrderBy<T extends RowData = RowData> extends AbstractQueryPlan<T> {
     for (const { expr } of this.orderBy) {
       const resolvedMap = new Map<T, unknown>()
       for (const v of allValues) {
-        resolvedMap.set(v, await expr.resolve(v, ctx))
+        resolvedMap.set(v, await expr.resolve(ctx.withRowData(v)))
       }
       valueMaps.push(resolvedMap)
     }

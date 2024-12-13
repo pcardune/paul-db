@@ -1,11 +1,13 @@
-import type { ExecutionContext, Expr, RowData } from "./QueryPlanNode.ts"
+import { Json } from "../types.ts"
+import type { ExecutionContext, Expr } from "./QueryPlanNode.ts"
 import { Promisable, UnknownRecord } from "npm:type-fest"
 
 export interface Aggregation<T> {
   init(): T
-  update(accumulator: T, row: RowData, ctx: ExecutionContext): Promisable<T>
+  update(accumulator: T, ctx: ExecutionContext): Promisable<T>
   result(accumulator: T): T
   describe(): string
+  toJSON(): Json
 }
 
 export class CountAggregation implements Aggregation<number> {
@@ -20,6 +22,9 @@ export class CountAggregation implements Aggregation<number> {
   }
   describe(): string {
     return "COUNT(*)"
+  }
+  toJSON(): Json {
+    return { type: "count" }
   }
 }
 
@@ -39,10 +44,9 @@ export class MaxAggregation<T> implements Aggregation<T> {
 
   async update(
     accumulator: T,
-    row: RowData,
     ctx: ExecutionContext,
   ): Promise<T> {
-    const value = await this.expr.resolve(row, ctx)
+    const value = await this.expr.resolve(ctx)
     return this.expr.getType().compare(value, accumulator) > 0
       ? value
       : accumulator
@@ -55,6 +59,10 @@ export class MaxAggregation<T> implements Aggregation<T> {
   describe(): string {
     return `MAX(${this.expr.describe()})`
   }
+
+  toJSON(): Json {
+    return { type: "max", expr: this.expr.toJSON() }
+  }
 }
 
 export class ArrayAggregation<T> implements Aggregation<T[]> {
@@ -66,10 +74,9 @@ export class ArrayAggregation<T> implements Aggregation<T[]> {
 
   async update(
     accumulator: T[],
-    row: RowData,
     ctx: ExecutionContext,
   ): Promise<T[]> {
-    accumulator.push(await this.expr.resolve(row, ctx))
+    accumulator.push(await this.expr.resolve(ctx))
     return accumulator
   }
 
@@ -79,6 +86,10 @@ export class ArrayAggregation<T> implements Aggregation<T[]> {
 
   describe(): string {
     return `ARRAY_AGG(${this.expr.describe()})`
+  }
+
+  toJSON(): Json {
+    return { type: "array_agg", expr: this.expr.toJSON() }
   }
 }
 
@@ -94,11 +105,11 @@ export class MultiAggregation<T extends UnknownRecord>
     ) as T
   }
 
-  async update(accumulator: T, row: RowData): Promise<T> {
+  async update(accumulator: T, ctx: ExecutionContext): Promise<T> {
     for (const [key, value] of Object.entries(this.aggregations)) {
       ;(accumulator as UnknownRecord)[key] = await value.update(
         accumulator[key],
-        row,
+        ctx,
       )
     }
     return accumulator
@@ -124,5 +135,17 @@ export class MultiAggregation<T extends UnknownRecord>
         [key, value],
       ) => `${key}: ${value.describe()}`).join(", ")
     })`
+  }
+
+  toJSON(): Json {
+    return {
+      type: "multi_agg",
+      aggregations: Object.fromEntries(
+        Object.entries(this.aggregations).map(([key, value]) => [
+          key,
+          value.toJSON(),
+        ]),
+      ),
+    }
   }
 }

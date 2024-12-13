@@ -362,18 +362,17 @@ Deno.test("QueryBuilder subqueries", async () => {
     .select({
       name: (t) => t.column("humans.firstName"),
       numCats: (t) =>
-        t.subquery((rowData) => {
-          const subplan = dbSchema.query()
-            .from("catOwners")
-            .where((t) => t.column("catOwners.ownerId").eq(rowData.humans.id))
+        t.subquery((qb) =>
+          qb.from("catOwners")
+            .where((st) =>
+              st.column("catOwners.ownerId").eq(st.column("humans.id"))
+            )
             .aggregate({ count: (agg) => agg.count() })
-            .plan()
-          return subplan
-        }),
+        ),
     })
   const plan = query.plan()
   expect(plan.describe()).toEqual(
-    "Select(firstName AS name, Subquery() AS numCats, TableScan(default.humans))",
+    "Select(firstName AS name, Subquery(Aggregate(Filter(TableScan(default.catOwners), Compare(ownerId = id)), MultiAggregation(count: COUNT(*)))) AS numCats, TableScan(default.humans))",
   )
   const data = await plan.execute(dbFile).toArray()
   expect(data).toEqual([
@@ -386,4 +385,54 @@ Deno.test("QueryBuilder subqueries", async () => {
       Array<{ "$0": { name: string; numCats: number } }>
     >
   >()
+  expect(plan.toJSON()).toEqual({
+    type: "Select",
+    child: {
+      alias: "humans",
+      db: "default",
+      table: "humans",
+      type: "TableScan",
+    },
+    columns: {
+      name: {
+        type: "column_ref",
+        column: "firstName",
+      },
+      numCats: {
+        type: "subquery",
+        subplan: {
+          type: "Aggregate",
+          aggregation: {
+            type: "multi_agg",
+            aggregations: {
+              count: {
+                type: "count",
+              },
+            },
+          },
+          child: {
+            type: "Filter",
+            child: {
+              type: "TableScan",
+              alias: "catOwners",
+              db: "default",
+              table: "catOwners",
+            },
+            predicate: {
+              type: "compare",
+              left: {
+                type: "column_ref",
+                column: "ownerId",
+              },
+              operator: "=",
+              right: {
+                type: "column_ref",
+                column: "id",
+              },
+            },
+          },
+        },
+      },
+    },
+  })
 })
