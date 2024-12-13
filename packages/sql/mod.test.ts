@@ -65,12 +65,13 @@ Deno.test("INSERT INTO", async (t) => {
 })
 
 type Suite = {
+  include?: "ignore" | "only"
   setup: string[]
   cases: [sql: string, result: unknown][]
 }
 
 function testSuite(name: string, suite: Suite) {
-  Deno.test(name, async (t) => {
+  const run = async (t: Deno.TestContext) => {
     using e = await getExecutor()
     for (const setup of suite.setup) {
       await e.sql.execute(setup)
@@ -80,7 +81,15 @@ function testSuite(name: string, suite: Suite) {
         expect(await e.sql.execute(sql)).toEqual(result)
       })
     }
-  })
+  }
+  if (suite.include === "ignore") {
+    Deno.test.ignore(name, run)
+    return
+  } else if (suite.include === "only") {
+    Deno.test.only(name, run)
+    return
+  }
+  Deno.test(name, run)
 }
 
 testSuite("SELECT", {
@@ -229,6 +238,29 @@ testSuite("Aggregations", {
     [
       `SELECT ARRAY_AGG(name) as names FROM cats`,
       [{ names: ["fluffy", "mittens"] }],
+    ],
+  ],
+})
+
+testSuite("Subqueries", {
+  include: "ignore",
+  setup: [
+    `CREATE TABLE cats (id INT, name TEXT, age INT, ownerId INT)`,
+    `CREATE TABLE humans (id INT, name TEXT)`,
+    `INSERT INTO humans (id, name) VALUES (1, 'alice')`,
+    `INSERT INTO humans (id, name) VALUES (2, 'bob')`,
+    `INSERT INTO cats (id, name, age, ownerId) VALUES (1, 'fluffy', 3, 1)`,
+    `INSERT INTO cats (id, name, age, ownerId) VALUES (2, 'mittens', 5, 2)`,
+  ],
+  cases: [
+    [
+      `SELECT
+        name,
+        (SELECT name
+         FROM humans
+         WHERE humans.id = cats.ownerId) as owner
+      FROM cats`,
+      [{ name: "mittens" }],
     ],
   ],
 })
