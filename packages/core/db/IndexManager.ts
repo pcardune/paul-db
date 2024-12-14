@@ -1,6 +1,6 @@
 import { PageId } from "../pages/BufferPool.ts"
 import { HeapFileTableInfer } from "../tables/TableStorage.ts"
-import { schemas } from "./metadataSchemas.ts"
+import * as schemas from "./metadataSchemas.ts"
 
 export type IndexId = { tableId: string; indexName: string }
 

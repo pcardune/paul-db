@@ -1,4 +1,4 @@
-import { type PaulDB, s } from "@paul-db/core"
+import PaulDB, { s } from "@paul-db/core"
 import SQLParser from "npm:node-sql-parser"
 import { Create } from "npm:node-sql-parser/types"
 import { SomeTableSchema } from "../core/schema/schema.ts"

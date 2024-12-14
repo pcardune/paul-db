@@ -1,9 +1,10 @@
 import { exists } from "@std/fs/exists"
-import { DbFile } from "./db/DbFile.ts"
+import { DbFile, DBModel } from "./db/DbFile.ts"
 import type { RowData } from "./query/QueryPlanNode.ts"
 import * as path from "@std/path"
 import { IPlanBuilder } from "./query/QueryBuilder.ts"
 import { AsyncIterableWrapper } from "./async.ts"
+import { DBSchema } from "./schema/DBSchema.ts"
 
 export class PaulDB {
   private constructor(readonly dbFile: DbFile) {
@@ -49,5 +50,11 @@ export class PaulDB {
     return plan.plan().execute(this).map((rowData) =>
       "$0" in rowData ? rowData.$0 : rowData
     ) as AsyncIterableWrapper<T extends { "$0": infer U } ? U : T>
+  }
+
+  getModelForSchema<DBSchemaT extends DBSchema>(
+    dbSchema: DBSchemaT,
+  ): Promise<DBModel<DBSchemaT>> {
+    return this.dbFile.getDBModel(dbSchema)
   }
 }

@@ -44,7 +44,13 @@ export class ColumnBuilder<
     }
   }
 
-  named<NewName extends string>(name: NewName) {
+  named<NewName extends string>(name: NewName): ColumnBuilder<
+    NewName,
+    ValueT,
+    UniqueT,
+    IndexedT,
+    DefaultValueFactoryT
+  > {
     return new ColumnBuilder<
       NewName,
       ValueT,
@@ -192,7 +198,13 @@ export function computedColumn<
   name: Name,
   type: ColumnType<OutputT>,
   compute: (input: InputT) => OutputT,
-) {
+): ComputedColumnBuilder<
+  Name,
+  false,
+  Column.Index.ShouldNotIndex,
+  InputT,
+  OutputT
+> {
   return new ComputedColumnBuilder(
     name,
     type,

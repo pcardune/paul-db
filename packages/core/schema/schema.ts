@@ -156,19 +156,31 @@ export class TableSchema<
   withUniqueConstraint<
     CName extends string,
     CInputNames extends ColumnSchemasT[number]["name"][],
+    CInput extends Pick<
+      StoredRecordForColumnSchemas<ColumnSchemasT>,
+      CInputNames[number]
+    >,
     COutput,
   >(
     name: CName,
     type: ColumnType<COutput>,
     _inputColumns: CInputNames, // just here for type inference
-    compute: (
-      input: Pick<
-        StoredRecordForColumnSchemas<ColumnSchemasT>,
-        CInputNames[number]
-      >,
-    ) => COutput,
+    compute: (input: CInput) => COutput,
     indexConfig: Partial<Column.Index.ShouldIndex> = {},
-  ) {
+  ): TableSchema<
+    TableName,
+    ColumnSchemasT,
+    PushTuple<
+      ComputedColumnsT,
+      Column.Computed.Any<
+        CName,
+        true,
+        Column.Index.Config,
+        CInput,
+        COutput
+      >
+    >
+  > {
     return new TableSchema(this.name, this.columns, [
       ...this.computedColumns,
       computedColumn(

@@ -477,7 +477,7 @@ export class SubQueryBuilder<
 > implements IQB<QB["dbSchema"]> {
   constructor(readonly tqb: TQB) {}
 
-  get dbSchema() {
+  get dbSchema(): TQB["queryBuilder"]["dbSchema"] {
     return this.tqb.queryBuilder.dbSchema
   }
 

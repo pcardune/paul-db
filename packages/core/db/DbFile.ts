@@ -8,15 +8,21 @@ import {
   PageId,
 } from "../pages/BufferPool.ts"
 import { getColumnTypeFromString } from "../schema/columns/ColumnType.ts"
-import { SomeTableSchema, TableSchema } from "../schema/schema.ts"
+import {
+  SomeTableSchema,
+  StoredRecordForTableSchema,
+  TableSchema,
+} from "../schema/schema.ts"
 import { Table } from "../tables/Table.ts"
 import { HeapFileTableInfer } from "../tables/TableStorage.ts"
 import { ReadonlyDataView } from "../binary/dataview.ts"
 import { debugLog } from "../logging.ts"
-import { schemas, SYSTEM_DB } from "./metadataSchemas.ts"
+import { SYSTEM_DB } from "./metadataSchemas.ts"
+import * as schemas from "./metadataSchemas.ts"
+
 import { IndexManager } from "./IndexManager.ts"
 import { getTableConfig, TableManager } from "./TableManager.ts"
-import { DBSchema } from "../schema/DBSchema.ts"
+import { DBSchema, IDBSchema } from "../schema/DBSchema.ts"
 import { Simplify } from "type-fest"
 import { Json } from "../types.ts"
 
@@ -33,7 +39,10 @@ export class DbFile {
     readonly tableManager: TableManager,
   ) {}
 
-  async getSchemasTable() {
+  async getSchemasTable(): Promise<{
+    schemaTable: HeapFileTableInfer<typeof schemas.dbSchemas>
+    columnsTable: HeapFileTableInfer<typeof schemas.dbTableColumns>
+  }> {
     let schemaTable = await this.tableManager.getTable(
       SYSTEM_DB,
       schemas.dbSchemas,
@@ -69,7 +78,17 @@ export class DbFile {
     }
   }
 
-  async *exportRecords(filter: { db?: string; table?: string } = {}) {
+  async *exportRecords(
+    filter: { db?: string; table?: string } = {},
+  ): AsyncGenerator<
+    {
+      table: string
+      db: string
+      record: Json
+    },
+    void,
+    unknown
+  > {
     debugLog("DbFile.export()")
     const tables = await this.tableManager.tablesTable.iterate().toArray()
     for (const tableRecord of tables) {
@@ -104,7 +123,7 @@ export class DbFile {
     }
   }
 
-  static async open(config: StorageConfig) {
+  static async open(config: StorageConfig): Promise<DbFile> {
     let storageLayer: StorageLayer
     if (config.type === "file") {
       storageLayer = await openFile(config)
@@ -214,7 +233,7 @@ export class DbFile {
   getOrCreateTable<SchemaT extends SomeTableSchema>(
     schema: SchemaT,
     { db = "default" }: { db?: string } = {},
-  ) {
+  ): Promise<HeapFileTableInfer<SchemaT>> {
     return this.tableManager.getOrCreateTable(db, schema)
   }
 
@@ -234,15 +253,26 @@ export class DbFile {
     }
   }
 
-  async getSchemasOrThrow(db: string, tableName: string) {
-    const schemas = await this.getSchemas(db, tableName)
-    if (schemas == null) {
+  async getSchemasOrThrow(db: string, tableName: string): Promise<{
+    schema: SomeTableSchema
+    columnRecords: StoredRecordForTableSchema<typeof schemas.dbTableColumns>[]
+    schemaRecord: StoredRecordForTableSchema<typeof schemas.dbSchemas>
+  }[]> {
+    const schemasData = await this.getSchemas(db, tableName)
+    if (schemasData == null) {
       throw new Error(`Table ${db}.${tableName} not found`)
     }
-    return schemas
+    return schemasData
   }
 
-  async getSchemas(db: string, tableName: string) {
+  async getSchemas(db: string, tableName: string): Promise<
+    | null
+    | {
+      schema: SomeTableSchema
+      columnRecords: StoredRecordForTableSchema<typeof schemas.dbTableColumns>[]
+      schemaRecord: StoredRecordForTableSchema<typeof schemas.dbSchemas>
+    }[]
+  > {
     const tableRecord = await this.tableManager.tablesTable.lookupUnique(
       "_db_name",
       {
@@ -291,7 +321,7 @@ export class DbFile {
     oldTableName: string,
     newTableName: string,
     { db = "default" }: { db?: string } = {},
-  ) {
+  ): Promise<void> {
     return await this.tableManager.renameTable(db, oldTableName, newTableName)
   }
 
@@ -323,7 +353,7 @@ type Migration = {
   migrate: (db: DbFile) => Promise<void>
 }
 
-export type DBModel<DBSchemaT extends DBSchema> = Simplify<
+export type DBModel<DBSchemaT extends IDBSchema> = Simplify<
   {
     [K in keyof DBSchemaT["schemas"]]: HeapFileTableInfer<
       DBSchemaT["schemas"][K]

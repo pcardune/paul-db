@@ -3,6 +3,8 @@ import { ReadonlyDataView, WriteableDataView } from "./dataview.ts"
 import { copy } from "@std/bytes/copy"
 import { decodeBase64, encodeBase64 } from "@std/encoding"
 import { UnknownRecord } from "type-fest"
+
+class NoSpaceError extends Error {}
 export abstract class IStruct<ValueT> {
   abstract sizeof(value: ValueT): number
   abstract readAt(view: ReadonlyDataView, offset: number): ValueT
@@ -26,7 +28,7 @@ export abstract class IStruct<ValueT> {
     return new Uint8Array(buffer)
   }
 
-  static NoSpaceError = class extends Error {}
+  static NoSpaceError: typeof NoSpaceError = NoSpaceError
 }
 export class VariableWidthStruct<ValueT> extends IStruct<ValueT> {
   /**

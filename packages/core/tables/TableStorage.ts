@@ -277,7 +277,7 @@ export class HeapFileTableStorage<RowData>
     })
   }
 
-  drop() {
+  drop(): Promisable<void> {
     return this.droppable.drop()
   }
 

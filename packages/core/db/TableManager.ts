@@ -13,7 +13,8 @@ import {
   ITableStorage,
 } from "../tables/TableStorage.ts"
 import { UnknownRecord } from "type-fest"
-import { schemas, SYSTEM_DB, TableRecord } from "./metadataSchemas.ts"
+import * as schemas from "./metadataSchemas.ts"
+import { SYSTEM_DB, TableRecord } from "./metadataSchemas.ts"
 import { IndexManager } from "./IndexManager.ts"
 import { DBFileSerialIdGenerator } from "../serial.ts"
 import { HeapFileBackedIndexProvider } from "../indexes/IndexProvider.ts"
@@ -40,11 +41,11 @@ export class TableManager {
     this.tables = new Map()
   }
 
-  getTableRecord(db: string, name: string) {
+  getTableRecord(db: string, name: string): Promise<TableRecord | undefined> {
     return this.tablesTable.lookupUnique("_db_name", { db, name })
   }
 
-  async hasTableRecord(db: string, name: string) {
+  async hasTableRecord(db: string, name: string): Promise<boolean> {
     return (await this.getTableRecord(db, name)) != null
   }
 
@@ -79,7 +80,16 @@ export class TableManager {
   async getTableStorage<SchemaT extends SomeTableSchema>(
     db: string,
     schema: SchemaT,
-  ) {
+  ): Promise<
+    null | {
+      tableRecord: TableRecord
+      storage: TableConfig<
+        HeapFileRowId,
+        SchemaT,
+        HeapFileTableStorage<StoredRecordForTableSchema<SchemaT>>
+      >
+    }
+  > {
     const tableRecord = await this.tablesTable.lookupUnique("_db_name", {
       db,
       name: schema.name,
@@ -149,7 +159,14 @@ export class TableManager {
   async getOrCreateTableStorage<SchemaT extends SomeTableSchema>(
     db: string,
     schema: SchemaT,
-  ) {
+  ): Promise<{
+    storage: TableConfig<
+      HeapFileRowId,
+      SchemaT,
+      HeapFileTableStorage<StoredRecordForTableSchema<SchemaT>>
+    >
+    created: boolean
+  }> {
     let storage = await this.getTableStorage(db, schema)
     let created = false
     if (storage == null) {
@@ -163,7 +180,7 @@ export class TableManager {
   async createTable<SchemaT extends SomeTableSchema>(
     db: string,
     schema: SchemaT,
-  ) {
+  ): Promise<HeapFileTableInfer<SchemaT>> {
     const tableRecord = await this.createTableRecord(db, schema.name)
     const { storage } = (await this.getTableStorage(db, schema))!
     const table = new Table(storage)
@@ -172,7 +189,7 @@ export class TableManager {
     const schemaTable = await this.getTable(SYSTEM_DB, schemas.dbSchemas)
     const columnsTable = await this.getTable(SYSTEM_DB, schemas.dbTableColumns)
     if (schemaTable == null || columnsTable == null) {
-      return table
+      return table as HeapFileTableInfer<SchemaT>
     }
 
     const existingIds = await schemaTable.iterate().map((s) => s.id).toArray()
@@ -189,7 +206,7 @@ export class TableManager {
       schemaId: schemaRecord.id,
     })))
 
-    return table
+    return table as HeapFileTableInfer<SchemaT>
   }
 
   async getTable<SchemaT extends SomeTableSchema>(
@@ -208,7 +225,7 @@ export class TableManager {
   async getOrCreateTable<SchemaT extends SomeTableSchema>(
     db: string,
     schema: SchemaT,
-  ) {
+  ): Promise<HeapFileTableInfer<SchemaT>> {
     const table = await this.getTable(db, schema)
     if (table != null) return table
     return this.createTable(db, schema)

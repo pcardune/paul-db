@@ -1,10 +1,10 @@
-import { TableSchema } from "./mod.ts"
+import { TableSchema } from "./schema/schema.ts"
+import { DBSchema } from "./schema/DBSchema.ts"
 
 export { column, computedColumn } from "./schema/columns/ColumnBuilder.ts"
 export const table = TableSchema.create
-export { ColumnTypes as type } from "./schema/columns/ColumnType.ts"
-import { DBSchema } from "./schema/DBSchema.ts"
 export const db = DBSchema.create
+export { ColumnTypes as type } from "./schema/columns/ColumnType.ts"
 
 export type {
   InsertRecordForTableSchema as InferInsertRecord,

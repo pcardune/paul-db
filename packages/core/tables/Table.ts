@@ -69,7 +69,7 @@ export class Table<
     })
   }
 
-  drop() {
+  drop(): Promisable<void> {
     return this.droppable.drop()
   }
 
@@ -410,7 +410,10 @@ export class Table<
     ValueT extends Column.Computed.GetOutput<
       Column.FindWithName<SchemaT["computedColumns"], IName>
     >,
-  >(indexName: IName, value: ValueT) {
+  >(
+    indexName: IName,
+    value: ValueT,
+  ): Promise<StoredRecordForTableSchema<SchemaT>[]> {
     this.droppable.assertNotDropped("Table has been dropped")
 
     const index = await this.indexProvider.getIndexForColumn(indexName)

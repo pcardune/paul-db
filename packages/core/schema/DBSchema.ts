@@ -11,13 +11,27 @@ type SchemaMap<TableSchemasT extends NonEmptyTuple<SomeTableSchema>> = {
   >
 }
 
-export class DBSchema<
+export interface IDBSchema<
   DBName extends string = string,
   SchemasT extends Record<string, SomeTableSchema> = Record<
     string,
     SomeTableSchema
   >,
 > {
+  readonly name: DBName
+  readonly schemas: SchemasT
+  withTables<TableSchemasT extends NonEmptyTuple<SomeTableSchema>>(
+    ...tables: TableSchemasT
+  ): DBSchema<DBName, Simplify<SchemasT & SchemaMap<TableSchemasT>>>
+}
+
+export class DBSchema<
+  DBName extends string = string,
+  SchemasT extends Record<string, SomeTableSchema> = Record<
+    string,
+    SomeTableSchema
+  >,
+> implements IDBSchema<DBName, SchemasT> {
   private constructor(readonly name: DBName, readonly schemas: SchemasT) {}
 
   static create(): DBSchema<"default", EmptyObject>
@@ -47,4 +61,13 @@ export class DBSchema<
   query(): QueryBuilder<this> {
     return new QueryBuilder(this)
   }
+}
+
+export function create(): IDBSchema<"default", EmptyObject>
+export function create(name: typeof SYSTEM_DB): never
+export function create<DBName extends string>(
+  name: DBName,
+): IDBSchema<DBName, EmptyObject>
+export function create(name?: string): IDBSchema<string, EmptyObject> {
+  return DBSchema.create(name as string)
 }

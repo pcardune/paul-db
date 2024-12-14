@@ -3,14 +3,14 @@ import { Json } from "../../types.ts"
 import { ColumnType } from "./ColumnType.ts"
 import * as stdUUID from "@std/uuid"
 
-export function any<T>() {
+export function any<T>(): ColumnType<T> {
   return new ColumnType<T>({
     name: "any",
     isValid: (_value: T): _value is T => true,
   })
 }
 
-export function caseInsensitiveString() {
+export function caseInsensitiveString(): ColumnType<string> {
   return new ColumnType<string>({
     name: "caseInsensitiveString",
     isValid: (value) => typeof value === "string",
@@ -19,7 +19,7 @@ export function caseInsensitiveString() {
   })
 }
 
-export function uuid() {
+export function uuid(): ColumnType<string> {
   return new ColumnType<string>({
     name: "uuid",
     isValid: (value) => stdUUID.validate(value),
@@ -28,7 +28,7 @@ export function uuid() {
   })
 }
 
-export function positiveNumber() {
+export function positiveNumber(): ColumnType<number> {
   return new ColumnType<number>({
     name: "positiveNumber",
     isValid: (value) => value > 0,
@@ -36,7 +36,7 @@ export function positiveNumber() {
   })
 }
 
-export function boolean() {
+export function boolean(): ColumnType<boolean> {
   return new ColumnType<boolean>({
     name: "boolean",
     isValid: (value) => typeof value === "boolean",
@@ -45,7 +45,7 @@ export function boolean() {
   })
 }
 
-export function string() {
+export function string(): ColumnType<string> {
   return new ColumnType<string>({
     name: "string",
     isValid: (value) => typeof value === "string",
@@ -54,7 +54,7 @@ export function string() {
   })
 }
 
-export function float() {
+export function float(): ColumnType<number> {
   return new ColumnType<number>({
     name: "float",
     isValid: (value) => typeof value === "number",
@@ -63,7 +63,7 @@ export function float() {
   })
 }
 
-export function int16() {
+export function int16(): ColumnType<number> {
   return new ColumnType<number>({
     name: "int16",
     isValid: (value) =>
@@ -74,7 +74,7 @@ export function int16() {
   })
 }
 
-export function uint16() {
+export function uint16(): ColumnType<number> {
   return new ColumnType<number>({
     name: "uint16",
     isValid: (value) =>
@@ -85,7 +85,7 @@ export function uint16() {
   })
 }
 
-export function int32() {
+export function int32(): ColumnType<number> {
   return new ColumnType<number>({
     name: "int32",
     isValid: (value) =>
@@ -96,7 +96,7 @@ export function int32() {
   })
 }
 
-export function uint32() {
+export function uint32(): ColumnType<number> {
   return new ColumnType<number>({
     name: "uint32",
     isValid: (value) =>
@@ -107,7 +107,7 @@ export function uint32() {
   })
 }
 
-export function int64() {
+export function int64(): ColumnType<bigint> {
   return new ColumnType<bigint>({
     name: "int64",
     isValid: (value) =>
@@ -118,7 +118,7 @@ export function int64() {
   })
 }
 
-export function uint64() {
+export function uint64(): ColumnType<bigint> {
   return new ColumnType<bigint>({
     name: "uint64",
     isValid: (value) =>
@@ -128,7 +128,7 @@ export function uint64() {
   })
 }
 
-export function json() {
+export function json(): ColumnType<Json> {
   return new ColumnType<Json>({
     name: "json",
     isValid: (value) => {
@@ -143,7 +143,7 @@ export function json() {
   })
 }
 
-export function timestamp() {
+export function timestamp(): ColumnType<Date> {
   return new ColumnType<Date>({
     name: "timestamp",
     isValid: (value) => value instanceof Date,
@@ -152,7 +152,7 @@ export function timestamp() {
   })
 }
 
-export function date() {
+export function date(): ColumnType<Date> {
   return new ColumnType<Date>({
     name: "date",
     isValid: (value) => value instanceof Date,
@@ -161,7 +161,7 @@ export function date() {
   })
 }
 
-export function blob() {
+export function blob(): ColumnType<Uint8Array> {
   return new ColumnType<Uint8Array>({
     name: "blob",
     isValid: (value) => value instanceof Uint8Array,

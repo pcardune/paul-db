@@ -27,6 +27,14 @@ export type Any<
   defaultValueFactory: DefaultValueFactoryT
 }
 
+export type Simple<Name extends string = string, ValueT = any> = Any<
+  Name,
+  ValueT,
+  false,
+  Index.ShouldNotIndex,
+  undefined
+>
+
 /**
  * Represents any stored column with a default value
  */
