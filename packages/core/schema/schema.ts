@@ -6,7 +6,7 @@ import {
   StoredRecordForColumnSchemas,
 } from "./columns/ColumnBuilder.ts"
 import { ColumnType } from "./columns/ColumnType.ts"
-import { NonEmptyTuple, Simplify } from "npm:type-fest"
+import { NonEmptyTuple, Simplify } from "type-fest"
 import * as Column from "./columns/index.ts"
 
 export { Column }

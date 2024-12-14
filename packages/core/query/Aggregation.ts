@@ -1,6 +1,6 @@
 import { Json } from "../types.ts"
 import type { ExecutionContext, Expr } from "./QueryPlanNode.ts"
-import { Promisable, UnknownRecord } from "npm:type-fest"
+import { Promisable, UnknownRecord } from "type-fest"
 
 export interface Aggregation<T> {
   init(): T

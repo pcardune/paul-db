@@ -12,7 +12,7 @@ import {
   HeapFileTableStorage,
   ITableStorage,
 } from "../tables/TableStorage.ts"
-import { UnknownRecord } from "npm:type-fest"
+import { UnknownRecord } from "type-fest"
 import { schemas, SYSTEM_DB, TableRecord } from "./metadataSchemas.ts"
 import { IndexManager } from "./IndexManager.ts"
 import { DBFileSerialIdGenerator } from "../serial.ts"

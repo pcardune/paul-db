@@ -2,6 +2,7 @@
   "name": "@paul-db/core",
   "version": "0.0.1",
   "exports": "./mod.ts",
+  "license": "MIT",
   "imports": {
     "@std/collections": "jsr:@std/collections@^1.0.9",
     "@std/expect": "jsr:@std/expect@^1.0.9",
@@ -12,6 +13,7 @@
     "@std/encoding": "jsr:@std/encoding@^1.0.5",
     "@std/testing": "jsr:@std/testing@^1.0.6",
     "@std/ulid": "jsr:@std/ulid@^1.0.0",
-    "@std/uuid": "jsr:@std/uuid@^1.0.4"
+    "@std/uuid": "jsr:@std/uuid@^1.0.4",
+    "type-fest": "npm:type-fest@^4.30.1"
   }
 }

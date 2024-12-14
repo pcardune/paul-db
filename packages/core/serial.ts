@@ -1,4 +1,4 @@
-import { Promisable } from "npm:type-fest"
+import { Promisable } from "type-fest"
 import { StoredRecordForTableSchema, TableSchema } from "./schema/schema.ts"
 import { ColumnTypes } from "./schema/columns/ColumnType.ts"
 import { column } from "./schema/columns/ColumnBuilder.ts"

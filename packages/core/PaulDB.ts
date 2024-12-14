@@ -9,15 +9,15 @@ export class PaulDB {
   private constructor(readonly dbFile: DbFile) {
   }
 
-  static async inMemory() {
+  static async inMemory(): Promise<PaulDB> {
     return new PaulDB(await DbFile.open({ type: "memory" }))
   }
 
-  static async localStorage(prefix?: string) {
+  static async localStorage(prefix?: string): Promise<PaulDB> {
     return new PaulDB(await DbFile.open({ type: "localstorage", prefix }))
   }
 
-  static async open(dirName: string, { create = false } = {}) {
+  static async open(dirName: string, { create = false } = {}): Promise<PaulDB> {
     await Deno.mkdir(dirName, { recursive: true })
     if (!(await exists(dirName))) {
       if (create) {

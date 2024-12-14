@@ -1,4 +1,4 @@
-import { Promisable } from "npm:type-fest"
+import { Promisable } from "type-fest"
 /**
  * Collects all items from an async iterable into an array.
  */
@@ -81,14 +81,14 @@ export function skipAsync<T>(
 /**
  * Wraps an async iterable to provide additional functionality.
  */
-export class AsyncIterableWrapper<T> {
-  private iterable: AsyncIterable<T>
+export class AsyncIterableWrapper<T, TNext = any> {
+  private iterable: AsyncIterable<T, void, TNext>
 
   constructor(
     iterable:
-      | Iterable<T>
-      | AsyncIterable<T>
-      | (() => AsyncGenerator<T, void, unknown>),
+      | Iterable<T, void, TNext>
+      | AsyncIterable<T, void, TNext>
+      | (() => AsyncGenerator<T, void, TNext>),
   ) {
     if (typeof iterable === "function") {
       this.iterable = iterable()
@@ -103,7 +103,7 @@ export class AsyncIterableWrapper<T> {
     }
   }
 
-  [Symbol.asyncIterator]() {
+  [Symbol.asyncIterator](): AsyncIterator<T, void, TNext> {
     return this.iterable[Symbol.asyncIterator]()
   }
 
@@ -111,19 +111,21 @@ export class AsyncIterableWrapper<T> {
     return collectAsync(this.iterable)
   }
 
-  filter(predicate: (item: T) => Promisable<boolean>): AsyncIterableWrapper<T> {
+  filter(
+    predicate: (item: T) => Promisable<boolean>,
+  ): AsyncIterableWrapper<T, TNext> {
     return new AsyncIterableWrapper(filterAsync(this.iterable, predicate))
   }
 
-  map<U>(mapper: (item: T) => Promisable<U>): AsyncIterableWrapper<U> {
+  map<U>(mapper: (item: T) => Promisable<U>): AsyncIterableWrapper<U, TNext> {
     return new AsyncIterableWrapper(mapAsync(this.iterable, mapper))
   }
 
-  take(count: number): AsyncIterableWrapper<T> {
+  take(count: number): AsyncIterableWrapper<T, TNext> {
     return new AsyncIterableWrapper(takeAsync(this.iterable, count))
   }
 
-  skip(count: number): AsyncIterableWrapper<T> {
+  skip(count: number): AsyncIterableWrapper<T, TNext> {
     return new AsyncIterableWrapper(skipAsync(this.iterable, count))
   }
 }

@@ -17,7 +17,7 @@ import { schemas, SYSTEM_DB } from "./metadataSchemas.ts"
 import { IndexManager } from "./IndexManager.ts"
 import { getTableConfig, TableManager } from "./TableManager.ts"
 import { DBSchema } from "../schema/DBSchema.ts"
-import { Simplify } from "npm:type-fest"
+import { Simplify } from "type-fest"
 import { Json } from "../types.ts"
 
 const headerStruct = Struct.record({

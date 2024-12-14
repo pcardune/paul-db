@@ -2,7 +2,7 @@ import { ReadonlyDataView, WriteableDataView } from "../binary/dataview.ts"
 import { Struct } from "../binary/Struct.ts"
 import { EOFError, readBytesAt, writeBytesAt } from "../io.ts"
 import { debugLogger } from "../logging.ts"
-import { Promisable } from "npm:type-fest"
+import { Promisable } from "type-fest"
 import { decodeBase64, encodeBase64 } from "@std/encoding"
 
 const debugLog = debugLogger(false)

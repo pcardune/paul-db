@@ -1,4 +1,4 @@
-import { Promisable, UnknownRecord } from "npm:type-fest"
+import { Promisable, UnknownRecord } from "type-fest"
 import { AsyncIterableWrapper } from "../async.ts"
 import { Column, SomeTableSchema } from "../schema/schema.ts"
 import { assertUnreachable, Json } from "../types.ts"
