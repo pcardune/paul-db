@@ -15,7 +15,7 @@ import {
   TableSchema,
 } from "../schema/TableSchema.ts"
 import { Table, TableConfig } from "./Table.ts"
-import { Promisable } from "type-fest"
+import type { Promisable } from "type-fest"
 
 export interface ITableStorage<RowId, RowData> extends IDroppable {
   get(id: RowId): Promisable<RowData | undefined>

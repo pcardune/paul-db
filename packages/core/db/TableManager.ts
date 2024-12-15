@@ -12,7 +12,7 @@ import {
   HeapFileTableStorage,
   ITableStorage,
 } from "../tables/TableStorage.ts"
-import { UnknownRecord } from "type-fest"
+import type { UnknownRecord } from "type-fest"
 import * as schemas from "./metadataSchemas.ts"
 import { SYSTEM_DB, TableRecord } from "./metadataSchemas.ts"
 import { IndexManager } from "./IndexManager.ts"

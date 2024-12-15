@@ -1,4 +1,4 @@
-import { EmptyObject, NonEmptyTuple, Simplify } from "type-fest"
+import type { EmptyObject, NonEmptyTuple, Simplify } from "type-fest"
 import { SomeTableSchema } from "./TableSchema.ts"
 import { associateBy } from "@std/collections"
 import { SYSTEM_DB } from "../db/metadataSchemas.ts"

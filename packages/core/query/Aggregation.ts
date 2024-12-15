@@ -1,6 +1,6 @@
 import { Json } from "../types.ts"
 import type { ExecutionContext, Expr } from "./QueryPlanNode.ts"
-import { Promisable, UnknownRecord } from "type-fest"
+import type { Promisable, UnknownRecord } from "type-fest"
 
 /**
  * An aggregation is a computation that summarizes a set of rows into a single

@@ -5,7 +5,7 @@ import {
   LeafBTreeNode,
   SerializedNode,
 } from "./BTreeNode.ts"
-import { Promisable } from "type-fest"
+import type { Promisable } from "type-fest"
 
 export interface INodeList<K, V, NodeId extends INodeId> {
   get(nodeId: NodeId): Promisable<BTreeNode<K, V, NodeId>>

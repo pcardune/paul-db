@@ -1,4 +1,4 @@
-import { Promisable } from "type-fest"
+import type { Promisable } from "type-fest"
 import { Column } from "../schema/TableSchema.ts"
 import { assertUnreachable, Json } from "../types.ts"
 import { ColumnType, ColumnTypes } from "../schema/columns/ColumnType.ts"

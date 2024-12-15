@@ -6,7 +6,7 @@ import { IBufferPool, PageId } from "../pages/BufferPool.ts"
 import { IStruct } from "../binary/Struct.ts"
 import { FileNodeId } from "./Serializers.ts"
 import { FileBackedBTree } from "./FileBackedBTree.ts"
-import { Promisable } from "type-fest"
+import type { Promisable } from "type-fest"
 import { Droppable, IDroppable } from "../droppable.ts"
 
 interface IIndex<K, V> extends IDroppable {

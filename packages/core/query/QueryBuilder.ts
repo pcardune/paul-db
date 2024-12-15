@@ -21,7 +21,7 @@ import {
   OrderBy,
   TableScan,
 } from "./QueryPlanNode.ts"
-import { NonEmptyTuple, TupleToUnion } from "type-fest"
+import type { NonEmptyTuple, TupleToUnion } from "type-fest"
 import { ColumnType } from "../schema/columns/ColumnType.ts"
 import { Json } from "../types.ts"
 

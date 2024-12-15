@@ -1,4 +1,4 @@
-import { Promisable, UnknownRecord } from "type-fest"
+import type { Promisable, UnknownRecord } from "type-fest"
 import { INodeId } from "./BTreeNode.ts"
 import { Index } from "./Index.ts"
 import {

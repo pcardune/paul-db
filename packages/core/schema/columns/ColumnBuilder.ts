@@ -1,5 +1,5 @@
 import { ColumnType, SerialUInt32ColumnType } from "./ColumnType.ts"
-import { Simplify } from "type-fest"
+import type { Simplify } from "type-fest"
 import * as Column from "./index.ts"
 
 export const DEFAULT_INDEX_CONFIG: Column.Index.ShouldIndex = {

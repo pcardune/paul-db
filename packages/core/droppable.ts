@@ -1,4 +1,4 @@
-import { Promisable } from "type-fest"
+import type { Promisable } from "type-fest"
 
 /**
  * A droppable object can be dropped, which is a one-time operation that

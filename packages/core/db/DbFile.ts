@@ -23,7 +23,7 @@ import * as schemas from "./metadataSchemas.ts"
 import { IndexManager } from "./IndexManager.ts"
 import { getTableConfig, TableManager } from "./TableManager.ts"
 import { DBSchema, IDBSchema } from "../schema/DBSchema.ts"
-import { Simplify } from "type-fest"
+import type { Simplify } from "type-fest"
 import { Json } from "../types.ts"
 
 const headerStruct = Struct.record({

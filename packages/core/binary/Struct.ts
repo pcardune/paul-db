@@ -2,7 +2,7 @@ import { Json, JsonRecord } from "../types.ts"
 import { ReadonlyDataView, WriteableDataView } from "./dataview.ts"
 import { copy } from "@std/bytes/copy"
 import { decodeBase64, encodeBase64 } from "@std/encoding"
-import { UnknownRecord } from "type-fest"
+import type { UnknownRecord } from "type-fest"
 
 class NoSpaceError extends Error {}
 export abstract class IStruct<ValueT> {

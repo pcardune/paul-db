@@ -7,7 +7,7 @@ import {
   LeafBTreeNode,
 } from "./BTreeNode.ts"
 import { debugJson, debugLog } from "../logging.ts"
-import { Promisable } from "type-fest"
+import type { Promisable } from "type-fest"
 
 type DumpedNode<K, V, NodeId> =
   | { type: "leaf"; nodeId: NodeId; keyvals: [K, readonly V[]][] }

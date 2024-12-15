@@ -1,4 +1,4 @@
-import { OverrideProperties } from "type-fest"
+import type { OverrideProperties } from "type-fest"
 import * as Index from "./IndexConfig.ts"
 import type { ColumnType } from "./ColumnType.ts"
 
