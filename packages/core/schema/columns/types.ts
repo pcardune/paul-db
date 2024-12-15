@@ -6,7 +6,7 @@
 
 import { Struct } from "../../binary/Struct.ts"
 import { Json } from "../../types.ts"
-import { ColumnType } from "./ColumnType.ts"
+import { ColumnType, SerialUInt32ColumnType } from "./ColumnType.ts"
 import * as stdUUID from "@std/uuid"
 
 /**
@@ -206,4 +206,8 @@ export function blob(): ColumnType<Uint8Array> {
     isValid: (value) => value instanceof Uint8Array,
     serializer: Struct.bytes,
   })
+}
+
+export function serial(): SerialUInt32ColumnType {
+  return new SerialUInt32ColumnType()
 }

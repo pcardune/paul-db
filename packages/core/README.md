@@ -1,7 +1,41 @@
 # @paul-db/core
 
-PaulDB is a typescript native relational database that can run anywhere
-javascript can run.
+PaulDB is an _experimental_, typescript native relational database that can run
+anywhere javascript can run.
+
+## Installation
+
+PaulDB is built with deno but can be used in any javascript environment.
+
+Deno:
+
+```bash
+deno add jsr:@paul-db/core
+```
+
+npm:
+
+```bash
+npx jsr add @paul-db/core
+```
+
+Yarn:
+
+```bash
+yarn dlx jsr add @paul-db/core
+```
+
+pnpm:
+
+```bash
+pnpm dlx jsr add @paul-db/core
+```
+
+Bun:
+
+```bash
+bunx jsr add @paul-db/core
+```
 
 ## Feature Overview
 
@@ -9,7 +43,7 @@ A database "connection" can be established with a variety of storage backends
 including in-memory, local storage, and file storage.
 
 ```typescript
-import PaulDB from "@paul-db/core"
+import { PaulDB } from "@paul-db/core"
 const db = await PaulDB.inMemory()
 // const db = await PaulDB.localStorage();
 // const db = await PaulDB.open("/tmp/db", { create: true });
@@ -18,7 +52,7 @@ const db = await PaulDB.inMemory()
 Database table schemas can be defined directly in typescript:
 
 ```typescript
-import { s } from "@paul-db/core"
+import { schema as s } from "@paul-db/core"
 const dbSchema = s.db().withTables(
   s.table("projects").with(
     s.column("id", "serial").unique(), // serial column will generate sequential ids for you.

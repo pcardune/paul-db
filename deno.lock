@@ -30,8 +30,7 @@
     "jsr:@std/ulid@1": "1.0.0",
     "jsr:@std/uuid@^1.0.4": "1.0.4",
     "npm:@commander-js/extra-typings@12.1.0": "12.1.0_commander@12.1.0",
-    "npm:node-sql-parser@*": "5.3.5",
-    "npm:node-sql-parser@^5.3.4": "5.3.5",
+    "npm:node-sql-parser@^5.3.5": "5.3.5",
     "npm:type-fest@*": "4.30.0",
     "npm:type-fest@^4.30.1": "4.30.1"
   },
@@ -213,7 +212,8 @@
       },
       "packages/sql": {
         "dependencies": [
-          "npm:node-sql-parser@^5.3.4"
+          "npm:node-sql-parser@^5.3.5",
+          "npm:type-fest@^4.30.1"
         ]
       }
     }

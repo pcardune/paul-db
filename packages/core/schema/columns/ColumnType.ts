@@ -38,47 +38,6 @@ export function getColumnTypeFromString(
 }
 
 /**
- * Converts a SQL type to a ColumnType instance
- */
-export function getColumnTypeFromSQLType(sqlType: string): ColumnType<any> {
-  if (sqlType.endsWith("[]")) {
-    return getColumnTypeFromSQLType(sqlType.slice(0, -2)).array()
-  }
-  switch (sqlType) {
-    case "TEXT":
-    case "VARCHAR":
-    case "CHAR":
-      return ColumnTypes.string()
-    case "SMALLINT":
-      return ColumnTypes.int16()
-    case "INT":
-    case "INTEGER":
-      return ColumnTypes.int32()
-    case "FLOAT":
-    case "REAL":
-    case "DOUBLE":
-      return ColumnTypes.float()
-    case "BOOLEAN":
-      return ColumnTypes.boolean()
-    case "UUID":
-      return ColumnTypes.uuid()
-    case "JSON":
-    case "JSONB":
-      return ColumnTypes.json()
-    case "DATE":
-      return ColumnTypes.date()
-    case "TIMESTAMP":
-      return ColumnTypes.timestamp()
-    case "BLOB":
-      return ColumnTypes.blob()
-    case "SERIAL":
-      return new SerialUInt32ColumnType()
-    default:
-      throw new Error(`Unknown SQL type: ${sqlType}`)
-  }
-}
-
-/**
  * Represents a column type in a database table
  */
 export class ColumnType<T = unknown> {

@@ -1,23 +1,22 @@
-import { plan } from "../core/mod.ts"
-import { Column, SomeTableSchema } from "../core/schema/TableSchema.ts"
+import * as plan from "@paul-db/core/planner"
+import { schema as s } from "@paul-db/core"
 import {
   AmbiguousError,
   ColumnNotFoundError,
   NotImplementedError,
 } from "./errors.ts"
-import SQLParser from "npm:node-sql-parser"
+import SQLParser from "node-sql-parser"
 import {
   isBinary,
   isColumnRefItem,
   isExpressionValue,
   isValue,
 } from "./parser.ts"
-import { ColumnTypes } from "../core/schema/columns/ColumnType.ts"
 
 function columnRef(
-  schema: SomeTableSchema,
+  schema: s.SomeTableSchema,
   column: string,
-): plan.ColumnRefExpr<Column.Any> {
+): plan.ColumnRefExpr<s.Column.Any> {
   const columnSchema = schema.getColumnByName(column)
   if (columnSchema == null) {
     throw new ColumnNotFoundError(
@@ -28,7 +27,7 @@ function columnRef(
 }
 
 export function parseExpr(
-  schemas: Record<string, SomeTableSchema>,
+  schemas: Record<string, s.SomeTableSchema>,
   expr: SQLParser.ExpressionValue | SQLParser.ExprList,
 ): plan.Expr<any> {
   if (!isExpressionValue(expr)) {
@@ -48,7 +47,7 @@ export function parseExpr(
         `Only string column names are supported in WHERE clause`,
       )
     }
-    let schema: SomeTableSchema
+    let schema: s.SomeTableSchema
     if (expr.table == null) {
       // find all the schemas with a matching column name
       const matchingSchemas = Object.values(schemas).filter((schema) =>
@@ -82,12 +81,12 @@ export function parseExpr(
     if (expr.type === "number") {
       return new plan.LiteralValueExpr(
         expr.value,
-        ColumnTypes.float(),
+        s.type.float(),
       )
     } else if (expr.type === "single_quote_string") {
       return new plan.LiteralValueExpr(
         expr.value,
-        ColumnTypes.string(),
+        s.type.string(),
       )
     } else {
       throw new NotImplementedError(

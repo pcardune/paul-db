@@ -4,6 +4,8 @@
  */
 export * as type from "../schema/columns/types.ts"
 
+export * as Column from "../schema/columns/index.ts"
+export { ColumnType } from "../schema/columns/ColumnType.ts"
 export { column, computedColumn } from "../schema/columns/ColumnBuilder.ts"
 
 /**
@@ -23,3 +25,5 @@ export type {
 export type { DBModel } from "../db/DbFile.ts"
 
 export type { HeapFileTableInfer as InferTable } from "../tables/TableStorage.ts"
+
+export type { SomeTableSchema } from "../schema/TableSchema.ts"

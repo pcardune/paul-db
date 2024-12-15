@@ -1,6 +1,6 @@
-import { Column } from "npm:node-sql-parser"
-import { DbFile, plan } from "../core/mod.ts"
-import { SomeTableSchema } from "../core/schema/TableSchema.ts"
+import { Column } from "node-sql-parser"
+import { PaulDB, schema } from "@paul-db/core"
+import * as plan from "@paul-db/core/planner"
 import { parseAggregationColumns } from "./aggregation.ts"
 import { NotImplementedError } from "./errors.ts"
 import { parseExpr } from "./expr.ts"
@@ -8,7 +8,7 @@ import { handleLimit } from "./limit.ts"
 import { isColumnRefItem, Select } from "./parser.ts"
 import { handleWhere } from "./where.ts"
 
-export async function parseSelect(ast: Select, dbFile: DbFile) {
+export async function parseSelect(ast: Select, { dbFile }: PaulDB) {
   if (ast.groupby != null) {
     throw new NotImplementedError(`GROUP BY clause not supported yet`)
   }
@@ -47,7 +47,7 @@ export async function parseSelect(ast: Select, dbFile: DbFile) {
     astFrom.table,
   )
   let rootPlan: plan.IQueryPlanNode = tableScan
-  const schemas: Record<string, SomeTableSchema> = {}
+  const schemas: Record<string, schema.SomeTableSchema> = {}
   schemas[astFrom.table] = await tableScan.getSchema(dbFile)
   if (ast.from.length > 1) {
     // we're doing joins!

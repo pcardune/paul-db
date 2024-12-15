@@ -1,16 +1,11 @@
 import { expect } from "@std/expect"
-import {
-  ColumnTypes,
-  getColumnTypeFromSQLType,
-  getColumnTypeFromString,
-} from "./ColumnType.ts"
+import { ColumnTypes, getColumnTypeFromString } from "./ColumnType.ts"
 
 Deno.test("string/TEXT columns", () => {
   const stringColumn = ColumnTypes.string()
   expect(stringColumn.isValid("hello")).toBe(true)
   // @ts-expect-error - 123 obviously isn't a string
   expect(stringColumn.isValid(123)).toBe(false)
-  expect(getColumnTypeFromSQLType("TEXT").name).toEqual("string")
   expect(getColumnTypeFromString("string").name).toEqual("string")
 })
 
@@ -18,7 +13,6 @@ Deno.test("array columns", () => {
   const stringArray = ColumnTypes.string().array()
   expect(stringArray.name).toEqual("string[]")
   expect(stringArray.isValid(["hello", "world"])).toBe(true)
-  expect(getColumnTypeFromSQLType("TEXT[]").name).toEqual("string[]")
   expect(getColumnTypeFromString("string[]").name).toEqual("string[]")
 })
 

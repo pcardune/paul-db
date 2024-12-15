@@ -1,10 +1,10 @@
-import SQLParser from "npm:node-sql-parser"
-import { plan } from "../core/mod.ts"
+import SQLParser from "node-sql-parser"
+import { IQueryPlanNode, Limit } from "@paul-db/core/planner"
 
 export function handleLimit(
-  rootPlan: plan.IQueryPlanNode,
+  rootPlan: IQueryPlanNode,
   limitAst: SQLParser.Limit,
-): plan.IQueryPlanNode {
+): IQueryPlanNode {
   if (limitAst.value.length == 0) {
     // no-op
     return rootPlan
@@ -23,5 +23,5 @@ export function handleLimit(
     throw new Error("Only number limit value is supported")
   }
 
-  return new plan.Limit(rootPlan, limit.value)
+  return new Limit(rootPlan, limit.value)
 }

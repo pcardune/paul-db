@@ -1,5 +1,5 @@
 import { PaulDB } from "@paul-db/core"
-import SQLParser from "npm:node-sql-parser"
+import SQLParser from "node-sql-parser"
 import { Input } from "@cliffy/prompt"
 import { SQLExecutor } from "@paul-db/sql"
 

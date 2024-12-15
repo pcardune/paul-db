@@ -11,7 +11,7 @@ import SQLParser, {
   Interval,
   Param,
   Value,
-} from "npm:node-sql-parser"
+} from "node-sql-parser"
 
 export function isColumnRefItem(
   t: ColumnRef | ExpressionValue,

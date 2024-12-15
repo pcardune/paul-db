@@ -2,7 +2,8 @@
   "name": "@paul-db/sql",
   "version": "0.0.1",
   "exports": "./mod.ts",
+  "license": "MIT",
   "imports": {
-    "node-sql-parser": "npm:node-sql-parser@^5.3.4"
+    "node-sql-parser": "npm:node-sql-parser@^5.3.5"
   }
 }

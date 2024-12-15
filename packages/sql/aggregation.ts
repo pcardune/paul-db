@@ -1,13 +1,13 @@
-import SQLParser from "npm:node-sql-parser"
+import SQLParser from "node-sql-parser"
 import { NotImplementedError } from "./errors.ts"
 import * as plan from "@paul-db/core/planner"
 import { isAggrFunc, isExprList, isFunction } from "./parser.ts"
 import { parseExpr } from "./expr.ts"
-import { SomeTableSchema } from "../core/schema/TableSchema.ts"
+import { schema } from "@paul-db/core"
 
 export function parseAggregationColumns(
   astColumns: SQLParser.Column[],
-  schemas: Record<string, SomeTableSchema>,
+  schemas: Record<string, schema.SomeTableSchema>,
 ) {
   let multiAgg = new plan.MultiAggregation({})
   for (const astColumn of astColumns) {

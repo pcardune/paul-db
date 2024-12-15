@@ -8,6 +8,5 @@ export * as plan from "./query/QueryPlanNode.ts"
 
 export {
   ColumnType,
-  getColumnTypeFromSQLType,
   getColumnTypeFromString,
 } from "./schema/columns/ColumnType.ts"
