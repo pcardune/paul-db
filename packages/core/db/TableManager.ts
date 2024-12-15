@@ -4,7 +4,7 @@ import {
   makeTableSchemaStruct,
   SomeTableSchema,
   StoredRecordForTableSchema,
-} from "../schema/schema.ts"
+} from "../schema/TableSchema.ts"
 import { Table, TableConfig } from "../tables/Table.ts"
 import {
   HeapFileRowId,

@@ -2,7 +2,12 @@ import { PaulDB } from "../PaulDB.ts"
 
 /**
  * Public Core Module Exports
+ * @module
  */
-export * as s from "./schema.ts"
+export * as schema from "./schema.ts"
 
-export default PaulDB
+/**
+ * @class PaulDB
+ * @module
+ */
+export { PaulDB }

@@ -2,7 +2,10 @@ import { beforeAll, describe, it } from "@std/testing/bdd"
 import { expect } from "@std/expect"
 import { assertSnapshot } from "@std/testing/snapshot"
 import { Table, TableInfer } from "./Table.ts"
-import { StoredRecordForTableSchema, TableSchema } from "../schema/schema.ts"
+import {
+  StoredRecordForTableSchema,
+  TableSchema,
+} from "../schema/TableSchema.ts"
 import {
   HeapFileRowId,
   InMemoryTableStorage,
@@ -15,8 +18,8 @@ import { column, computedColumn } from "../schema/columns/ColumnBuilder.ts"
 import { pick } from "@std/collections"
 
 const peopleSchema = TableSchema.create("people")
-  .with(column("name", ColumnTypes.any<string>()))
-  .with(column("age", ColumnTypes.positiveNumber()))
+  .with(column("name", ColumnTypes.string()))
+  .with(column("age", ColumnTypes.uint32()))
 
 describe("Create, Read, and Delete", () => {
   it("lets you insert and retrieve records", async () => {
@@ -97,7 +100,7 @@ const phoneNumberType = new ColumnType<string>({
 describe("Uniqueness Constraints", () => {
   it("enforces uniqueness constraints", async () => {
     const schema = peopleSchema
-      .with(column("ssn", ColumnTypes.any<string>()).unique())
+      .with(column("ssn", ColumnTypes.string()).unique())
     const people = new Table(await InMemoryTableStorage.forSchema(schema))
 
     await people.insert({ name: "Alice", age: 12, ssn: "123-45-6789" })
@@ -159,7 +162,7 @@ describe("Querying", () => {
 
     it("uses the underlying column type for equality testing", async () => {
       const peopleSchema = TableSchema.create("people").with(
-        column("name", ColumnTypes.any<string>()),
+        column("name", ColumnTypes.string()),
       ).with(column("email", ColumnTypes.caseInsensitiveString()))
       const people = new Table(
         await InMemoryTableStorage.forSchema(peopleSchema),
@@ -179,9 +182,9 @@ describe("Querying", () => {
 
   describe("Table.lookup()", () => {
     const indexedPeopleSchema = TableSchema.create("people")
-      .with(column("name", ColumnTypes.any<string>()).index())
+      .with(column("name", ColumnTypes.string()).index())
       .with(column("phone", phoneNumberType))
-      .with(column("age", ColumnTypes.positiveNumber()).index())
+      .with(column("age", ColumnTypes.uint32()).index())
       .withComputedColumn(
         computedColumn(
           "lowerCaseName",

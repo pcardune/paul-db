@@ -12,7 +12,7 @@ import {
   SomeTableSchema,
   StoredRecordForTableSchema,
   TableSchema,
-} from "../schema/schema.ts"
+} from "../schema/TableSchema.ts"
 import { Table } from "../tables/Table.ts"
 import { HeapFileTableInfer } from "../tables/TableStorage.ts"
 import { ReadonlyDataView } from "../binary/dataview.ts"
@@ -136,7 +136,7 @@ export class DbFile {
         needsCreation: true,
       }
     } else if (config.type === "localstorage") {
-      const prefix = config.prefix ?? "bufferpool"
+      const prefix = config.prefix ?? "pauldb"
       const bufferPool = new LocalStorageBackedBufferPool(prefix)
       const header = localStorage.getItem(`${prefix}-header`)
       if (header == null) {
@@ -353,6 +353,9 @@ type Migration = {
   migrate: (db: DbFile) => Promise<void>
 }
 
+/**
+ * A model for reading and writing to various tables in a database
+ */
 export type DBModel<DBSchemaT extends IDBSchema> = Simplify<
   {
     [K in keyof DBSchemaT["schemas"]]: HeapFileTableInfer<

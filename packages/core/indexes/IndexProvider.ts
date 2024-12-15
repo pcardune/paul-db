@@ -4,7 +4,7 @@ import { Index } from "./Index.ts"
 import {
   SomeTableSchema,
   StoredRecordForTableSchema,
-} from "../schema/schema.ts"
+} from "../schema/TableSchema.ts"
 import {
   HeapFileRowId,
   heapFileRowIdStruct,

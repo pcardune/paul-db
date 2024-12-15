@@ -1,5 +1,5 @@
 import { EmptyObject, NonEmptyTuple, Simplify } from "type-fest"
-import { SomeTableSchema } from "./schema.ts"
+import { SomeTableSchema } from "./TableSchema.ts"
 import { associateBy } from "@std/collections"
 import { SYSTEM_DB } from "../db/metadataSchemas.ts"
 import { QueryBuilder } from "../query/QueryPlanNode.ts"
@@ -63,8 +63,19 @@ export class DBSchema<
   }
 }
 
+/**
+ * Create a new database schema for a database named "default"
+ */
 export function create(): IDBSchema<"default", EmptyObject>
+/**
+ * Create a new database schema for the system database.
+ * This is a reserved name and cannot be used for user-defined databases.
+ * @throws Error
+ */
 export function create(name: typeof SYSTEM_DB): never
+/**
+ * Create a new database schema for a database with a custom name
+ */
 export function create<DBName extends string>(
   name: DBName,
 ): IDBSchema<DBName, EmptyObject>

@@ -1,15 +1,20 @@
+/**
+ * This module provides a set of built-in column types that can be used to
+ * define the schema of a table.
+ * @module
+ */
+
 import { Struct } from "../../binary/Struct.ts"
 import { Json } from "../../types.ts"
 import { ColumnType } from "./ColumnType.ts"
 import * as stdUUID from "@std/uuid"
 
-export function any<T>(): ColumnType<T> {
-  return new ColumnType<T>({
-    name: "any",
-    isValid: (_value: T): _value is T => true,
-  })
-}
-
+/**
+ * A column type for storing case-insensitive strings.
+ *
+ * Note that the stored value will have the same case as the original value
+ * but comparisons (including for indexing) will be case-insensitive
+ */
 export function caseInsensitiveString(): ColumnType<string> {
   return new ColumnType<string>({
     name: "caseInsensitiveString",
@@ -19,6 +24,9 @@ export function caseInsensitiveString(): ColumnType<string> {
   })
 }
 
+/**
+ * A column type for storing UUIDs
+ */
 export function uuid(): ColumnType<string> {
   return new ColumnType<string>({
     name: "uuid",
@@ -28,14 +36,9 @@ export function uuid(): ColumnType<string> {
   })
 }
 
-export function positiveNumber(): ColumnType<number> {
-  return new ColumnType<number>({
-    name: "positiveNumber",
-    isValid: (value) => value > 0,
-    minValue: 0,
-  })
-}
-
+/**
+ * A column type for storing boolean values
+ */
 export function boolean(): ColumnType<boolean> {
   return new ColumnType<boolean>({
     name: "boolean",
@@ -45,6 +48,9 @@ export function boolean(): ColumnType<boolean> {
   })
 }
 
+/**
+ * A column type for storing strings (UTF-8 encoded)
+ */
 export function string(): ColumnType<string> {
   return new ColumnType<string>({
     name: "string",
@@ -54,6 +60,9 @@ export function string(): ColumnType<string> {
   })
 }
 
+/**
+ * A column type for storing signed 64-bit floating point numbers
+ */
 export function float(): ColumnType<number> {
   return new ColumnType<number>({
     name: "float",
@@ -63,6 +72,9 @@ export function float(): ColumnType<number> {
   })
 }
 
+/**
+ * A column type for storing signed 16-bit integers
+ */
 export function int16(): ColumnType<number> {
   return new ColumnType<number>({
     name: "int16",
@@ -74,6 +86,9 @@ export function int16(): ColumnType<number> {
   })
 }
 
+/**
+ * A column type for storing unsigned 16-bit integers
+ */
 export function uint16(): ColumnType<number> {
   return new ColumnType<number>({
     name: "uint16",
@@ -85,6 +100,9 @@ export function uint16(): ColumnType<number> {
   })
 }
 
+/**
+ * A column type for storing signed 32-bit integers
+ */
 export function int32(): ColumnType<number> {
   return new ColumnType<number>({
     name: "int32",
@@ -96,6 +114,9 @@ export function int32(): ColumnType<number> {
   })
 }
 
+/**
+ * A column type for storing unsigned 32-bit integers
+ */
 export function uint32(): ColumnType<number> {
   return new ColumnType<number>({
     name: "uint32",
@@ -107,6 +128,9 @@ export function uint32(): ColumnType<number> {
   })
 }
 
+/**
+ * A column type for storing signed 64-bit integers (i.e. bigints)
+ */
 export function int64(): ColumnType<bigint> {
   return new ColumnType<bigint>({
     name: "int64",
@@ -118,6 +142,9 @@ export function int64(): ColumnType<bigint> {
   })
 }
 
+/**
+ * A column type for storing unsigned 64-bit integers (i.e. bigints)
+ */
 export function uint64(): ColumnType<bigint> {
   return new ColumnType<bigint>({
     name: "uint64",
@@ -128,6 +155,9 @@ export function uint64(): ColumnType<bigint> {
   })
 }
 
+/**
+ * A column type for storing arbitrary JSON data
+ */
 export function json(): ColumnType<Json> {
   return new ColumnType<Json>({
     name: "json",
@@ -143,6 +173,9 @@ export function json(): ColumnType<Json> {
   })
 }
 
+/**
+ * A column type for storing timestamps
+ */
 export function timestamp(): ColumnType<Date> {
   return new ColumnType<Date>({
     name: "timestamp",
@@ -152,6 +185,9 @@ export function timestamp(): ColumnType<Date> {
   })
 }
 
+/**
+ * A column type for storing dates (i.e. day/month/year and not time)
+ */
 export function date(): ColumnType<Date> {
   return new ColumnType<Date>({
     name: "date",
@@ -161,6 +197,9 @@ export function date(): ColumnType<Date> {
   })
 }
 
+/**
+ * A column type for storing binary data
+ */
 export function blob(): ColumnType<Uint8Array> {
   return new ColumnType<Uint8Array>({
     name: "blob",

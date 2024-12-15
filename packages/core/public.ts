@@ -1,4 +1,4 @@
-import { TableSchema } from "./schema/schema.ts"
+import { TableSchema } from "./schema/TableSchema.ts"
 import { DBSchema } from "./schema/DBSchema.ts"
 
 export { column, computedColumn } from "./schema/columns/ColumnBuilder.ts"
@@ -9,7 +9,7 @@ export { ColumnTypes as type } from "./schema/columns/ColumnType.ts"
 export type {
   InsertRecordForTableSchema as InferInsertRecord,
   StoredRecordForTableSchema as InferRecord,
-} from "./schema/schema.ts"
+} from "./schema/TableSchema.ts"
 export type { DBModel } from "./db/DbFile.ts"
 
 export type { HeapFileTableInfer as InferTable } from "./tables/TableStorage.ts"

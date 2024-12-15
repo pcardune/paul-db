@@ -1,5 +1,8 @@
 import { Promisable } from "type-fest"
-import { StoredRecordForTableSchema, TableSchema } from "./schema/schema.ts"
+import {
+  StoredRecordForTableSchema,
+  TableSchema,
+} from "./schema/TableSchema.ts"
 import { ColumnTypes } from "./schema/columns/ColumnType.ts"
 import { column } from "./schema/columns/ColumnBuilder.ts"
 import { Mutex } from "./async.ts"

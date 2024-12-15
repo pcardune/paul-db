@@ -1,5 +1,5 @@
 import { plan } from "../core/mod.ts"
-import { SomeTableSchema } from "../core/schema/schema.ts"
+import { SomeTableSchema } from "../core/schema/TableSchema.ts"
 import { NotImplementedError } from "./errors.ts"
 import SQLParser from "npm:node-sql-parser"
 import { parseExpr } from "./expr.ts"

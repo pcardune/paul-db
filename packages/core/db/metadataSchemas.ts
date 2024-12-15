@@ -5,7 +5,7 @@ import {
   type Column,
   type StoredRecordForTableSchema,
   TableSchema,
-} from "../schema/schema.ts"
+} from "../schema/TableSchema.ts"
 
 type ULIDColumn = Column.Stored.Any<
   "id",

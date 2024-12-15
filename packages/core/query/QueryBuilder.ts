@@ -2,7 +2,7 @@ import {
   Column,
   StoredRecordForTableSchema,
   TableSchemaColumns,
-} from "../schema/schema.ts"
+} from "../schema/TableSchema.ts"
 import * as plan from "./QueryPlanNode.ts"
 import type { DBSchema } from "../schema/DBSchema.ts"
 import {
@@ -25,14 +25,27 @@ import { NonEmptyTuple, TupleToUnion } from "type-fest"
 import { ColumnType } from "../schema/columns/ColumnType.ts"
 import { Json } from "../types.ts"
 
-interface IQB<DBSchemaT extends DBSchema = DBSchema> {
+/**
+ * @ignore
+ */
+export interface IQB<DBSchemaT extends DBSchema = DBSchema> {
   readonly dbSchema: DBSchemaT
 }
 
+/**
+ * Provides a type safe way to build query plans from a schema.
+ */
 export class QueryBuilder<DBSchemaT extends DBSchema = DBSchema>
   implements IQB<DBSchemaT> {
+  /**
+   * Constructs a new query builder from the given schema.
+   */
   constructor(readonly dbSchema: DBSchemaT) {}
 
+  /**
+   * Adds a "FROM" clause to the query.
+   * @param table The table to query from
+   */
   from<TName extends Extract<keyof DBSchemaT["schemas"], string>>(
     table: TName,
   ): TableQueryBuilder<this, [TName]> {
@@ -75,7 +88,10 @@ interface ITQB<
   readonly tableNames: TableNamesT
 }
 
-class TableQueryBuilder<
+/**
+ * @ignore
+ */
+export class TableQueryBuilder<
   QB extends IQB = IQB,
   TableNamesT extends NonEmptyTuple<string> = NonEmptyTuple<string>,
 > implements ITQB<QB, TableNamesT> {

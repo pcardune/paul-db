@@ -4,7 +4,7 @@ import {
   SomeTableSchema,
   StoredRecordForTableSchema,
   TableSchema,
-} from "../schema/schema.ts"
+} from "../schema/TableSchema.ts"
 import { ITableStorage } from "./TableStorage.ts"
 import { AsyncIterableWrapper } from "../async.ts"
 import * as Column from "../schema/columns/index.ts"

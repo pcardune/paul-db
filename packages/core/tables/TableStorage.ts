@@ -13,7 +13,7 @@ import {
   SomeTableSchema,
   StoredRecordForTableSchema,
   TableSchema,
-} from "../schema/schema.ts"
+} from "../schema/TableSchema.ts"
 import { Table, TableConfig } from "./Table.ts"
 import { Promisable } from "type-fest"
 

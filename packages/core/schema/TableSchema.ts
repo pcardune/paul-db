@@ -216,6 +216,17 @@ export class TableSchema<
   }
 }
 
+/**
+ * Create an empty table schema for a table with the given name.
+ *
+ * @param name
+ */
+export function create<TableName extends string>(
+  name: TableName,
+): TableSchema<TableName, [], []> {
+  return TableSchema.create(name)
+}
+
 export function makeTableSchemaStruct<SchemaT extends SomeTableSchema>(
   schema: SchemaT,
 ): IStruct<StoredRecordForTableSchema<SchemaT>> | undefined {

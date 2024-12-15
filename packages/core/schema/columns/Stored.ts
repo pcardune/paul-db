@@ -27,6 +27,9 @@ export type Any<
   defaultValueFactory: DefaultValueFactoryT
 }
 
+/**
+ * @ignore
+ */
 export type Simple<Name extends string = string, ValueT = any> = Any<
   Name,
   ValueT,

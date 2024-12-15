@@ -2,7 +2,7 @@ import { expect } from "@std/expect"
 import { column } from "../public.ts"
 import { ColumnTypes } from "./columns/ColumnType.ts"
 import { DBSchema } from "./DBSchema.ts"
-import { TableSchema } from "./schema.ts"
+import { TableSchema } from "./TableSchema.ts"
 import { assertType } from "../testing.ts"
 
 Deno.test("DBSchema.create()", () => {

@@ -1,5 +1,5 @@
 import { plan } from "../core/mod.ts"
-import { Column, SomeTableSchema } from "../core/schema/schema.ts"
+import { Column, SomeTableSchema } from "../core/schema/TableSchema.ts"
 import {
   AmbiguousError,
   ColumnNotFoundError,

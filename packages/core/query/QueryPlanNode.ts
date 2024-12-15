@@ -1,33 +1,69 @@
 import { Promisable, UnknownRecord } from "type-fest"
 import { AsyncIterableWrapper } from "../async.ts"
-import { Column, SomeTableSchema } from "../schema/schema.ts"
-import { assertUnreachable, Json } from "../types.ts"
-import { ColumnType, ColumnTypes } from "../schema/columns/ColumnType.ts"
+import { SomeTableSchema } from "../schema/TableSchema.ts"
+import { Json } from "../types.ts"
 import { DbFile } from "../db/DbFile.ts"
 import type { MultiAggregation } from "./Aggregation.ts"
 import { PaulDB } from "../PaulDB.ts"
+import { Expr } from "./Expr.ts"
 
 export * from "./Aggregation.ts"
+export * from "./Expr.ts"
 
+/**
+ * An error that is thrown when a table is not found.
+ */
 export class TableNotFoundError extends Error {}
 
 export { QueryBuilder } from "./QueryBuilder.ts"
 
+/**
+ * A RowData is a record of table names to row data.
+ */
 export type RowData = Record<string, UnknownRecord>
 
+/**
+ * A QueryPlanNode is a node in a query plan that can be executed
+ */
 export interface IQueryPlanNode<T extends RowData = RowData> {
+  /**
+   * Returns a human-readable description of the query plan
+   */
   describe(): string
+
+  /**
+   * Returns a JSON representation of the query plan
+   */
   toJSON(): Json
+
+  /**
+   * Executes the query plan and returns an async iterable of the results
+   */
   execute(ctx: ExecutionContext | PaulDB): AsyncIterableWrapper<T>
 }
 
-abstract class AbstractQueryPlan<T extends RowData>
+/**
+ * @ignore
+ */
+export abstract class AbstractQueryPlan<T extends RowData>
   implements IQueryPlanNode<T> {
+  /**
+   * Returns a human-readable description of the query plan
+   */
   abstract describe(): string
+  /**
+   * Returns a JSON representation of the query plan
+   */
   abstract toJSON(): Json
 
+  /**
+   * @ignore
+   */
   abstract getIter(ctx: ExecutionContext): Promisable<AsyncIterableWrapper<T>>
 
+  /**
+   * Executes the query plan and returns an async iterable of the results
+   */
   execute(ctx: ExecutionContext | PaulDB): AsyncIterableWrapper<T> {
     if (!(ctx instanceof ExecutionContext)) {
       ctx = new ExecutionContext(ctx, {})
@@ -42,20 +78,41 @@ abstract class AbstractQueryPlan<T extends RowData>
   }
 }
 
+/**
+ * A TableScan node scans a table in the database.
+ */
 export class TableScan<T extends RowData> extends AbstractQueryPlan<T> {
+  /**
+   * The alias of the table. i.e. "SELECT * FROM table AS alias"
+   */
   readonly alias: string
 
+  /**
+   * Constructs a new TableScan node with the given database and table.
+   */
   constructor(db: string, table: string)
+  /**
+   * Constructs a new TableScan node with the given database, table and alias
+   */
   constructor(db: string, table: string, alias: string)
+  /**
+   * Constructs a new TableScan node with the given database and table with
+   * an optional alias.
+   */
   constructor(readonly db: string, readonly table: string, alias?: string) {
     super()
     this.alias = alias ?? table
   }
-
+  /**
+   * Returns a human-readable description of the query plan
+   */
   describe(): string {
     return `TableScan(${this.db}.${this.table})`
   }
 
+  /**
+   * Returns a JSON representation of the query plan
+   */
   toJSON(): Json {
     return {
       type: "TableScan",
@@ -65,6 +122,9 @@ export class TableScan<T extends RowData> extends AbstractQueryPlan<T> {
     }
   }
 
+  /**
+   * @ignore
+   */
   async getSchema(dbFile: DbFile): Promise<SomeTableSchema> {
     const schemas = await dbFile.getSchemasOrThrow(this.db, this.table)
     if (schemas.length === 0) {
@@ -72,7 +132,9 @@ export class TableScan<T extends RowData> extends AbstractQueryPlan<T> {
     }
     return schemas[0].schema
   }
-
+  /**
+   * @ignore
+   */
   override async getIter(
     ctx: ExecutionContext,
   ): Promise<AsyncIterableWrapper<T>> {
@@ -86,19 +148,33 @@ export class TableScan<T extends RowData> extends AbstractQueryPlan<T> {
   }
 }
 
+/**
+ * An Aggregate node aggregates the results of the child node based on the given
+ * aggregation.
+ */
 export class Aggregate<T extends UnknownRecord>
   extends AbstractQueryPlan<Record<"$0", T>> {
+  /**
+   * Constructs a new Aggregate node with the given child and aggregation.
+   * @param child
+   * @param aggregation
+   */
   constructor(
     readonly child: IQueryPlanNode,
     readonly aggregation: MultiAggregation<T>,
   ) {
     super()
   }
-
+  /**
+   * Returns a human-readable description of the query plan
+   */
   describe(): string {
     return `Aggregate(${this.child.describe()}, ${this.aggregation.describe()})`
   }
 
+  /**
+   * Returns a JSON representation of the query plan
+   */
   override toJSON(): Json {
     return {
       type: "Aggregate",
@@ -106,7 +182,9 @@ export class Aggregate<T extends UnknownRecord>
       aggregation: this.aggregation.toJSON(),
     }
   }
-
+  /**
+   * @ignore
+   */
   override async getIter(
     ctx: ExecutionContext,
   ): Promise<AsyncIterableWrapper<Record<"$0", T>>> {
@@ -121,9 +199,19 @@ export class Aggregate<T extends UnknownRecord>
   }
 }
 
+/**
+ * ExecutionContext is the context in which a query or an expression is executed.
+ * It holds the data available to the query or expression.
+ */
 export class ExecutionContext<RowDataT extends RowData = RowData> {
-  constructor(readonly db: PaulDB, readonly rowData: RowDataT) {
-  }
+  /**
+   * Constructs a new ExecutionContext with the given database and row data.
+   */
+  constructor(readonly db: PaulDB, readonly rowData: RowDataT) {}
+
+  /**
+   * Returns a new ExecutionContext with the given row data added.
+   */
   withRowData<RowDataT2 extends RowData>(
     rowData: RowDataT2,
   ): ExecutionContext<RowDataT2> {
@@ -131,268 +219,39 @@ export class ExecutionContext<RowDataT extends RowData = RowData> {
   }
 }
 
-export interface Expr<T> {
-  resolve(ctx: ExecutionContext): Promisable<T>
-  getType(): ColumnType<T>
-  describe(): string
-  toJSON(): Json
-}
-
-export class NotExpr implements Expr<boolean> {
-  constructor(readonly expr: Expr<boolean>) {}
-  async resolve(ctx: ExecutionContext): Promise<boolean> {
-    return !(await this.expr.resolve(ctx))
-  }
-  getType(): ColumnType<boolean> {
-    return ColumnTypes.boolean()
-  }
-  describe(): string {
-    return `NOT(${this.expr.describe()})`
-  }
-  toJSON(): Json {
-    return { type: "not", expr: this.expr.toJSON() }
-  }
-}
-export class AndOrExpr implements Expr<boolean> {
-  constructor(
-    readonly left: Expr<boolean>,
-    readonly operator: "AND" | "OR",
-    readonly right: Expr<boolean>,
-  ) {}
-  async resolve(ctx: ExecutionContext): Promise<boolean> {
-    const left = await this.left.resolve(ctx)
-    const right = await this.right.resolve(ctx)
-    if (this.operator === "AND") {
-      return left && right
-    } else {
-      return left || right
-    }
-  }
-  getType(): ColumnType<boolean> {
-    return ColumnTypes.boolean()
-  }
-  describe(): string {
-    return `(${this.left.describe()} ${this.operator} ${this.right.describe()})`
-  }
-  static readonly operators = ["AND", "OR"] as const
-  static isSupportedOperator(operator: string): operator is "AND" | "OR" {
-    return AndOrExpr.operators.includes(operator as "AND" | "OR")
-  }
-  toJSON(): Json {
-    return {
-      type: this.operator.toLowerCase(),
-      left: this.left.toJSON(),
-      right: this.right.toJSON(),
-    }
-  }
-}
-
-export class LiteralValueExpr<T> implements Expr<T> {
-  constructor(readonly value: T, readonly type: ColumnType<T>) {}
-  resolve(): T {
-    return this.value
-  }
-  getType(): ColumnType<T> {
-    return this.type
-  }
-  describe(): string {
-    return JSON.stringify(this.value)
-  }
-  toJSON(): Json {
-    return this.type.serializer?.toJSON(this.value) ??
-      "<UNSERIALIZABLE LITERAL>"
-  }
-}
-
-export class ColumnRefExpr<
-  C extends Column.Any,
-  TableNameT extends string = string,
-> implements Expr<Column.GetOutput<C>> {
-  constructor(readonly column: C, readonly tableName: TableNameT) {}
-
-  resolve(
-    ctx: ExecutionContext<
-      { [Property in TableNameT]: Column.GetRecordContainingColumn<C> }
-    >,
-  ): Column.GetOutput<C> {
-    const data: Column.GetRecordContainingColumn<C> = this.tableName != null
-      ? ctx.rowData[this.tableName]
-      : ctx.rowData as Column.GetRecordContainingColumn<C>
-
-    if (this.column.kind === "stored") {
-      return data[this.column.name]
-    } else {
-      return this.column.compute(data)
-    }
-  }
-
-  getType(): C["type"] {
-    return this.column.type
-  }
-
-  describe(): string {
-    return this.column.name
-  }
-
-  toJSON(): Json {
-    return { type: "column_ref", column: this.column.name }
-  }
-}
-
-export type CompareOperator = typeof Compare.operators[number]
-
-export class In<T> implements Expr<boolean> {
-  constructor(readonly left: Expr<T>, readonly right: Expr<T>[]) {}
-
-  async resolve(ctx: ExecutionContext): Promise<boolean> {
-    const left = await this.left.resolve(ctx)
-    for (const right of this.right) {
-      if (await right.resolve(ctx) === left) {
-        return true
-      }
-    }
-    return false
-  }
-
-  getType(): ColumnType<boolean> {
-    return ColumnTypes.boolean()
-  }
-
-  describe(): string {
-    return `In(${this.left.describe()}, [${
-      this.right.map((r) => r.describe()).join(", ")
-    }])`
-  }
-
-  toJSON(): Json {
-    return {
-      type: "in",
-      left: this.left.toJSON(),
-      right: this.right.map((r) => r.toJSON()),
-    }
-  }
-}
-
-export class SubqueryExpr<T> implements Expr<T> {
-  constructor(
-    readonly subplan: IQueryPlanNode<Record<"$0", Record<string, T>>>,
-  ) {}
-
-  getType(): ColumnType<T> {
-    // TODO: we don't know the type until we run the subquery,
-    // which is not ideal. So we are using the "any" type for now.
-    return ColumnTypes.any()
-  }
-
-  async resolve(ctx: ExecutionContext): Promise<T> {
-    const values = await this.subplan.execute(ctx).take(2)
-      .toArray()
-    if (values.length === 0) {
-      throw new Error("Subquery returned no rows")
-    }
-    if (values.length > 1) {
-      throw new Error("Subquery returned more than one row")
-    }
-    const val = values[0].$0
-    const cellValues = Object.values(val)
-    if (cellValues.length !== 1) {
-      throw new Error("Subquery returned more than one column")
-    }
-    return cellValues[0]
-  }
-
-  describe(): string {
-    return `Subquery(${this.subplan.describe()})`
-  }
-
-  toJSON(): Json {
-    return {
-      type: "subquery",
-      subplan: this.subplan.toJSON(),
-    }
-  }
-}
-export class Compare<T> implements Expr<boolean> {
-  constructor(
-    readonly left: Expr<T>,
-    readonly operator: CompareOperator,
-    readonly right: Expr<T>,
-  ) {}
-
-  async resolve(ctx: ExecutionContext): Promise<boolean> {
-    const leftType = this.left.getType()
-    const rightType = this.right.getType()
-    const left = await this.left.resolve(ctx)
-    const right = await this.right.resolve(ctx)
-    if (!leftType.isValid(right)) {
-      throw new Error(
-        `Type mismatch: ${this.left.describe()} is of type ${leftType.name}, but ${this.right.describe()} is of type ${rightType.name}, value ${right} doesn't work`,
-      )
-    }
-    if (!rightType.isValid(right)) {
-      throw new Error(
-        `Type mismatch: ${this.right.describe()} is of type ${rightType.name}, but ${this.left.describe()} is of type ${leftType.name}`,
-      )
-    }
-    switch (this.operator) {
-      case "=":
-        return leftType.isEqual(left, right)
-      case "!=":
-        return !leftType.isEqual(left, right)
-      case "<":
-        return leftType.compare(left, right) < 0
-      case "<=":
-        return leftType.compare(left, right) <= 0
-      case ">":
-        return leftType.compare(left, right) > 0
-      case ">=":
-        return leftType.compare(left, right) >= 0
-      default:
-        assertUnreachable(this.operator)
-    }
-  }
-
-  getType(): ColumnType<boolean> {
-    return ColumnTypes.boolean()
-  }
-
-  static readonly operators = ["=", "!=", "<", "<=", ">", ">="] as const
-  static isSupportedOperator(operator: string): operator is CompareOperator {
-    return Compare.operators.includes(operator as CompareOperator)
-  }
-
-  describe(): string {
-    return `Compare(${this.left.describe()} ${this.operator} ${this.right.describe()})`
-  }
-
-  toJSON(): Json {
-    return {
-      type: "compare",
-      operator: this.operator,
-      left: this.left.toJSON(),
-      right: this.right.toJSON(),
-    }
-  }
-}
-
+/**
+ * A Filter node filters the results of the child node based on a predicate.
+ */
 export class Filter<T extends RowData = RowData> extends AbstractQueryPlan<T> {
+  /**
+   * Constructs a new Filter node with the given child and predicate.
+   * @param child
+   * @param predicate
+   */
   constructor(
     readonly child: IQueryPlanNode<T>,
     readonly predicate: Expr<boolean>,
   ) {
     super()
   }
-
+  /**
+   * Returns a human-readable description of the query plan
+   */
   describe(): string {
     return `Filter(${this.child.describe()}, ${this.predicate.describe()})`
   }
-
+  /**
+   * @ignore
+   */
   override getIter(ctx: ExecutionContext): AsyncIterableWrapper<T> {
     return this.child.execute(ctx).filter(
       (row) => this.predicate.resolve(ctx.withRowData(row)),
     )
   }
 
+  /**
+   * Returns a JSON representation of the query plan
+   */
   toJSON(): Json {
     return {
       type: "Filter",
@@ -402,15 +261,25 @@ export class Filter<T extends RowData = RowData> extends AbstractQueryPlan<T> {
   }
 }
 
+/**
+ * A Select node projects the results of the child node into a new set of columns.
+ */
 export class Select<T extends UnknownRecord>
   extends AbstractQueryPlan<Record<"$0", T>> {
+  /**
+   * Constructs a new Select node with the given child and columns.
+   * @param child
+   * @param columns
+   */
   constructor(
     readonly child: IQueryPlanNode,
     readonly columns: Record<string, Expr<any>>,
   ) {
     super()
   }
-
+  /**
+   * Returns a human-readable description of the query plan
+   */
   describe(): string {
     return `Select(${
       Object.entries(this.columns).map(([key, value]) =>
@@ -418,7 +287,9 @@ export class Select<T extends UnknownRecord>
       ).join(", ")
     }, ${this.child.describe()})`
   }
-
+  /**
+   * @ignore
+   */
   override getIter(
     ctx: ExecutionContext,
   ): AsyncIterableWrapper<Record<"$0", T>> {
@@ -433,6 +304,9 @@ export class Select<T extends UnknownRecord>
     })
   }
 
+  /**
+   * Returns a new Select node with the given column added.
+   */
   addColumn<CName extends string, ValueT>(
     name: string,
     expr: Expr<T>,
@@ -440,6 +314,9 @@ export class Select<T extends UnknownRecord>
     return new Select(this.child, { ...this.columns, [name]: expr })
   }
 
+  /**
+   * Returns a JSON representation of the query plan
+   */
   toJSON(): Json {
     return {
       type: "Select",
@@ -453,19 +330,34 @@ export class Select<T extends UnknownRecord>
   }
 }
 
+/**
+ * A Limit node limits the number of results from the child node.
+ */
 export class Limit<T extends RowData = RowData> extends AbstractQueryPlan<T> {
+  /**
+   * Constructs a new Limit node with the given child and limit.
+   * @param child
+   * @param limit
+   */
   constructor(readonly child: IQueryPlanNode<T>, readonly limit: number) {
     super()
   }
-
+  /**
+   * Returns a human-readable description of the query plan
+   */
   describe(): string {
     return `Limit(${this.child.describe()}, ${this.limit})`
   }
-
+  /**
+   * @ignore
+   */
   override getIter(ctx: ExecutionContext): AsyncIterableWrapper<T> {
     return this.child.execute(ctx).take(this.limit)
   }
 
+  /**
+   * Returns a JSON representation of the query plan
+   */
   toJSON(): Json {
     return {
       type: "Limit",
@@ -475,12 +367,22 @@ export class Limit<T extends RowData = RowData> extends AbstractQueryPlan<T> {
   }
 }
 
+/**
+ * A Join node joins the results of two child nodes based on a predicate.
+ */
 export class Join<
   LeftT extends RowData = RowData,
   RightT extends RowData = RowData,
 > extends AbstractQueryPlan<
   LeftT & RightT
 > {
+  /**
+   * Constructs a new Join node with the given left and right child nodes
+   * and predicate.
+   * @param left
+   * @param right
+   * @param predicate
+   */
   constructor(
     readonly left: IQueryPlanNode<LeftT>,
     readonly right: IQueryPlanNode<RightT>,
@@ -488,9 +390,15 @@ export class Join<
   ) {
     super()
   }
+  /**
+   * Returns a human-readable description of the query plan
+   */
   override describe(): string {
     return `Join(${this.left.describe()}, ${this.right.describe()}, ${this.predicate.describe()})`
   }
+  /**
+   * @ignore
+   */
   override async getIter(
     ctx: ExecutionContext,
   ): Promise<AsyncIterableWrapper<LeftT & RightT>> {
@@ -508,6 +416,9 @@ export class Join<
       }
     })
   }
+  /**
+   * Returns a JSON representation of the query plan
+   */
   override toJSON(): Json {
     return {
       type: "Join",
@@ -518,7 +429,13 @@ export class Join<
   }
 }
 
+/**
+ * An OrderBy node sorts the results of the child node by the given expressions.
+ */
 export class OrderBy<T extends RowData = RowData> extends AbstractQueryPlan<T> {
+  /**
+   * Creates a new OrderBy node with the given child and order by expressions.
+   */
   constructor(
     readonly child: IQueryPlanNode<T>,
     readonly orderBy: { expr: Expr<any>; direction: "ASC" | "DESC" }[],
@@ -526,6 +443,9 @@ export class OrderBy<T extends RowData = RowData> extends AbstractQueryPlan<T> {
     super()
   }
 
+  /**
+   * Returns a human-readable description of the query plan
+   */
   describe(): string {
     return `OrderBy(${this.child.describe()}, ${
       this.orderBy
@@ -534,6 +454,9 @@ export class OrderBy<T extends RowData = RowData> extends AbstractQueryPlan<T> {
     })`
   }
 
+  /**
+   * Returns a JSON representation of the query plan
+   */
   override toJSON(): Json {
     return {
       type: "OrderBy",
@@ -545,6 +468,9 @@ export class OrderBy<T extends RowData = RowData> extends AbstractQueryPlan<T> {
     }
   }
 
+  /**
+   * @ignore
+   */
   override async getIter(
     ctx: ExecutionContext,
   ): Promise<AsyncIterableWrapper<T>> {

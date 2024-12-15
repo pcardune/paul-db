@@ -1,9 +1,9 @@
 import SQLParser from "npm:node-sql-parser"
 import { NotImplementedError } from "./errors.ts"
-import { plan } from "../core/mod.ts"
+import * as plan from "@paul-db/core/planner"
 import { isAggrFunc, isExprList, isFunction } from "./parser.ts"
 import { parseExpr } from "./expr.ts"
-import { SomeTableSchema } from "../core/schema/schema.ts"
+import { SomeTableSchema } from "../core/schema/TableSchema.ts"
 
 export function parseAggregationColumns(
   astColumns: SQLParser.Column[],

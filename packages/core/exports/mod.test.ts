@@ -1,5 +1,5 @@
 import { expect } from "@std/expect/expect"
-import PaulDB, { s } from "./mod.ts"
+import { PaulDB, schema as s } from "./mod.ts"
 
 Deno.test("PaulDB", async () => {
   const dbSchema = s.db().withTables(
@@ -86,13 +86,15 @@ Deno.test("PaulDB", async () => {
    * Execute queries against the database. Query results are asynchronously
    * streamed as the query executes using async iterators.
    */
-  expect(await db.query(projectSummaryQuery).toArray()).toEqual([
+  const summary = await db.query(projectSummaryQuery).toArray()
+  expect(summary).toEqual([
     {
       numTodosRemaining: 2,
       projectName: "Paul's Database",
     },
   ])
-  expect(await db.query(allIncompleteTodosQuery).toArray()).toEqual([
+  const allIncompleteTodos = await db.query(allIncompleteTodosQuery).toArray()
+  expect(allIncompleteTodos).toEqual([
     {
       projectName: "Paul's Database",
       taskCreatedOn: todos[1].createdAt,

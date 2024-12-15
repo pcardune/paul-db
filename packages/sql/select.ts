@@ -1,6 +1,6 @@
-import SQLParser, { Column } from "npm:node-sql-parser"
+import { Column } from "npm:node-sql-parser"
 import { DbFile, plan } from "../core/mod.ts"
-import { SomeTableSchema } from "../core/schema/schema.ts"
+import { SomeTableSchema } from "../core/schema/TableSchema.ts"
 import { parseAggregationColumns } from "./aggregation.ts"
 import { NotImplementedError } from "./errors.ts"
 import { parseExpr } from "./expr.ts"

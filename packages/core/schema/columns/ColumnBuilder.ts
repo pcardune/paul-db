@@ -112,14 +112,30 @@ export class ColumnBuilder<
     )
   }
 }
+
+/**
+ * Creates a unique, indexed uint32 column that auto-increments.
+ * @param name name of the column
+ * @param type "serial" to indicate a serial column
+ */
 export function column<Name extends string, ValueT>(
   name: Name,
   type: "serial",
 ): ColumnBuilder<Name, number, true, Column.Index.ShouldIndex, () => number>
+/**
+ * Creates a column with the given name and type.
+ * @param name name of the column
+ * @param type type of the column
+ */
 export function column<Name extends string, ValueT>(
   name: Name,
   type: ColumnType<ValueT>,
 ): ColumnBuilder<Name, ValueT, false, Column.Index.ShouldNotIndex, undefined>
+/**
+ * Creates a column with the given name and type.
+ * @param name name of the column
+ * @param type type of the column
+ */
 export function column<Name extends string>(
   name: Name,
   type: ColumnType | "serial",
@@ -190,6 +206,12 @@ class ComputedColumnBuilder<
   }
 }
 
+/**
+ * Creates a computed column.
+ * @param name name of the column
+ * @param type type of the column (after it's computed)
+ * @param compute function that computes the column's value from other data
+ */
 export function computedColumn<
   Name extends string,
   InputT,

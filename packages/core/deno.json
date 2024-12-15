@@ -1,7 +1,11 @@
 {
   "name": "@paul-db/core",
-  "version": "0.0.2",
-  "exports": "./exports/mod.ts",
+  "version": "0.0.3",
+  "exports": {
+    ".": "./exports/mod.ts",
+    "./schema": "./exports/schema.ts",
+    "./planner": "./exports/planner.ts"
+  },
   "license": "MIT",
   "imports": {
     "@std/collections": "jsr:@std/collections@^1.0.9",

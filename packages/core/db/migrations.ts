@@ -2,7 +2,7 @@ import type {
   InsertRecordForTableSchema,
   SomeTableSchema,
   StoredRecordForTableSchema,
-} from "../schema/schema.ts"
+} from "../schema/TableSchema.ts"
 import type { DbFile } from "./DbFile.ts"
 
 export function tableSchemaMigration<

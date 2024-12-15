@@ -4,6 +4,7 @@ import { FilterTuple } from "../../typetools.ts"
 
 export * as Index from "./IndexConfig.ts"
 export * as Computed from "./Computed.ts"
+
 export * as Stored from "./Stored.ts"
 
 /**
