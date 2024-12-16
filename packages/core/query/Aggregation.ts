@@ -6,19 +6,19 @@ import type { Promisable, UnknownRecord } from "type-fest"
  * An aggregation is a computation that summarizes a set of rows into a single
  * value.
  */
-export interface Aggregation<T> {
+export interface Aggregation<AccT, InitT = AccT> {
   /**
    * Initializes the accumulator with the initial values of the aggregations.
    */
-  init(): T
+  init(): InitT
   /**
    * Updates the accumulator with the values from the context.
    */
-  update(accumulator: T, ctx: ExecutionContext): Promisable<T>
+  update(accumulator: InitT | AccT, ctx: ExecutionContext): Promisable<AccT>
   /**
    * Returns the result of the aggregation.
    */
-  result(accumulator: T): T
+  result(accumulator: InitT | AccT): AccT | InitT
   /**
    * Generates a human-readable description of the aggregation.
    */
@@ -27,6 +27,59 @@ export interface Aggregation<T> {
    * Generates a json representation of the aggregation.
    */
   toJSON(): Json
+}
+
+abstract class ExprAggregation<AccT, InitT = AccT>
+  implements Aggregation<AccT, InitT> {
+  /**
+   * Initializes the accumulator with the initial values of the aggregation
+   */
+  init: () => InitT
+
+  /**
+   * Updates the accumulator with the values from the context.
+   */
+  update: (accumulator: AccT | InitT, ctx: ExecutionContext) => Promisable<AccT>
+
+  /**
+   * Returns the result of the aggregation.
+   */
+  result: (accumulator: AccT | InitT) => AccT | InitT
+
+  /**
+   * Creates a new ExprAggregation with the given expression.
+   * @ignore
+   */
+  constructor(readonly type: string, readonly expr: Expr<AccT>, {
+    init,
+    update,
+    result,
+  }: {
+    init: (() => InitT) | InitT
+    update: (
+      accumulator: AccT | InitT,
+      ctx: ExecutionContext,
+    ) => Promisable<AccT>
+    result?: (accumulator: AccT | InitT) => AccT | InitT
+  }) {
+    this.init = typeof init === "function" ? init as () => InitT : () => init
+    this.update = update
+    this.result = result ?? ((accumulator: AccT | InitT) => accumulator)
+  }
+
+  /**
+   * Generates a human-readable description of the aggregation.
+   */
+  describe(): string {
+    return `${this.type}(${this.expr.describe()})`
+  }
+
+  /**
+   * Generates a json representation of the aggregation.
+   */
+  toJSON(): Json {
+    return { type: this.type, expr: this.expr.toJSON() }
+  }
 }
 
 /**
@@ -68,58 +121,60 @@ export class CountAggregation implements Aggregation<number> {
 /**
  * An aggregation that computes the maximum value of an expression.
  */
-export class MaxAggregation<T> implements Aggregation<T> {
+export class MaxAggregation<T> extends ExprAggregation<T, undefined> {
   /**
-   * Creates a new MultiAggregation with the given aggregations.
+   * Creates a new MaxAggregation with the given expression.
    */
-  constructor(readonly expr: Expr<T>) {}
-
-  /**
-   * Initializes the accumulator with the initial values of the aggregations.
-   */
-  init(): T {
-    const type = this.expr.getType()
-    const minValue = type.minValue
-    if (minValue === undefined) {
-      throw new Error(
-        `Cannot compute max of type ${type.name} because type has no minValue`,
-      )
-    }
-    return minValue
+  constructor(expr: Expr<T>) {
+    super("MAX", expr, {
+      init: undefined,
+      update: async (accumulator, ctx) => {
+        if (accumulator === undefined) {
+          return this.expr.resolve(ctx)
+        }
+        const value = await this.expr.resolve(ctx)
+        return this.expr.getType().compare(value, accumulator) > 0
+          ? value
+          : accumulator
+      },
+    })
   }
+}
 
+/**
+ * An aggregation that computes the minimum value of an expression.
+ */
+export class MinAggregation<T> extends ExprAggregation<T, undefined> {
   /**
-   * Updates the accumulator with the values from the context.
+   * Creates a new MinAggregation with the given expression.
    */
-  async update(
-    accumulator: T,
-    ctx: ExecutionContext,
-  ): Promise<T> {
-    const value = await this.expr.resolve(ctx)
-    return this.expr.getType().compare(value, accumulator) > 0
-      ? value
-      : accumulator
+  constructor(expr: Expr<T>) {
+    super("MIN", expr, {
+      init: undefined,
+      update: async (accumulator, ctx) => {
+        if (accumulator === undefined) {
+          return this.expr.resolve(ctx)
+        }
+        const value = await this.expr.resolve(ctx)
+        return this.expr.getType().compare(value, accumulator) < 0
+          ? value
+          : accumulator
+      },
+    })
   }
+}
 
+export class SumAggregation extends ExprAggregation<number, number> {
   /**
-   * Returns the result of the aggregation.
+   * Creates a new SumAggregation with the given expression.
    */
-  result(accumulator: T): T {
-    return accumulator
-  }
-
-  /**
-   * Generates a human-readable description of the aggregation.
-   */
-  describe(): string {
-    return `MAX(${this.expr.describe()})`
-  }
-
-  /**
-   * Generates a json representation of the aggregation.
-   */
-  toJSON(): Json {
-    return { type: "max", expr: this.expr.toJSON() }
+  constructor(expr: Expr<number>) {
+    super("SUM", expr, {
+      init: 0,
+      update: async (accumulator, ctx) => {
+        return accumulator + (await this.expr.resolve(ctx))
+      },
+    })
   }
 }
 
@@ -169,6 +224,27 @@ export class ArrayAggregation<T> implements Aggregation<T[]> {
    */
   toJSON(): Json {
     return { type: "array_agg", expr: this.expr.toJSON() }
+  }
+}
+
+/**
+ * A FirstAggregation is an aggregation that returns the first value of an
+ * expression.
+ */
+export class FirstAggregation<T> extends ExprAggregation<T, undefined> {
+  /**
+   * Creates a new FirstAggregation with the given expression.
+   */
+  constructor(expr: Expr<T>) {
+    super("FIRST", expr, {
+      init: undefined,
+      update: (accumulator, ctx) => {
+        if (accumulator === undefined) {
+          return this.expr.resolve(ctx)
+        }
+        return accumulator
+      },
+    })
   }
 }
 

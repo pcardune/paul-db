@@ -402,23 +402,45 @@ Deno.test("QueryBuilder .aggregate()", async () => {
       count: (agg) => agg.count(),
       maxAge: (agg, t) => agg.max(t.column("cats", "age")),
       maxName: (agg, t) => agg.max(t.column("cats", "name")),
+      minName: (agg, t) => agg.min(t.column("cats", "name")),
+      totalAge: (agg, t) => agg.sum(t.column("cats", "age")),
     })
     .plan()
 
   expect(plan.describe()).toEqual(
-    "Aggregate(TableScan(default.cats), MultiAggregation(count: COUNT(*), maxAge: MAX(age), maxName: MAX(name)))",
+    "Aggregate(TableScan(default.cats), MultiAggregation(count: COUNT(*), maxAge: MAX(age), maxName: MAX(name), minName: MIN(name), totalAge: SUM(age)))",
   )
   const data = await plan.execute(db).toArray()
   expect(data).toEqual([
-    { "$0": { count: 2, maxAge: 5, maxName: "mittens" } },
+    {
+      "$0": {
+        count: 2,
+        maxAge: 5,
+        maxName: "mittens",
+        minName: "fluffy",
+        totalAge: 8,
+      },
+    },
   ])
   assertTrue<
     TypeEquals<
       typeof data,
-      Array<{ "$0": { count: number; maxAge: number; maxName: string } }>
+      Array<
+        {
+          "$0": {
+            count: number
+            maxAge: number | undefined
+            maxName: string | undefined
+            minName: string | undefined
+            totalAge: number | undefined
+          }
+        }
+      >
     >
   >()
 })
+
+type foo = Extract<number, string>
 
 Deno.test("QueryBuilder subqueries", async () => {
   const { db } = await init()

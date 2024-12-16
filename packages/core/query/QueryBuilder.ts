@@ -289,16 +289,56 @@ class SelectBuilder<
   }
 }
 
+/**
+ * Helper for constructing aggregations
+ * @ignore
+ */
 class AggregationFuncs<TQB extends ITQB = ITQB> {
+  /**
+   * @ignore
+   */
   constructor(readonly tqb: TQB) {}
+
+  /**
+   * aggregates rows by counting them
+   */
   count(): plan.Aggregation<number> {
     return new plan.CountAggregation()
   }
+
+  /**
+   * aggregates rows by finding the maximum value
+   */
   max<T>(expr: ExprBuilder<TQB, T>): plan.MaxAggregation<T> {
     return new plan.MaxAggregation(expr.expr)
   }
+
+  /**
+   * aggregates rows by finding the minimum value
+   */
+  min<T>(expr: ExprBuilder<TQB, T>): plan.MinAggregation<T> {
+    return new plan.MinAggregation(expr.expr)
+  }
+
+  /**
+   * aggregates rows by summing all values
+   */
+  sum(expr: ExprBuilder<TQB, number>): plan.SumAggregation {
+    return new plan.SumAggregation(expr.expr)
+  }
+
+  /**
+   * Aggregates rows by collecting all values into an array
+   */
   arrayAgg<T>(expr: ExprBuilder<TQB, T>): plan.ArrayAggregation<T> {
     return new plan.ArrayAggregation(expr.expr)
+  }
+
+  /**
+   * Aggregates rows by taking the first value and ignoring the rest
+   */
+  first<T>(expr: ExprBuilder<TQB, T>): plan.FirstAggregation<T> {
+    return new plan.FirstAggregation(expr.expr)
   }
 }
 

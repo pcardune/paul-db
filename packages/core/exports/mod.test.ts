@@ -63,23 +63,16 @@ Deno.test("PaulDB", async () => {
 
   const projectSummaryQuery = dbSchema
     .query()
-    .from("projects")
-    .select({
-      projectName: (t) => t.column("projects.name"),
-      numTodosRemaining: (t) =>
-        t.subquery((t) =>
-          t
-            .from("todos")
-            .where((t) =>
-              t
-                .column("todos.projectId")
-                .eq(t.column("projects.id"))
-                .and(t.column("todos.completedAt").eq(null))
-            )
-            .aggregate({
-              count: (t) => t.count(),
-            })
-        ),
+    .from("todos")
+    .join(
+      "projects",
+      (t) => t.column("todos.projectId").eq(t.column("projects.id")),
+    )
+    .where((t) => t.column("todos.completedAt").eq(null))
+    .groupBy({ projectId: (t) => t.column("todos.projectId") })
+    .aggregate({
+      numTodosRemaining: (agg) => agg.count(),
+      projectName: (agg, t) => agg.first(t.column("projects.name")),
     })
 
   /**
@@ -89,8 +82,9 @@ Deno.test("PaulDB", async () => {
   const summary = await db.query(projectSummaryQuery).toArray()
   expect(summary).toEqual([
     {
-      numTodosRemaining: 2,
+      projectId: 1,
       projectName: "Paul's Database",
+      numTodosRemaining: 2,
     },
   ])
   const allIncompleteTodos = await db.query(allIncompleteTodosQuery).toArray()
