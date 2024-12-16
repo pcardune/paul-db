@@ -5,6 +5,7 @@ import {
   Compare,
   CountAggregation,
   Filter,
+  GroupBy,
   Join,
   Limit,
   LiteralValueExpr,
@@ -218,6 +219,68 @@ Deno.test("QueryPlanNode JOINS", async () => {
     { "$0": { name: "fluffy", ownerId: 2, ownerName: "Bob" } },
     { "$0": { name: "mittens", ownerId: 2, ownerName: "Bob" } },
   ])
+})
+
+Deno.test("QueryPlanNode GroupBy", async () => {
+  const db = await PaulDB.inMemory()
+  const model = await db.dbFile.getDBModel(
+    s.db().withTables(
+      s.table("products").with(
+        s.column("id", "serial"),
+        s.column("name", s.type.string()),
+        s.column("category", s.type.string()),
+        s.column("color", s.type.string()),
+        s.column("price", s.type.float()),
+      ),
+    ),
+  )
+
+  await model.products.insertMany([
+    { name: "apple", category: "fruit", color: "red", price: 1.0 },
+    { name: "cherry", category: "fruit", color: "red", price: 0.5 },
+    { name: "banana", category: "fruit", color: "yellow", price: 0.5 },
+    { name: "carrot", category: "veg", color: "orange", price: 0.25 },
+    { name: "lettuce", category: "veg", color: "green", price: 0.75 },
+    { name: "tomato", category: "fruit", color: "red", price: 0.75 },
+    { name: "cucumber", category: "veg", color: "green", price: 0.5 },
+    { name: "potato", category: "veg", color: "brown", price: 0.25 },
+  ])
+
+  const plan = new GroupBy(
+    new TableScan("default", model.products.schema.name),
+    {
+      category: new ColumnRefExpr(
+        model.products.schema.getColumnByNameOrThrow("category"),
+        "products",
+      ),
+      color: new ColumnRefExpr(
+        model.products.schema.getColumnByNameOrThrow("color"),
+        "products",
+      ),
+    },
+    new MultiAggregation({
+      count: new CountAggregation(),
+      maxPrice: new MaxAggregation(
+        new ColumnRefExpr(
+          model.products.schema.getColumnByNameOrThrow("price"),
+          "products",
+        ),
+      ),
+    }),
+  )
+  expect(plan.describe()).toEqual(
+    "GroupBy(TableScan(default.products), category: category, color: color, MultiAggregation(count: COUNT(*), maxPrice: MAX(price)))",
+  )
+  const results = await plan.execute(db).toArray()
+  expect(results).toEqual(
+    [
+      { "$0": { category: "fruit", color: "red", count: 3, maxPrice: 1 } },
+      { "$0": { category: "fruit", color: "yellow", count: 1, maxPrice: 0.5 } },
+      { "$0": { category: "veg", color: "orange", count: 1, maxPrice: 0.25 } },
+      { "$0": { category: "veg", color: "green", count: 2, maxPrice: 0.75 } },
+      { "$0": { category: "veg", color: "brown", count: 1, maxPrice: 0.25 } },
+    ],
+  )
 })
 
 // Deno.test("QueryPlanNode Subqueries", async () => {
@@ -437,4 +500,53 @@ Deno.test("QueryBuilder subqueries", async () => {
       },
     },
   })
+})
+
+Deno.test("QueryBuilder .groupBy", async () => {
+  const db = await PaulDB.inMemory()
+  const dbSchema = s.db().withTables(
+    s.table("products").with(
+      s.column("id", "serial"),
+      s.column("name", s.type.string()),
+      s.column("category", s.type.string()),
+      s.column("color", s.type.string()),
+      s.column("price", s.type.float()),
+    ),
+  )
+  const model = await db.dbFile.getDBModel(dbSchema)
+
+  await model.products.insertMany([
+    { name: "apple", category: "fruit", color: "red", price: 1.0 },
+    { name: "cherry", category: "fruit", color: "red", price: 0.5 },
+    { name: "banana", category: "fruit", color: "yellow", price: 0.5 },
+    { name: "carrot", category: "veg", color: "orange", price: 0.25 },
+    { name: "lettuce", category: "veg", color: "green", price: 0.75 },
+    { name: "tomato", category: "fruit", color: "red", price: 0.75 },
+    { name: "cucumber", category: "veg", color: "green", price: 0.5 },
+    { name: "potato", category: "veg", color: "brown", price: 0.25 },
+  ])
+
+  const query = dbSchema.query()
+    .from("products")
+    .groupBy({
+      category: (t) => t.column("products.category"),
+      color: (t) => t.column("products.color"),
+    })
+    .aggregate({
+      count: (agg) => agg.count(),
+      maxPrice: (agg, t) => agg.max(t.column("products.price")),
+    })
+
+  expect(query.plan().describe()).toEqual(
+    "GroupBy(TableScan(default.products), category: category, color: color, MultiAggregation(count: COUNT(*), maxPrice: MAX(price)))",
+  )
+
+  const results = await db.query(query).toArray()
+  expect(results).toEqual([
+    { category: "fruit", color: "red", count: 3, maxPrice: 1 },
+    { category: "fruit", color: "yellow", count: 1, maxPrice: 0.5 },
+    { category: "veg", color: "orange", count: 1, maxPrice: 0.25 },
+    { category: "veg", color: "green", count: 2, maxPrice: 0.75 },
+    { category: "veg", color: "brown", count: 1, maxPrice: 0.25 },
+  ])
 })

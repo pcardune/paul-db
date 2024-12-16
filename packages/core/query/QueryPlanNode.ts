@@ -6,6 +6,7 @@ import { DbFile } from "../db/DbFile.ts"
 import type { MultiAggregation } from "./Aggregation.ts"
 import { PaulDB } from "../PaulDB.ts"
 import { Expr } from "./Expr.ts"
+import { BTree } from "../indexes/BTree.ts"
 
 export * from "./Aggregation.ts"
 export * from "./Expr.ts"
@@ -257,6 +258,94 @@ export class Filter<T extends RowData = RowData> extends AbstractQueryPlan<T> {
       type: "Filter",
       child: this.child.toJSON(),
       predicate: this.predicate.toJSON(),
+    }
+  }
+}
+
+export class GroupBy<
+  GroupKey extends UnknownRecord = UnknownRecord,
+  AggregateT extends UnknownRecord = UnknownRecord,
+  RowDataT extends RowData = RowData,
+> extends AbstractQueryPlan<
+  Record<"$0", GroupKey & AggregateT>
+> {
+  constructor(
+    readonly child: IQueryPlanNode<RowDataT>,
+    readonly groupByExpr: { [Key in keyof GroupKey]: Expr<GroupKey[Key]> },
+    readonly aggregation: MultiAggregation<AggregateT>,
+  ) {
+    super()
+  }
+  override getIter(
+    ctx: ExecutionContext,
+  ): AsyncIterableWrapper<
+    Record<"$0", GroupKey & AggregateT>
+  > {
+    const childIter = this.child.execute(ctx)
+    const groupByExpr = this.groupByExpr
+
+    const groups: Array<
+      { groupKey: GroupKey; accumulator: AggregateT }
+    > = []
+
+    const btree = BTree.inMemory<GroupKey, number>({
+      compare: (a, b) => {
+        for (const key of Object.keys(a) as (keyof GroupKey)[]) {
+          const cmp = groupByExpr[key].getType().compare(a[key], b[key])
+          if (cmp !== 0) return cmp
+        }
+        return 0
+      },
+    })
+    const aggregation = this.aggregation
+    return new AsyncIterableWrapper(async function* () {
+      for await (const row of childIter) {
+        const groupKey = {} as GroupKey
+        for (const key of Object.keys(groupByExpr) as (keyof GroupKey)[]) {
+          groupKey[key] = await groupByExpr[key].resolve(ctx.withRowData(row))
+        }
+        const existingValue = await btree.get(groupKey)
+        if (existingValue.length === 0) {
+          let accumulator = aggregation.init()
+          accumulator = await aggregation.update(
+            accumulator,
+            ctx.withRowData(row),
+          )
+          groups.push({ groupKey, accumulator })
+          await btree.insert(groupKey, groups.length - 1)
+        } else {
+          const group = groups[existingValue[0]]
+          group.accumulator = await aggregation.update(
+            group.accumulator,
+            ctx.withRowData(row),
+          )
+        }
+      }
+      for (const { groupKey, accumulator } of groups) {
+        const result = aggregation.result(accumulator)
+        yield { "$0": { ...groupKey, ...result } }
+      }
+    })
+  }
+
+  override describe(): string {
+    return `GroupBy(${this.child.describe()}, ${
+      Object.entries(this.groupByExpr).map(([key, value]) =>
+        `${key}: ${value.describe()}`
+      ).join(", ")
+    }, ${this.aggregation.describe()})`
+  }
+
+  override toJSON(): Json {
+    return {
+      type: "GroupBy",
+      child: this.child.toJSON(),
+      groupBy: Object.fromEntries(
+        Object.entries(this.groupByExpr).map((
+          [key, value],
+        ) => [key, value.toJSON()]),
+      ),
+      aggregation: this.aggregation.toJSON(),
     }
   }
 }

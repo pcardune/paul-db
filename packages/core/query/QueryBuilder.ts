@@ -21,7 +21,7 @@ import {
   OrderBy,
   TableScan,
 } from "./QueryPlanNode.ts"
-import type { NonEmptyTuple, TupleToUnion } from "type-fest"
+import type { EmptyObject, NonEmptyTuple, TupleToUnion } from "type-fest"
 import { ColumnType } from "../schema/columns/ColumnType.ts"
 import { Json } from "../types.ts"
 
@@ -171,6 +171,26 @@ export class TableQueryBuilder<
     )
   }
 
+  groupBy<
+    GroupKeyT extends Record<string, ExprBuilder<ITQB<QB, TableNamesT>, any>>,
+  >(
+    key: {
+      [Property in keyof GroupKeyT]: (
+        tqb: ExprBuilder<ITQB<QB, TableNamesT>, never>,
+      ) => GroupKeyT[Property]
+    },
+  ): GroupByBuilder<ITQB<QB, TableNamesT>, GroupKeyT, EmptyObject> {
+    return new GroupByBuilder(
+      this,
+      Object.fromEntries(
+        Object.entries(key).map((
+          [key, func],
+        ) => [key, func(new ExprBuilder(this, new NeverExpr()))]),
+      ) as GroupKeyT,
+      {},
+    )
+  }
+
   aggregate<
     AggregateT extends Record<string, plan.Aggregation<any>>, // TODO: fix this any
   >(
@@ -302,6 +322,73 @@ class AggregateBuilder<
   > {
     return new plan.Aggregate(
       this.tqb.plan(),
+      new MultiAggregation(this.aggregations),
+    ) as any // TODO: fix this
+  }
+}
+
+class GroupByBuilder<
+  TQB extends ITQB = ITQB,
+  GroupKeyT extends Record<string, ExprBuilder> = Record<string, ExprBuilder>,
+  AggT extends Record<string, plan.Aggregation<any>> = Record<
+    string,
+    plan.Aggregation<any>
+  >,
+> {
+  constructor(
+    readonly tqb: TQB,
+    readonly groupKey: GroupKeyT,
+    readonly aggregations: AggT,
+  ) {}
+
+  aggregate<AggregateT extends Record<string, plan.Aggregation<any>>>(
+    aggregations: {
+      [K in keyof AggregateT]: (
+        aggFuncs: AggregationFuncs<TQB>,
+        exprFuncs: ExprBuilder<TQB, never>,
+      ) => AggregateT[K]
+    },
+  ): GroupByBuilder<TQB, GroupKeyT, AggT & AggregateT> {
+    return new GroupByBuilder(
+      this.tqb,
+      this.groupKey,
+      {
+        ...this.aggregations,
+        ...Object.fromEntries(
+          Object.entries(aggregations).map((
+            [key, func],
+          ) => [
+            key,
+            func(
+              new AggregationFuncs(this.tqb),
+              new ExprBuilder(this.tqb, new NeverExpr()),
+            ),
+          ]),
+        ) as AggregateT,
+      },
+    )
+  }
+
+  plan(): IQueryPlanNode<
+    Record<
+      "$0",
+      & {
+        [Property in keyof GroupKeyT]: GroupKeyT[Property] extends
+          ExprBuilder<infer TQB, infer T> ? T : never
+      }
+      & {
+        [Key in keyof AggT]: AggT[Key] extends plan.Aggregation<infer T> ? T
+          : never
+      }
+    >
+  > {
+    return new plan.GroupBy(
+      this.tqb.plan(),
+      Object.fromEntries(
+        Object.entries(this.groupKey).map((
+          [key, valueExpr],
+        ) => [key, valueExpr.expr]),
+      ),
       new MultiAggregation(this.aggregations),
     ) as any // TODO: fix this
   }
