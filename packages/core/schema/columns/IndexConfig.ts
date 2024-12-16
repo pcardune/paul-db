@@ -1,4 +1,9 @@
 /**
+ * Type definitions for index configuration
+ * @module
+ */
+
+/**
  * Represents the configuration for a column that should be indexed.
  */
 export type ShouldIndex = {

@@ -1,3 +1,8 @@
+/**
+ * Types for columns that are stored in the database
+ * @module
+ */
+
 import type { OverrideProperties } from "type-fest"
 import * as Index from "./IndexConfig.ts"
 import type { ColumnType } from "./ColumnType.ts"

@@ -35,6 +35,9 @@ export type InsertRecordForTableSchema<TS extends SomeTableSchema> =
 export type StoredRecordForTableSchema<TS extends SomeTableSchema> =
   StoredRecordForColumnSchemas<TS["columns"]>
 
+/**
+ * Represents an arbitrary table schema
+ */
 export type SomeTableSchema = TableSchema<
   string,
   Column.Stored.Any[],

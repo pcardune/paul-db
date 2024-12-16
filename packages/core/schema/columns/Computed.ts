@@ -1,3 +1,8 @@
+/**
+ * Type definitions for computed columns
+ *
+ * @module
+ */
 import type { ColumnType } from "./ColumnType.ts"
 import * as Index from "./IndexConfig.ts"
 

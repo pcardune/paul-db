@@ -41,9 +41,24 @@ export function getColumnTypeFromString(
  * Represents a column type in a database table
  */
 export class ColumnType<T = unknown> {
+  /**
+   * The name of the column type
+   */
   readonly name: string
+
+  /**
+   * Checks if a value is valid for this column type
+   */
   isValid: (value: T) => boolean
+
+  /**
+   * Checks if two values are equal
+   */
   isEqual: EqualityChecker<T>
+
+  /**
+   * Compares two values
+   */
   compare: Comparator<T>
 
   /**
@@ -51,8 +66,17 @@ export class ColumnType<T = unknown> {
    * initialize the aggregation
    */
   minValue?: T
+
+  /**
+   * @ignore
+   */
   serializer?: IStruct<T>
 
+  /**
+   * Constructs a new column type
+   *
+   * @ignore
+   */
   constructor({
     name,
     isValid,

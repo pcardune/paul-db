@@ -1,6 +1,6 @@
 {
   "name": "@paul-db/core",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "exports": {
     ".": "./exports/mod.ts",
     "./schema": "./exports/schema.ts",

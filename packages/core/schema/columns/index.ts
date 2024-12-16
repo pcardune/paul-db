@@ -1,3 +1,8 @@
+/**
+ * Types for columns in a schema
+ * @module
+ */
+
 import * as Stored from "./Stored.ts"
 import * as Computed from "./Computed.ts"
 import { FilterTuple } from "../../typetools.ts"

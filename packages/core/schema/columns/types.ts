@@ -208,6 +208,9 @@ export function blob(): ColumnType<Uint8Array> {
   })
 }
 
+/**
+ * A column type for storing sequentially alloced 32-bit unsigned integers
+ */
 export function serial(): SerialUInt32ColumnType {
   return new SerialUInt32ColumnType()
 }
