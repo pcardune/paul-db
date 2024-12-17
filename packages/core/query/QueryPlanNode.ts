@@ -190,12 +190,12 @@ export class Aggregate<T extends UnknownRecord>
     ctx: ExecutionContext,
   ): Promise<AsyncIterableWrapper<Record<"$0", T>>> {
     const aggregation = this.aggregation
-    let accumulator = aggregation.init()
+    let accumulator: T | undefined = undefined
     for await (const row of this.child.execute(ctx)) {
       accumulator = await aggregation.update(accumulator, ctx.withRowData(row))
     }
     return new AsyncIterableWrapper([
-      { "$0": aggregation.result(accumulator) },
+      { "$0": accumulator as T },
     ])
   }
 }
@@ -306,9 +306,8 @@ export class GroupBy<
         }
         const existingValue = await btree.get(groupKey)
         if (existingValue.length === 0) {
-          let accumulator = aggregation.init()
-          accumulator = await aggregation.update(
-            accumulator,
+          const accumulator = await aggregation.update(
+            undefined,
             ctx.withRowData(row),
           )
           groups.push({ groupKey, accumulator })
@@ -322,8 +321,7 @@ export class GroupBy<
         }
       }
       for (const { groupKey, accumulator } of groups) {
-        const result = aggregation.result(accumulator)
-        yield { "$0": { ...groupKey, ...result } }
+        yield { "$0": { ...groupKey, ...accumulator } }
       }
     })
   }

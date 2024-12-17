@@ -571,4 +571,16 @@ Deno.test("QueryBuilder .groupBy", async () => {
     { category: "veg", color: "green", count: 2, maxPrice: 0.75 },
     { category: "veg", color: "brown", count: 1, maxPrice: 0.25 },
   ])
+
+  assertTrue<
+    TypeEquals<
+      typeof results,
+      Array<{
+        category: string
+        color: string
+        count: number
+        maxPrice: number
+      }>
+    >
+  >()
 })
