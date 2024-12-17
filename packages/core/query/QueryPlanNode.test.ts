@@ -17,6 +17,7 @@ import {
 import { PaulDB, s } from "../mod.ts"
 import { ColumnTypes } from "../schema/columns/ColumnType.ts"
 import { assertTrue, TypeEquals } from "../testing.ts"
+import { ColumnNames, SchemasForTQB, TQBTableNames } from "./QueryBuilder.ts"
 
 const dbSchema = s.db().withTables(
   s.table("humans").with(
@@ -302,6 +303,33 @@ Deno.test("QueryPlanNode GroupBy", async () => {
 //     { "$0": { ownerId: 2 } },
 //   ])
 // })
+
+Deno.test("TypeTools", () => {
+  const query = dbSchema.query().from("cats")
+  type QueryColumns = ColumnNames<typeof query, "cats">
+  assertTrue<TypeEquals<TQBTableNames<typeof query>, "cats">>()
+  assertTrue<TypeEquals<QueryColumns, "id" | "name" | "age" | "likesTreats">>()
+
+  assertTrue<
+    TypeEquals<
+      SchemasForTQB<typeof query>,
+      Pick<typeof dbSchema["schemas"], "cats">
+    >
+  >()
+  const withJoin = query.join(
+    "catOwners",
+    (t) => t.literal(true, s.type.boolean()),
+  )
+  type QueryWithJoinColumns = ColumnNames<typeof withJoin, "catOwners">
+  assertTrue<TypeEquals<QueryWithJoinColumns, "petId" | "ownerId">>()
+  assertTrue<TypeEquals<TQBTableNames<typeof withJoin>, "cats" | "catOwners">>()
+  assertTrue<
+    TypeEquals<
+      SchemasForTQB<typeof withJoin>,
+      Pick<typeof dbSchema["schemas"], "cats" | "catOwners">
+    >
+  >()
+})
 
 Deno.test("QueryBuilder JOINS", async () => {
   const { db } = await init()

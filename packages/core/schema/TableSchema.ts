@@ -1,68 +1,108 @@
 import { IStruct, Struct } from "../binary/Struct.ts"
-import { PushTuple } from "../typetools.ts"
 import {
   ColumnBuilder,
   computedColumn,
   StoredRecordForColumnSchemas,
 } from "./columns/ColumnBuilder.ts"
 import { ColumnType } from "./columns/ColumnType.ts"
-import type { NonEmptyTuple, Simplify } from "type-fest"
+import type {
+  ConditionalPick,
+  EmptyObject,
+  NonEmptyTuple,
+  Simplify,
+} from "type-fest"
 import * as Column from "./columns/index.ts"
 
 export { Column }
 
-type InsertRecordForColumnSchemas<CS extends Column.Stored.Any[]> =
-  & {
-    [K in Extract<CS[number], { defaultValueFactory: undefined }>["name"]]:
-      Column.Stored.GetValue<Extract<CS[number], { name: K }>>
+type UnwrapColumnBuilder<T extends Column.Stored.Any> = T extends ColumnBuilder<
+  infer Name,
+  infer ValueT,
+  infer UniqueT,
+  infer IndexedT,
+  infer DefaultValueFactoryT
+> ? Column.Stored.Any<Name, ValueT, UniqueT, IndexedT, DefaultValueFactoryT>
+  : T
+
+type RemoveSymbols<T> = Simplify<
+  {
+    [K in keyof T as K extends symbol ? never : K]: T[K]
   }
-  & {
-    [K in Extract<CS[number], Column.Stored.WithDefaultValue>["name"]]?:
-      Column.Stored.GetValue<Extract<CS[number], { name: K }>>
-  }
+>
+
+type ColumnValues<CS extends Record<string, Column.Stored.Any>> = {
+  [K in keyof CS]: Column.Stored.GetValue<CS[K]>
+}
+
+export type InsertRecordForColumnSchemas<
+  CS extends Record<string, Column.Stored.Any>,
+> = Simplify<
+  & ColumnValues<ConditionalPick<CS, { defaultValueFactory: undefined }>>
+  & Partial<
+    ColumnValues<ConditionalPick<CS, Column.Stored.WithDefaultValue>>
+  >
+>
 
 /**
  * Infers the type of a record that can be inserted into a table with the given
  * schema. All columns with default values are optional.
  */
-export type InsertRecordForTableSchema<TS extends SomeTableSchema> =
-  InsertRecordForColumnSchemas<TS["columns"]>
+export type InsertRecordForTableSchema<TS extends IHaveStoredColumns> =
+  InsertRecordForColumnSchemas<TS["storedColumnsByName"]>
 
 /**
  * Infers the type of a record that is stored in a table with the given schema.
  * This is what you'll get back when querying the table.
  */
-export type StoredRecordForTableSchema<TS extends SomeTableSchema> =
-  StoredRecordForColumnSchemas<TS["columns"]>
+export type StoredRecordForTableSchema<
+  TS extends IHaveStoredColumns,
+> = StoredRecordForColumnSchemas<TS["storedColumnsByName"]>
 
 /**
  * Represents an arbitrary table schema
  */
 export type SomeTableSchema = TableSchema<
   string,
-  Column.Stored.Any[],
-  Column.Computed.Any[]
+  any,
+  any
 >
 
-export type TableSchemaColumns<TS extends SomeTableSchema> =
-  | TS["columns"][number]
-  | TS["computedColumns"][number]
+export type TableSchemaColumnNames<TS extends SomeTableSchema> = Exclude<
+  keyof (TS["computedColumnsByName"] & TS["storedColumnsByName"]),
+  symbol
+>
+
+interface IHaveStoredColumns<
+  ColumnSchemasT extends Record<string, Column.Stored.Any> = Record<
+    string,
+    Column.Stored.Any
+  >,
+> {
+  readonly storedColumnsByName: ColumnSchemasT
+}
+
+export type ColumnRecord = Record<string, Column.Stored.Any>
+export type ComputedColumnRecord = Record<string, Column.Computed.Any>
 
 export class TableSchema<
   TableName extends string,
-  ColumnSchemasT extends Column.Stored.Any[],
-  ComputedColumnsT extends Column.Computed.Any[],
-> {
-  private columnsByName: Record<string, Column.Any> = {}
+  ColumnSchemasT extends ColumnRecord,
+  ComputedColumnsT extends ComputedColumnRecord,
+> implements IHaveStoredColumns<ColumnSchemasT> {
+  readonly storedColumnsByName: ColumnSchemasT
+  readonly computedColumnsByName: ComputedColumnsT
 
   private constructor(
     public readonly name: TableName,
-    public readonly columns: ColumnSchemasT,
-    public readonly computedColumns: ComputedColumnsT,
+    public readonly columns: Column.Stored.Any[],
+    public readonly computedColumns: Column.Computed.Any[],
   ) {
-    this.columnsByName = Object.fromEntries(
-      [...columns, ...computedColumns].map((c) => [c.name, c]),
-    )
+    this.storedColumnsByName = Object.fromEntries(
+      columns.map((c) => [c.name, c]),
+    ) as unknown as ColumnSchemasT
+    this.computedColumnsByName = Object.fromEntries(
+      computedColumns.map((c) => [c.name, c]),
+    ) as unknown as ComputedColumnsT
   }
 
   withName<NewName extends string>(
@@ -72,15 +112,15 @@ export class TableSchema<
   }
 
   getColumnByName(
-    name: ColumnSchemasT[number]["name"] | ComputedColumnsT[number]["name"],
+    name: ColumnSchemasT[string]["name"] | ComputedColumnsT[string]["name"],
   ): Column.Any | undefined {
-    return this.columnsByName[name]
+    return this.storedColumnsByName[name] ?? this.computedColumnsByName[name]
   }
 
   getColumnByNameOrThrow(
-    name: ColumnSchemasT[number]["name"] | ComputedColumnsT[number]["name"],
+    name: ColumnSchemasT[string]["name"] | ComputedColumnsT[string]["name"],
   ): Column.Any {
-    const column = this.columnsByName[name]
+    const column = this.getColumnByName(name)
     if (column == null) {
       throw new Error(`Column '${name}' not found`)
     }
@@ -89,7 +129,7 @@ export class TableSchema<
 
   static create<TableName extends string>(
     name: TableName,
-  ): TableSchema<TableName, [], []> {
+  ): TableSchema<TableName, EmptyObject, EmptyObject> {
     return new TableSchema(name, [], [])
   }
 
@@ -139,8 +179,9 @@ export class TableSchema<
   ): TableSchema<
     TableName,
     ColumnSchemasT,
-    PushTuple<
-      ComputedColumnsT,
+    & ComputedColumnsT
+    & Record<
+      CName,
       Column.Computed.Any<
         CName,
         CUnique,
@@ -158,7 +199,7 @@ export class TableSchema<
 
   withUniqueConstraint<
     CName extends string,
-    CInputNames extends ColumnSchemasT[number]["name"][],
+    CInputNames extends ColumnSchemasT[string]["name"][],
     CInput extends Pick<
       StoredRecordForColumnSchemas<ColumnSchemasT>,
       CInputNames[number]
@@ -173,12 +214,13 @@ export class TableSchema<
   ): TableSchema<
     TableName,
     ColumnSchemasT,
-    PushTuple<
-      ComputedColumnsT,
+    & ComputedColumnsT
+    & Record<
+      CName,
       Column.Computed.Any<
         CName,
         true,
-        Column.Index.Config,
+        Column.Index.ShouldIndex,
         CInput,
         COutput
       >
@@ -198,7 +240,12 @@ export class TableSchema<
     ...columns: ColumnsT
   ): TableSchema<
     TableName,
-    [...ColumnSchemasT, ...ColumnsT],
+    RemoveSymbols<
+      Simplify<
+        & ColumnSchemasT
+        & { [K in ColumnsT[number] as K["name"]]: UnwrapColumnBuilder<K> }
+      >
+    >,
     ComputedColumnsT
   > {
     for (const column of columns) {
@@ -226,13 +273,19 @@ export class TableSchema<
  */
 export function create<TableName extends string>(
   name: TableName,
-): TableSchema<TableName, [], []> {
+): TableSchema<TableName, EmptyObject, EmptyObject> {
   return TableSchema.create(name)
 }
 
-export function makeTableSchemaStruct<SchemaT extends SomeTableSchema>(
-  schema: SchemaT,
-): IStruct<StoredRecordForTableSchema<SchemaT>> | undefined {
+export function makeTableSchemaStruct<
+  ColumnSchemasT extends Record<string, Column.Stored.Any>,
+>(
+  schema: TableSchema<
+    string,
+    ColumnSchemasT,
+    Record<string, Column.Computed.Any>
+  >,
+): IStruct<StoredRecordForColumnSchemas<ColumnSchemasT>> | undefined {
   if (schema.columns.some((c) => c.type.serializer == null)) {
     // can't make a serializer if any of the columns don't have a serializer
     return
@@ -242,5 +295,5 @@ export function makeTableSchemaStruct<SchemaT extends SomeTableSchema>(
     Object.fromEntries(
       schema.columns.map((c, i) => [c.name, [i, c.type.serializer!]]),
     ),
-  ) as unknown as IStruct<StoredRecordForTableSchema<SchemaT>>
+  ) as unknown as IStruct<StoredRecordForColumnSchemas<ColumnSchemasT>>
 }

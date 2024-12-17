@@ -1,6 +1,7 @@
 import { IBufferPool } from "../pages/BufferPool.ts"
-import * as Column from "../schema/columns/index.ts"
 import {
+  ColumnRecord,
+  ComputedColumnRecord,
   makeTableSchemaStruct,
   SomeTableSchema,
   StoredRecordForTableSchema,
@@ -19,6 +20,7 @@ import { IndexManager } from "./IndexManager.ts"
 import { DBFileSerialIdGenerator } from "../serial.ts"
 import { HeapFileBackedIndexProvider } from "../indexes/IndexProvider.ts"
 import { Droppable } from "../droppable.ts"
+import { TableSchema } from "../mod.ts"
 
 export class TableManager {
   private tables = new Map<
@@ -26,9 +28,8 @@ export class TableManager {
     Table<
       HeapFileRowId,
       string,
-      Column.Stored.Any[],
-      Column.Computed.Any[],
-      SomeTableSchema,
+      ColumnRecord,
+      ComputedColumnRecord,
       ITableStorage<HeapFileRowId, UnknownRecord>
     >
   >()
@@ -77,16 +78,22 @@ export class TableManager {
     return tableRecord
   }
 
-  async getTableStorage<SchemaT extends SomeTableSchema>(
+  async getTableStorage<
+    N extends string,
+    C extends ColumnRecord,
+    CC extends ComputedColumnRecord,
+  >(
     db: string,
-    schema: SchemaT,
+    schema: TableSchema<N, C, CC>,
   ): Promise<
     null | {
       tableRecord: TableRecord
       storage: TableConfig<
         HeapFileRowId,
-        SchemaT,
-        HeapFileTableStorage<StoredRecordForTableSchema<SchemaT>>
+        N,
+        C,
+        CC,
+        HeapFileTableStorage<StoredRecordForTableSchema<TableSchema<N, C, CC>>>
       >
     }
   > {
@@ -156,14 +163,20 @@ export class TableManager {
     }
   }
 
-  async getOrCreateTableStorage<SchemaT extends SomeTableSchema>(
+  async getOrCreateTableStorage<
+    N extends string,
+    C extends ColumnRecord,
+    CC extends ComputedColumnRecord,
+  >(
     db: string,
-    schema: SchemaT,
+    schema: TableSchema<N, C, CC>,
   ): Promise<{
     storage: TableConfig<
       HeapFileRowId,
-      SchemaT,
-      HeapFileTableStorage<StoredRecordForTableSchema<SchemaT>>
+      N,
+      C,
+      CC,
+      HeapFileTableStorage<StoredRecordForTableSchema<TableSchema<N, C, CC>>>
     >
     created: boolean
   }> {
@@ -241,24 +254,32 @@ export class TableManager {
   }
 }
 
-export function getTableConfig<SchemaT extends SomeTableSchema>(
+export function getTableConfig<
+  N extends string,
+  C extends ColumnRecord,
+  CC extends ComputedColumnRecord,
+>(
   bufferPool: IBufferPool,
   db: string,
-  schema: SchemaT,
+  schema: TableSchema<N, C, CC>,
   tableRecord: Pick<TableRecord, "id" | "heapPageId">,
   indexManager?: IndexManager,
   droppable?: Droppable,
 ): TableConfig<
   HeapFileRowId,
-  SchemaT,
-  HeapFileTableStorage<StoredRecordForTableSchema<SchemaT>>
+  N,
+  C,
+  CC,
+  HeapFileTableStorage<StoredRecordForTableSchema<TableSchema<N, C, CC>>>
 > {
   const recordStruct = makeTableSchemaStruct(schema)
   if (recordStruct == null) {
     throw new Error("Schema is not serializable")
   }
 
-  const data = new HeapFileTableStorage<StoredRecordForTableSchema<SchemaT>>(
+  const data = new HeapFileTableStorage<
+    StoredRecordForTableSchema<TableSchema<N, C, CC>>
+  >(
     bufferPool,
     tableRecord.heapPageId,
     recordStruct,

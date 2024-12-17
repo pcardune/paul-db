@@ -1,7 +1,7 @@
 import {
   Column,
   StoredRecordForTableSchema,
-  TableSchemaColumns,
+  TableSchemaColumnNames,
 } from "../schema/TableSchema.ts"
 import * as plan from "./QueryPlanNode.ts"
 import type { DBSchema } from "../schema/DBSchema.ts"
@@ -154,21 +154,21 @@ export class TableQueryBuilder<
     return this
   }
 
-  select<SelectT extends Record<string, ExprBuilder<this, any>>>(
+  select<
+    SelectT extends Record<string, ExprBuilder<ITQB<QB, TableNamesT>, any>>,
+  >(
     selection: {
       [Property in keyof SelectT]: (
-        tqb: ExprBuilder<this, never>,
+        tqb: ExprBuilder<ITQB<QB, TableNamesT>, never>,
       ) => SelectT[Property]
     },
   ): SelectBuilder<ITQB<QB, TableNamesT>, SelectT> {
-    return new SelectBuilder(
-      this,
-      Object.fromEntries(
-        Object.entries(selection).map((
-          [key, func],
-        ) => [key, func(new ExprBuilder(this, new NeverExpr()))]),
-      ) as SelectT,
-    )
+    const mapped = Object.fromEntries(
+      Object.entries(selection).map((
+        [key, func],
+      ) => [key, func(new ExprBuilder(this, new NeverExpr()))]),
+    ) as SelectT
+    return new SelectBuilder(this, mapped)
   }
 
   groupBy<
@@ -434,31 +434,25 @@ class GroupByBuilder<
   }
 }
 
-export type SchemasForTQB<TQB extends ITQB> =
-  TQB["queryBuilder"]["dbSchema"]["schemas"][TQBTableNames<TQB>]
-type SchemaWithName<TQB extends ITQB, SchemaName extends string> = Extract<
-  SchemasForTQB<TQB>,
-  { name: SchemaName }
->
-export type ColumnNames<
-  TQB extends ITQB,
-  SchemaName extends string,
-> = TableSchemaColumns<SchemaWithName<TQB, SchemaName>>["name"]
-export type TQBTableNames<TQB extends ITQB> = TupleToUnion<
-  TQB["tableNames"]
+export type SchemasForTQB<TQB extends ITQB> = Pick<
+  TQB["queryBuilder"]["dbSchema"]["schemas"],
+  TQBTableNames<TQB>
 >
 
-type TQBRowData<TQB extends ITQB> = {
-  [Key in TQBTableNames<TQB>]: StoredRecordForTableSchema<
-    SchemaWithName<TQB, Key>
-  >
-}
+export type ColumnNames<
+  TQB extends ITQB,
+  SchemaName extends keyof SchemasForTQB<TQB>,
+> = TableSchemaColumnNames<SchemasForTQB<TQB>[SchemaName]>
+export type TQBTableNames<TQB extends ITQB> = TupleToUnion<TQB["tableNames"]>
 
 export type ColumnWithName<
   TQB extends ITQB,
-  SchemaName extends SchemasForTQB<TQB>["name"],
+  SchemaName extends keyof SchemasForTQB<TQB>,
   CName extends ColumnNames<TQB, SchemaName>,
-> = Column.FindWithName<SchemasForTQB<TQB>["columns"], CName>
+> = (
+  & SchemasForTQB<TQB>[SchemaName]["storedColumnsByName"]
+  & SchemasForTQB<TQB>[SchemaName]["computedColumnsByName"]
+)[CName]
 
 class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
   constructor(readonly tqb: TQB, readonly expr: Expr<T>) {}

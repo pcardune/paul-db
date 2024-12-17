@@ -67,12 +67,12 @@ export class ColumnBuilder<
   }
 
   unique(
-    indexConfig: Partial<Column.Index.Config> = {},
+    indexConfig: Partial<Column.Index.ShouldIndex> = {},
   ): ColumnBuilder<
     Name,
     ValueT,
     true,
-    Column.Index.Config,
+    Column.Index.ShouldIndex,
     DefaultValueFactoryT
   > {
     return new ColumnBuilder(
@@ -84,11 +84,11 @@ export class ColumnBuilder<
     )
   }
 
-  index(indexConfig: Partial<Column.Index.Config> = {}): ColumnBuilder<
+  index(indexConfig: Partial<Column.Index.ShouldIndex> = {}): ColumnBuilder<
     Name,
     ValueT,
     UniqueT,
-    Column.Index.Config,
+    Column.Index.ShouldIndex,
     DefaultValueFactoryT
   > {
     return new ColumnBuilder(
@@ -177,7 +177,13 @@ class ComputedColumnBuilder<
 
   unique(
     indexConfig: Partial<Column.Index.ShouldIndex> = {},
-  ): ComputedColumnBuilder<Name, true, Column.Index.Config, InputT, OutputT> {
+  ): ComputedColumnBuilder<
+    Name,
+    true,
+    Column.Index.ShouldIndex,
+    InputT,
+    OutputT
+  > {
     return new ComputedColumnBuilder(
       this.name,
       this.type,
@@ -192,7 +198,7 @@ class ComputedColumnBuilder<
   ): ComputedColumnBuilder<
     Name,
     UniqueT,
-    Column.Index.Config,
+    Column.Index.ShouldIndex,
     InputT,
     OutputT
   > {
@@ -236,11 +242,8 @@ export function computedColumn<
   )
 }
 
-export type StoredRecordForColumnSchemas<CS extends Column.Stored.Any[]> =
-  Simplify<
-    {
-      [K in CS[number]["name"]]: Column.Stored.GetValue<
-        Column.FindWithName<CS, K>
-      >
-    }
-  >
+export type StoredRecordForColumnSchemas<
+  CS extends Record<string, Column.Stored.Any>,
+> = Simplify<
+  { [K in keyof CS]: Column.Stored.GetValue<CS[K]> }
+>

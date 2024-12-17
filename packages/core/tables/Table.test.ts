@@ -23,7 +23,7 @@ const peopleSchema = TableSchema.create("people")
 
 describe("Create, Read, and Delete", () => {
   it("lets you insert and retrieve records", async () => {
-    const people = new Table(await InMemoryTableStorage.forSchema(peopleSchema))
+    const people = new Table(InMemoryTableStorage.forSchema(peopleSchema))
 
     const aliceId = await people.insert({ name: "Alice", age: 12 })
     const bobId = await people.insert({ name: "Bob", age: 12 })
@@ -52,7 +52,7 @@ describe("Create, Read, and Delete", () => {
 describe("Insert Validation", () => {
   it("should not allow you to insert records with invalid schema", async () => {
     const people = new Table(
-      await InMemoryTableStorage.forSchema(peopleSchema.with(
+      InMemoryTableStorage.forSchema(peopleSchema.with(
         column("uuid", ColumnTypes.uuid()).defaultTo(() => crypto.randomUUID()),
       )),
     )
@@ -123,9 +123,7 @@ describe("Uniqueness Constraints", () => {
 describe("Querying", () => {
   describe("Table.iterate()", () => {
     it("lets you iterate over the entire contents of the table", async () => {
-      const people = new Table(
-        await InMemoryTableStorage.forSchema(peopleSchema),
-      )
+      const people = new Table(InMemoryTableStorage.forSchema(peopleSchema))
       await people.insertMany([
         { name: "Alice", age: 30 },
         { name: "Bob", age: 30 },
@@ -145,9 +143,7 @@ describe("Querying", () => {
 
   describe("Table.scan()", () => {
     it("can query records by scanning the entire table", async () => {
-      const people = new Table(
-        await InMemoryTableStorage.forSchema(peopleSchema),
-      )
+      const people = new Table(InMemoryTableStorage.forSchema(peopleSchema))
       await people.insertMany([
         { name: "Alice", age: 30 },
         { name: "Bob", age: 30 },
@@ -164,9 +160,7 @@ describe("Querying", () => {
       const peopleSchema = TableSchema.create("people").with(
         column("name", ColumnTypes.string()),
       ).with(column("email", ColumnTypes.caseInsensitiveString()))
-      const people = new Table(
-        await InMemoryTableStorage.forSchema(peopleSchema),
-      )
+      const people = new Table(InMemoryTableStorage.forSchema(peopleSchema))
       await people.insertMany([
         { name: "Alice", email: "alice@example.com" },
         { name: "Alice 2", email: "Alice@example.com" },
@@ -199,10 +193,8 @@ describe("Querying", () => {
         StoredRecordForTableSchema<typeof indexedPeopleSchema>
       >
     >
-    beforeAll(async () => {
-      people = new Table(
-        await InMemoryTableStorage.forSchema(indexedPeopleSchema),
-      )
+    beforeAll(() => {
+      people = new Table(InMemoryTableStorage.forSchema(indexedPeopleSchema))
     })
 
     beforeAll(async () => {

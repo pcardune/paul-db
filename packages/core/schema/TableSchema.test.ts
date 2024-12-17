@@ -1,6 +1,7 @@
 import { describe, it } from "@std/testing/bdd"
 import { expect } from "@std/expect"
 import {
+  InsertRecordForColumnSchemas,
   InsertRecordForTableSchema,
   makeTableSchemaStruct,
   TableSchema,
@@ -52,6 +53,10 @@ describe("ColumnSchemas", () => {
       "name",
       ColumnTypes.string(),
     )
+    const createdAtColumn = column(
+      "createdAt",
+      ColumnTypes.date(),
+    ).defaultTo(() => new Date())
     const nameAndAgeColumn = computedColumn(
       "nameAndAnge",
       ColumnTypes.string(),
@@ -60,7 +65,7 @@ describe("ColumnSchemas", () => {
     assertTrue<TypeEquals<number, Column.Stored.GetValue<typeof ageColumn>>>()
 
     type StoredRecord = StoredRecordForColumnSchemas<
-      [typeof ageColumn, typeof nameColumn]
+      { age: typeof ageColumn; name: typeof nameColumn }
     >
     assertTrue<TypeEquals<{ age: number; name: string }, StoredRecord>>()
     assertTrue<TypeEquals<undefined, typeof ageColumn["defaultValueFactory"]>>()
@@ -77,6 +82,19 @@ describe("ColumnSchemas", () => {
       TypeEquals<
         { age: number; name: string },
         Column.GetRecordContainingColumn<typeof nameAndAgeColumn>
+      >
+    >()
+
+    assertTrue<
+      TypeEquals<
+        { age: number; name: string; createdAt?: Date | undefined },
+        InsertRecordForColumnSchemas<
+          {
+            age: typeof ageColumn
+            name: typeof nameColumn
+            createdAt: typeof createdAtColumn
+          }
+        >
       >
     >()
   })
@@ -100,6 +118,28 @@ describe("ColumnSchemas", () => {
     expect(idCol.isUnique).toBe(true)
     expect(idCol.indexed.shouldIndex).toBe(true)
     expect(idCol.defaultValueFactory).toBeDefined()
+  })
+
+  it("has helper types for searching through columns", () => {
+    const columns = {
+      id: column("id", ColumnTypes.int16()).unique(),
+      foo: column("foo", ColumnTypes.string()),
+      bar: column("bar", ColumnTypes.string()).index(),
+    }
+    const computedCols = {
+      foobar: computedColumn(
+        "foobar",
+        ColumnTypes.string(),
+        ({ foo, bar }: { foo: string; bar: string }) => foo + bar,
+      ).unique(),
+    }
+
+    type AllCols = typeof columns & typeof computedCols
+
+    type IndexedCols = Column.FindIndexedNames<AllCols>
+    assertTrue<TypeEquals<"id" | "bar" | "foobar", IndexedCols>>()
+    type UniqueCols = Column.FindUniqueNames<AllCols>
+    assertTrue<TypeEquals<"id" | "foobar", UniqueCols>>()
   })
 })
 
@@ -152,6 +192,13 @@ describe("Schemas", () => {
     expect(peopleSchema.isValidInsertRecord({ name: "Alice" }).valid).toBe(
       false,
     )
+
+    const otherPeopleSchema = TableSchema.create("people")
+      .with(
+        column("name", ColumnTypes.string()),
+        column("age", ColumnTypes.uint32()),
+      )
+    assertTrue<TypeEquals<typeof peopleSchema, typeof otherPeopleSchema>>()
   })
 
   it("Lets you specify a column directly", () => {
@@ -180,14 +227,13 @@ describe("Schemas", () => {
     const peopleSchema = TableSchema.create("people")
       .with(column("name", ColumnTypes.string()))
       .with(column("age", ColumnTypes.uint32()))
+    type Person = StoredRecordForTableSchema<typeof peopleSchema>
     assertTrue<
       TypeEquals<
         { id: string; name: string; age: number },
-        StoredRecordForTableSchema<typeof peopleSchema>
+        Person
       >
     >()
-
-    type foo = InsertRecordForTableSchema<typeof peopleSchema>
 
     assertTrue<
       TypeEquals<
@@ -305,7 +351,7 @@ describe("DBSchema", () => {
       column("name", ColumnTypes.string()),
     )
     const pets = TableSchema.create("pets").with(
-      column("name", ColumnTypes.string()),
+      column("name", ColumnTypes.string()).finalize(),
     )
     const db = DBSchema.create().withTables(
       people,

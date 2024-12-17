@@ -6,12 +6,13 @@ import {
   type StoredRecordForTableSchema,
   TableSchema,
 } from "../schema/TableSchema.ts"
+import { EmptyObject } from "type-fest"
 
 type ULIDColumn = Column.Stored.Any<
   "id",
   string,
   true,
-  Column.Index.Config,
+  Column.Index.ShouldIndex,
   () => string
 >
 
@@ -22,11 +23,17 @@ export const SYSTEM_DB = "system"
 
 export const dbPageIds: TableSchema<
   "__dbPageIds",
-  [
-    Column.Stored.Any<"pageType", string, true, Column.Index.Config, undefined>,
-    Column.Stored.Simple<"pageId", bigint>,
-  ],
-  []
+  {
+    pageType: Column.Stored.Any<
+      "pageType",
+      string,
+      true,
+      Column.Index.Config,
+      undefined
+    >
+    pageId: Column.Stored.Simple<"pageId", bigint>
+  },
+  EmptyObject
 > = TableSchema.create("__dbPageIds")
   .with(
     column("pageType", ColumnTypes.string()).unique({ inMemory: true })
@@ -36,21 +43,21 @@ export const dbPageIds: TableSchema<
 
 export const dbTables: TableSchema<
   "__dbTables",
-  [
-    ULIDColumn,
-    Column.Stored.Simple<"db", string>,
-    Column.Stored.Simple<"name", string>,
-    Column.Stored.Simple<"heapPageId", bigint>,
-  ],
-  [
-    Column.Computed.Any<
+  {
+    id: ULIDColumn
+    db: Column.Stored.Simple<"db", string>
+    name: Column.Stored.Simple<"name", string>
+    heapPageId: Column.Stored.Simple<"heapPageId", bigint>
+  },
+  {
+    _db_name: Column.Computed.Any<
       "_db_name",
       true,
-      Column.Index.Config,
+      Column.Index.ShouldIndex,
       { db: string; name: string },
       string
-    >,
-  ]
+    >
+  }
 > = TableSchema.create("__dbTables")
   .with(
     ulidIdColumn,
@@ -74,21 +81,21 @@ export const dbTables: TableSchema<
 
 export const dbIndexes: TableSchema<
   "__dbIndexes",
-  [
-    ULIDColumn,
-    Column.Stored.Simple<"indexName", string>,
-    Column.Stored.Simple<"tableId", string>,
-    Column.Stored.Simple<"heapPageId", bigint>,
-  ],
-  [
-    Column.Computed.Any<
+  {
+    id: ULIDColumn
+    indexName: Column.Stored.Simple<"indexName", string>
+    tableId: Column.Stored.Simple<"tableId", string>
+    heapPageId: Column.Stored.Simple<"heapPageId", bigint>
+  },
+  {
+    _tableId_indexName: Column.Computed.Any<
       "_tableId_indexName",
       true,
-      Column.Index.Config,
+      Column.Index.ShouldIndex,
       { tableId: string; indexName: string },
       string
-    >,
-  ]
+    >
+  }
 > = TableSchema.create("__dbIndexes")
   .with(
     ulidIdColumn,
@@ -106,20 +113,26 @@ export const dbIndexes: TableSchema<
 
 export const dbSchemas: TableSchema<
   "__dbSchemas",
-  [
-    Column.Stored.Any<"id", number, true, Column.Index.Config, undefined>,
-    Column.Stored.Simple<"tableId", string>,
-    Column.Stored.Simple<"version", number>,
-  ],
-  [
-    Column.Computed.Any<
+  {
+    id: Column.Stored.Any<
+      "id",
+      number,
+      true,
+      Column.Index.ShouldIndex,
+      undefined
+    >
+    tableId: Column.Stored.Simple<"tableId", string>
+    version: Column.Stored.Simple<"version", number>
+  },
+  {
+    tableId_version: Column.Computed.Any<
       "tableId_version",
       true,
       Column.Index.Config,
       { tableId: string; version: number },
       string
-    >,
-  ]
+    >
+  }
 > = TableSchema.create("__dbSchemas")
   .with(
     column("id", ColumnTypes.uint32()).unique({ inMemory: true }),
@@ -136,38 +149,38 @@ export const dbSchemas: TableSchema<
 
 export const dbTableColumns: TableSchema<
   "__dbTableColumns",
-  [
-    ULIDColumn,
-    Column.Stored.Any<
+  {
+    id: ULIDColumn
+    schemaId: Column.Stored.Any<
       "schemaId",
       number,
       false,
-      Column.Index.Config,
+      Column.Index.ShouldIndex,
       undefined
-    >,
-    Column.Stored.Simple<"name", string>,
-    Column.Stored.Simple<"type", string>,
-    Column.Stored.Simple<"unique", boolean>,
-    Column.Stored.Simple<"indexed", boolean>,
-    Column.Stored.Any<
+    >
+    name: Column.Stored.Simple<"name", string>
+    type: Column.Stored.Simple<"type", string>
+    unique: Column.Stored.Simple<"unique", boolean>
+    indexed: Column.Stored.Simple<"indexed", boolean>
+    indexInMemory: Column.Stored.Any<
       "indexInMemory",
       boolean,
       false,
-      Column.Index.Config,
+      Column.Index.ShouldNotIndex,
       () => boolean
-    >,
-    Column.Stored.Simple<"computed", boolean>,
-    Column.Stored.Simple<"order", number>,
-  ],
-  [
-    Column.Computed.Any<
+    >
+    computed: Column.Stored.Simple<"computed", boolean>
+    order: Column.Stored.Simple<"order", number>
+  },
+  {
+    schemaId_name: Column.Computed.Any<
       "schemaId_name",
       true,
-      Column.Index.Config,
+      Column.Index.ShouldIndex,
       { schemaId: number; name: string },
       string
-    >,
-  ]
+    >
+  }
 > = TableSchema.create("__dbTableColumns")
   .with(
     ulidIdColumn,

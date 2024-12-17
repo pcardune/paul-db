@@ -1,5 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 import {
+  ColumnRecord,
+  ComputedColumnRecord,
   InsertRecordForTableSchema,
   SomeTableSchema,
   StoredRecordForTableSchema,
@@ -27,7 +29,6 @@ export type TableInfer<SchemaT extends SomeTableSchema, StorageT> =
         TName,
         ColumnSchemasT,
         ComputedColumnSchemasT,
-        SchemaT,
         ITableStorage<RowIdT, StoredRecordForTableSchema<SchemaT>>
       >
     : never
@@ -35,10 +36,15 @@ export type TableInfer<SchemaT extends SomeTableSchema, StorageT> =
 
 export type TableConfig<
   RowIdT,
-  SchemaT extends SomeTableSchema,
-  StorageT extends ITableStorage<RowIdT, StoredRecordForTableSchema<SchemaT>>,
+  N extends string,
+  C extends ColumnRecord,
+  CC extends ComputedColumnRecord,
+  StorageT extends ITableStorage<
+    RowIdT,
+    StoredRecordForTableSchema<TableSchema<N, C, CC>>
+  >,
 > = {
-  schema: SchemaT
+  schema: TableSchema<N, C, CC>
   data: StorageT
   indexProvider: IndexProvider<RowIdT>
   serialIdGenerator?: SerialIdGenerator
@@ -47,19 +53,31 @@ export type TableConfig<
 
 export class Table<
   RowIdT,
-  TName extends string,
-  ColumnSchemasT extends Column.Stored.Any[],
-  ComputedColumnSchemasT extends Column.Computed.Any[],
-  SchemaT extends TableSchema<TName, ColumnSchemasT, ComputedColumnSchemasT>,
-  StorageT extends ITableStorage<RowIdT, StoredRecordForTableSchema<SchemaT>>,
+  N extends string,
+  C extends ColumnRecord,
+  CC extends ComputedColumnRecord,
+  StorageT extends ITableStorage<
+    RowIdT,
+    StoredRecordForTableSchema<
+      TableSchema<N, C, CC>
+    >
+  >,
 > implements IDroppable {
-  readonly schema: SchemaT
+  readonly schema: TableSchema<N, C, CC>
   readonly data: StorageT
   private serialIdGenerator?: SerialIdGenerator
   private indexProvider: IndexProvider<RowIdT>
   private droppable: Droppable
 
-  constructor(init: TableConfig<RowIdT, SchemaT, StorageT>) {
+  constructor(
+    init: TableConfig<
+      RowIdT,
+      N,
+      C,
+      CC,
+      StorageT
+    >,
+  ) {
     this.schema = init.schema
     this.data = init.data
     this.serialIdGenerator = init.serialIdGenerator
@@ -74,11 +92,11 @@ export class Table<
   }
 
   async insertManyAndReturn(
-    records: InsertRecordForTableSchema<SchemaT>[],
-  ): Promise<StoredRecordForTableSchema<SchemaT>[]> {
+    records: InsertRecordForTableSchema<this["schema"]>[],
+  ): Promise<StoredRecordForTableSchema<this["schema"]>[]> {
     this.droppable.assertNotDropped("Table has been dropped")
 
-    const rows: StoredRecordForTableSchema<SchemaT>[] = []
+    const rows: StoredRecordForTableSchema<this["schema"]>[] = []
     for (const record of records) {
       rows.push(await this.insertAndReturn(record))
     }
@@ -86,7 +104,7 @@ export class Table<
   }
 
   async insertMany(
-    records: InsertRecordForTableSchema<SchemaT>[],
+    records: InsertRecordForTableSchema<this["schema"]>[],
   ): Promise<RowIdT[]> {
     this.droppable.assertNotDropped("Table has been dropped")
 
@@ -98,15 +116,19 @@ export class Table<
   }
 
   async insertAndReturn(
-    record: InsertRecordForTableSchema<SchemaT>,
-  ): Promise<StoredRecordForTableSchema<SchemaT>> {
+    record: InsertRecordForTableSchema<this["schema"]>,
+  ): Promise<StoredRecordForTableSchema<this["schema"]>> {
     this.droppable.assertNotDropped("Table has been dropped")
 
     const id = await this.insert(record)
-    return this.data.get(id) as Promise<StoredRecordForTableSchema<SchemaT>>
+    return this.data.get(id) as Promise<
+      StoredRecordForTableSchema<this["schema"]>
+    >
   }
 
-  async insert(record: InsertRecordForTableSchema<SchemaT>): Promise<RowIdT> {
+  async insert(
+    record: InsertRecordForTableSchema<this["schema"]>,
+  ): Promise<RowIdT> {
     this.droppable.assertNotDropped("Table has been dropped")
 
     const validation = this.schema.isValidInsertRecord(record)
@@ -167,7 +189,9 @@ export class Table<
       }
     }
 
-    const id = await this.data.insert(record)
+    const id = await this.data.insert(
+      record as StoredRecordForTableSchema<this["schema"]>,
+    )
     for (const column of this.schema.columns) {
       const index = await this.indexProvider.getIndexForColumn(column.name)
       if (index) {
@@ -188,15 +212,16 @@ export class Table<
     return id
   }
 
-  get(id: RowIdT): Promisable<StoredRecordForTableSchema<SchemaT> | undefined> {
+  get(
+    id: RowIdT,
+  ): Promisable<StoredRecordForTableSchema<this["schema"]> | undefined> {
     this.droppable.assertNotDropped("Table has been dropped")
-
     return this.data.get(id)
   }
 
   async set(
     id: RowIdT,
-    newRecord: StoredRecordForTableSchema<SchemaT>,
+    newRecord: StoredRecordForTableSchema<this["schema"]>,
   ): Promise<RowIdT> {
     this.droppable.assertNotDropped("Table has been dropped")
 
@@ -204,16 +229,17 @@ export class Table<
     const newRowId = await this.data.set(id, newRecord)
 
     for (const column of this.schema.columns) {
-      const columnName = column.name as keyof typeof newRecord
-      const index = await this.indexProvider.getIndexForColumn(columnName)
+      const index = await this.indexProvider.getIndexForColumn(column.name)
       if (index) {
-        if (column.type.isEqual(oldRecord[columnName], newRecord[columnName])) {
+        if (
+          column.type.isEqual(oldRecord[column.name], newRecord[column.name])
+        ) {
           continue
         }
-        await index.remove(oldRecord[columnName], id)
-        await index.insert(newRecord[columnName], id)
+        await index.remove(oldRecord[column.name], id)
+        await index.insert(newRecord[column.name], id)
       } else if (column.indexed.shouldIndex) {
-        throw new Error(`Column ${columnName} is not indexed`)
+        throw new Error(`Column ${column.name} is not indexed`)
       }
     }
     for (const column of this.schema.computedColumns) {
@@ -235,27 +261,20 @@ export class Table<
     return newRowId
   }
 
-  async updateWhere<
-    IName extends Column.FindIndexed<
-      SchemaT["columns"] | SchemaT["computedColumns"]
-    >["name"],
-    ValueT extends
-      | Column.Stored.GetValue<Column.FindWithName<SchemaT["columns"], IName>>
-      | Column.Computed.GetInput<
-        Column.FindWithName<SchemaT["computedColumns"], IName>
-      >,
-  >(
+  async updateWhere<IName extends Column.FindIndexedNames<C & CC>>(
     indexName: IName,
-    value: ValueT,
-    updatedValue: Partial<StoredRecordForTableSchema<SchemaT>>,
+    value: Column.GetInput<(C & CC)[IName]>,
+    updatedValue: Partial<StoredRecordForTableSchema<this["schema"]>>,
   ): Promise<void> {
     this.droppable.assertNotDropped("Table has been dropped")
 
-    const index = await this.indexProvider.getIndexForColumn(indexName)
+    const index = await this.indexProvider.getIndexForColumn(
+      indexName as string,
+    )
     if (!index) {
-      throw new Error(`Index ${indexName} does not exist`)
+      throw new Error(`Index ${indexName as string} does not exist`)
     }
-    const ids = await this.lookupInIndex(indexName, value)
+    const ids = await this._lookupInIndex(indexName, value)
     for (const id of ids) {
       const data = await this.get(id)
       if (!data) {
@@ -265,26 +284,19 @@ export class Table<
     }
   }
 
-  async removeWhere<
-    IName extends Column.FindIndexed<
-      SchemaT["columns"] | SchemaT["computedColumns"]
-    >["name"],
-    ValueT extends
-      | Column.Stored.GetValue<Column.FindWithName<SchemaT["columns"], IName>>
-      | Column.Computed.GetInput<
-        Column.FindWithName<SchemaT["computedColumns"], IName>
-      >,
-  >(
+  async removeWhere<IName extends Column.FindIndexedNames<C & CC>>(
     indexName: IName,
-    value: ValueT,
+    value: Column.GetInput<(C & CC)[IName]>,
   ): Promise<void> {
     this.droppable.assertNotDropped("Table has been dropped")
 
-    const index = await this.indexProvider.getIndexForColumn(indexName)
+    const index = await this.indexProvider.getIndexForColumn(
+      indexName as string,
+    )
     if (!index) {
-      throw new Error(`Index ${indexName} does not exist`)
+      throw new Error(`Index ${indexName as string} does not exist`)
     }
-    const ids = await this.lookupInIndex(indexName, value)
+    const ids = await this._lookupInIndex(indexName, value)
 
     for (const id of ids) {
       await this.remove(id)
@@ -297,13 +309,11 @@ export class Table<
     const oldRecord = await this.data.get(id)
     if (oldRecord == null) return // already removed?
     for (const column of this.schema.columns) {
-      const columnName = column.name as keyof typeof oldRecord
-      const index = await this.indexProvider.getIndexForColumn(columnName)
-      await index?.remove(oldRecord[columnName], id)
+      const index = await this.indexProvider.getIndexForColumn(column.name)
+      await index?.remove(oldRecord[column.name], id)
     }
     for (const column of this.schema.computedColumns) {
-      const columnName = column.name as keyof typeof oldRecord
-      const index = await this.indexProvider.getIndexForColumn(columnName)
+      const index = await this.indexProvider.getIndexForColumn(column.name)
       const oldComputed = column.compute(oldRecord)
       await index?.remove(oldComputed, id)
     }
@@ -311,44 +321,30 @@ export class Table<
     await this.data.commit()
   }
 
-  async lookupUniqueOrThrow<
-    IName extends Column.FindUnique<
-      SchemaT["columns"] | SchemaT["computedColumns"]
-    >["name"],
-    ValueT extends
-      | Column.Stored.GetValue<Column.FindWithName<SchemaT["columns"], IName>>
-      | Column.Computed.GetInput<
-        Column.FindWithName<SchemaT["computedColumns"], IName>
-      >,
-  >(
+  async lookupUniqueOrThrow<IName extends Column.FindUniqueNames<C & CC>>(
     indexName: IName,
-    value: ValueT,
-  ): Promise<Readonly<StoredRecordForTableSchema<SchemaT>>> {
+    value: Column.GetInput<(C & CC)[IName]>,
+  ): Promise<Readonly<StoredRecordForTableSchema<this["schema"]>>> {
     this.droppable.assertNotDropped("Table has been dropped")
-
-    const result = await this.lookupUnique(indexName, value)
-    if (!result) {
+    const rowIds = await this._lookupInIndex(indexName, value)
+    if (rowIds.length === 0) {
       console.error(`Record not found for`, indexName, value)
       throw new Error(`Record not found`)
     }
-    return result
+    const record = await this.data.get(rowIds[0])
+    if (record == null) {
+      console.error(`Record not found for`, indexName, value)
+      throw new Error(`Record not found`)
+    }
+    return record
   }
 
-  async lookupUnique<
-    IName extends Column.FindUnique<
-      SchemaT["columns"] | SchemaT["computedColumns"]
-    >["name"],
-    ValueT extends
-      | Column.Stored.GetValue<Column.FindWithName<SchemaT["columns"], IName>>
-      | Column.Computed.GetInput<
-        Column.FindWithName<SchemaT["computedColumns"], IName>
-      >,
-  >(
+  async lookupUnique<IName extends Column.FindUniqueNames<C & CC>>(
     indexName: IName,
-    value: ValueT,
-  ): Promise<Readonly<StoredRecordForTableSchema<SchemaT>> | undefined> {
+    value: Column.GetInput<(C & CC)[IName]>,
+  ): Promise<Readonly<StoredRecordForTableSchema<this["schema"]>> | undefined> {
     this.droppable.assertNotDropped("Table has been dropped")
-    const rowIds = await this.lookupInIndex(indexName, value)
+    const rowIds = await this._lookupInIndex(indexName, value)
     if (rowIds.length === 0) {
       return
     }
@@ -360,23 +356,23 @@ export class Table<
    * @param value indexed value to lookup
    * @returns list of physical row ids that match the value
    */
-  async lookupInIndex<
-    IName extends Column.FindIndexed<
-      SchemaT["columns"] | SchemaT["computedColumns"]
-    >["name"],
-    ValueT extends
-      | Column.Stored.GetValue<Column.FindWithName<SchemaT["columns"], IName>>
-      | Column.Computed.GetInput<
-        Column.FindWithName<SchemaT["computedColumns"], IName>
-      >,
-  >(
+  lookupInIndex<IName extends Column.FindIndexedNames<C & CC>>(
     indexName: IName,
-    value: ValueT,
+    value: Column.GetInput<(C & CC)[IName]>,
+  ): Promise<readonly RowIdT[]> {
+    return this._lookupInIndex(indexName, value)
+  }
+
+  private async _lookupInIndex<IName extends keyof (C & CC)>(
+    indexName: IName,
+    value: Column.GetInput<(C & CC)[IName]>,
   ): Promise<readonly RowIdT[]> {
     this.droppable.assertNotDropped("Table has been dropped")
-    const index = await this.indexProvider.getIndexForColumn(indexName)
+    const index = await this.indexProvider.getIndexForColumn(
+      indexName as string,
+    )
     if (!index) {
-      throw new Error(`Index ${indexName} does not exist`)
+      throw new Error(`Index ${indexName as string} does not exist`)
     }
     const computedColumn = this.schema.computedColumns.find((c) =>
       c.name === indexName
@@ -388,64 +384,59 @@ export class Table<
     return await index.get(valueToLookup)
   }
 
-  async lookup<
-    IName extends Column.FindIndexed<SchemaT["columns"]>["name"],
-    ValueT extends Column.Stored.GetValue<
-      Column.FindWithName<SchemaT["columns"], IName>
-    >,
-  >(
+  async lookup<IName extends Column.FindIndexedNames<C & CC>>(
     indexName: IName,
-    value: ValueT,
-  ): Promise<Readonly<StoredRecordForTableSchema<SchemaT>>[]> {
+    value: Column.GetInput<(C & CC)[IName]>,
+  ): Promise<Readonly<StoredRecordForTableSchema<this["schema"]>>[]> {
     this.droppable.assertNotDropped("Table has been dropped")
 
-    const ids = await this.lookupInIndex(indexName, value)
+    const ids = await this._lookupInIndex(indexName, value)
     return Promise.all(ids.map((id) => this.data.get(id))) as Promise<
-      StoredRecordForTableSchema<SchemaT>[]
+      StoredRecordForTableSchema<this["schema"]>[]
     >
   }
 
   async lookupComputed<
-    IName extends Column.FindIndexed<SchemaT["computedColumns"]>["name"],
-    ValueT extends Column.Computed.GetOutput<
-      Column.FindWithName<SchemaT["computedColumns"], IName>
-    >,
+    IName extends Column.FindIndexedNames<CC>,
+    ValueT extends Column.Computed.GetOutput<CC[IName]>,
   >(
     indexName: IName,
     value: ValueT,
-  ): Promise<StoredRecordForTableSchema<SchemaT>[]> {
+  ): Promise<StoredRecordForTableSchema<this["schema"]>[]> {
     this.droppable.assertNotDropped("Table has been dropped")
 
-    const index = await this.indexProvider.getIndexForColumn(indexName)
+    const index = await this.indexProvider.getIndexForColumn(
+      indexName as string,
+    )
     if (!index) {
-      throw new Error(`Index ${indexName} does not exist`)
+      throw new Error(`Index ${indexName as string} does not exist`)
     }
     const column = this.schema.computedColumns.find((c) => c.name === indexName)
     if (!column) {
-      throw new Error(`Column ${indexName} is not a computed column`)
+      throw new Error(`Column ${indexName as string} is not a computed column`)
     }
     return Promise.all(
       (await index.get(value)).map((id) =>
-        this.data.get(id) as Promise<StoredRecordForTableSchema<SchemaT>>
+        this.data.get(id) as Promise<StoredRecordForTableSchema<this["schema"]>>
       ),
     )
   }
 
-  iterate(): AsyncIterableWrapper<StoredRecordForTableSchema<SchemaT>> {
+  iterate(): AsyncIterableWrapper<StoredRecordForTableSchema<this["schema"]>> {
     this.droppable.assertNotDropped("Table has been dropped")
 
     return this.data.iterate().map(([_rowId, record]) =>
       record
-    ) as AsyncIterableWrapper<StoredRecordForTableSchema<SchemaT>>
+    ) as AsyncIterableWrapper<StoredRecordForTableSchema<this["schema"]>>
   }
 
   scanIter<
-    IName extends ColumnSchemasT[number]["name"],
-    IValue extends StoredRecordForTableSchema<SchemaT>[IName],
+    IName extends C[string]["name"],
+    IValue extends StoredRecordForTableSchema<this["schema"]>[IName],
   >(
     columnName: IName,
     value: IValue,
-  ): AsyncIterableWrapper<StoredRecordForTableSchema<SchemaT>> {
+  ): AsyncIterableWrapper<StoredRecordForTableSchema<this["schema"]>> {
     this.droppable.assertNotDropped("Table has been dropped")
 
     const columnType =
@@ -456,12 +447,12 @@ export class Table<
   }
 
   scan<
-    IName extends ColumnSchemasT[number]["name"],
-    IValue extends StoredRecordForTableSchema<SchemaT>[IName],
+    IName extends C[string]["name"],
+    IValue extends StoredRecordForTableSchema<this["schema"]>[IName],
   >(
     columnName: IName,
     value: IValue,
-  ): Promise<StoredRecordForTableSchema<SchemaT>[]> {
+  ): Promise<StoredRecordForTableSchema<this["schema"]>[]> {
     this.droppable.assertNotDropped("Table has been dropped")
 
     return this.scanIter(columnName, value).toArray()

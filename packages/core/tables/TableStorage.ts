@@ -10,6 +10,8 @@ import {
   WriteableVariableLengthRecordPage,
 } from "../pages/VariableLengthRecordPage.ts"
 import {
+  ColumnRecord,
+  ComputedColumnRecord,
   SomeTableSchema,
   StoredRecordForTableSchema,
   TableSchema,
@@ -64,18 +66,24 @@ export class JsonFileTableStorage<RowData>
   }
 
   static forSchema<
-    SchemaT extends SomeTableSchema,
+    N extends string,
+    C extends ColumnRecord,
+    CC extends ComputedColumnRecord,
   >(
-    schema: SchemaT,
+    schema: TableSchema<N, C, CC>,
     filename: string,
   ): TableConfig<
     number,
-    SchemaT,
-    JsonFileTableStorage<StoredRecordForTableSchema<SchemaT>>
+    N,
+    C,
+    CC,
+    JsonFileTableStorage<StoredRecordForTableSchema<TableSchema<N, C, CC>>>
   > {
     return {
       schema,
-      data: new JsonFileTableStorage<StoredRecordForTableSchema<SchemaT>>(
+      data: new JsonFileTableStorage<
+        StoredRecordForTableSchema<TableSchema<N, C, CC>>
+      >(
         filename,
       ),
       indexProvider: new InMemoryIndexProvider(schema),
@@ -168,12 +176,21 @@ export class InMemoryTableStorage<RowId, RowData>
     })
   }
 
-  static forSchema<SchemaT extends SomeTableSchema>(
-    schema: SchemaT,
+  static forSchema<
+    N extends string,
+    C extends ColumnRecord,
+    CC extends ComputedColumnRecord,
+  >(
+    schema: TableSchema<N, C, CC>,
   ): TableConfig<
     number,
-    SchemaT,
-    InMemoryTableStorage<number, StoredRecordForTableSchema<SchemaT>>
+    N,
+    C,
+    CC,
+    InMemoryTableStorage<
+      number,
+      StoredRecordForTableSchema<TableSchema<N, C, CC>>
+    >
   > {
     let rowId = 0
     const serialIds = new Map<string, number>()
@@ -554,7 +571,6 @@ export type HeapFileTableInfer<SchemaT extends SomeTableSchema> =
       TName,
       ColumnSchemasT,
       ComputedColumnSchemasT,
-      SchemaT,
       HeapFileTableStorage<StoredRecordForTableSchema<SchemaT>>
     >
     : never

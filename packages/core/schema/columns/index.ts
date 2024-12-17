@@ -5,7 +5,8 @@
 
 import * as Stored from "./Stored.ts"
 import * as Computed from "./Computed.ts"
-import { FilterTuple } from "../../typetools.ts"
+import * as Index from "./IndexConfig.ts"
+import { ConditionalKeys, ConditionalPick } from "type-fest"
 
 export * as Index from "./IndexConfig.ts"
 export * as Computed from "./Computed.ts"
@@ -18,24 +19,18 @@ export * as Stored from "./Stored.ts"
 export type Any = Stored.Any | Computed.Any
 
 /**
- * Find a column with a given name from any tuple of columns
- */
-export type FindWithName<CS extends Any[], Name extends string> = FilterTuple<
-  CS,
-  { name: Name }
->
-
-/**
  * Find all unique columns from a tuple of columns
  */
-export type FindUnique<CS extends Any[]> = FilterTuple<CS, { isUnique: true }>
+export type FindUnique<T> = ConditionalPick<T, { isUnique: true }>
+export type FindUniqueNames<T> = ConditionalKeys<T, { isUnique: true }>
 
 /**
  * Find all indexed columns from a tuple of columns
  */
-export type FindIndexed<CS extends Any[]> = Exclude<
-  CS[number],
-  { indexed: { shouldIndex: false } }
+export type FindIndexed<T> = ConditionalPick<T, { indexed: Index.ShouldIndex }>
+export type FindIndexedNames<T> = ConditionalKeys<
+  T,
+  { indexed: Index.ShouldIndex }
 >
 
 /**
@@ -45,6 +40,10 @@ export type FindIndexed<CS extends Any[]> = Exclude<
  */
 export type GetOutput<C extends Any> = C extends Computed.Any
   ? Computed.GetOutput<C>
+  : Stored.GetValue<C>
+
+export type GetInput<C extends Any> = C extends Computed.Any
+  ? Computed.GetInput<C>
   : Stored.GetValue<C>
 
 /**
