@@ -1,9 +1,9 @@
 import { IBufferPool } from "../pages/BufferPool.ts"
 import {
-  ColumnRecord,
   ComputedColumnRecord,
   makeTableSchemaStruct,
   SomeTableSchema,
+  StoredColumnRecord,
   StoredRecordForTableSchema,
 } from "../schema/TableSchema.ts"
 import { Table, TableConfig } from "../tables/Table.ts"
@@ -28,7 +28,7 @@ export class TableManager {
     Table<
       HeapFileRowId,
       string,
-      ColumnRecord,
+      StoredColumnRecord,
       ComputedColumnRecord,
       ITableStorage<HeapFileRowId, UnknownRecord>
     >
@@ -80,7 +80,7 @@ export class TableManager {
 
   async getTableStorage<
     N extends string,
-    C extends ColumnRecord,
+    C extends StoredColumnRecord,
     CC extends ComputedColumnRecord,
   >(
     db: string,
@@ -165,7 +165,7 @@ export class TableManager {
 
   async getOrCreateTableStorage<
     N extends string,
-    C extends ColumnRecord,
+    C extends StoredColumnRecord,
     CC extends ComputedColumnRecord,
   >(
     db: string,
@@ -256,7 +256,7 @@ export class TableManager {
 
 export function getTableConfig<
   N extends string,
-  C extends ColumnRecord,
+  C extends StoredColumnRecord,
   CC extends ComputedColumnRecord,
 >(
   bufferPool: IBufferPool,
@@ -282,7 +282,7 @@ export function getTableConfig<
   >(
     bufferPool,
     tableRecord.heapPageId,
-    recordStruct,
+    recordStruct as any,
     /* schemaId = */ 0,
   )
 

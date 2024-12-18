@@ -8,6 +8,7 @@ import { ColumnType } from "./columns/ColumnType.ts"
 import type {
   ConditionalPick,
   EmptyObject,
+  Merge,
   NonEmptyTuple,
   Simplify,
 } from "type-fest"
@@ -54,21 +55,20 @@ export type InsertRecordForTableSchema<TS extends IHaveStoredColumns> =
  * Infers the type of a record that is stored in a table with the given schema.
  * This is what you'll get back when querying the table.
  */
-export type StoredRecordForTableSchema<
-  TS extends IHaveStoredColumns,
-> = StoredRecordForColumnSchemas<TS["storedColumnsByName"]>
+export type StoredRecordForTableSchema<TS extends ISchema> =
+  StoredRecordForColumnSchemas<TS["columnsByName"]>
 
 /**
  * Represents an arbitrary table schema
  */
 export type SomeTableSchema = TableSchema<
   string,
-  any,
+  StoredColumnRecord,
   any
 >
 
-export type TableSchemaColumnNames<TS extends SomeTableSchema> = Exclude<
-  keyof (TS["computedColumnsByName"] & TS["storedColumnsByName"]),
+export type TableSchemaColumnNames<TS extends ISchema> = Exclude<
+  keyof (TS["columnsByName"]),
   symbol
 >
 
@@ -81,16 +81,28 @@ interface IHaveStoredColumns<
   readonly storedColumnsByName: ColumnSchemasT
 }
 
-export type ColumnRecord = Record<string, Column.Stored.Any>
+export type ColumnRecord = Record<string, Column.Any>
+export type StoredColumnRecord = Record<string, Column.Stored.Any>
 export type ComputedColumnRecord = Record<string, Column.Computed.Any>
+
+export interface ISchema<
+  TName extends string = string,
+  ColumnsT extends ColumnRecord = ColumnRecord,
+> {
+  readonly name: TName
+  readonly columnsByName: ColumnsT
+}
 
 export class TableSchema<
   TableName extends string,
-  ColumnSchemasT extends ColumnRecord,
+  ColumnSchemasT extends StoredColumnRecord,
   ComputedColumnsT extends ComputedColumnRecord,
-> implements IHaveStoredColumns<ColumnSchemasT> {
+> implements
+  IHaveStoredColumns<ColumnSchemasT>,
+  ISchema<TableName, Merge<ColumnSchemasT, ComputedColumnsT>> {
   readonly storedColumnsByName: ColumnSchemasT
   readonly computedColumnsByName: ComputedColumnsT
+  readonly columnsByName: ColumnSchemasT & ComputedColumnsT
 
   private constructor(
     public readonly name: TableName,
@@ -103,6 +115,10 @@ export class TableSchema<
     this.computedColumnsByName = Object.fromEntries(
       computedColumns.map((c) => [c.name, c]),
     ) as unknown as ComputedColumnsT
+    this.columnsByName = {
+      ...this.storedColumnsByName,
+      ...this.computedColumnsByName,
+    }
   }
 
   withName<NewName extends string>(
@@ -112,13 +128,13 @@ export class TableSchema<
   }
 
   getColumnByName(
-    name: ColumnSchemasT[string]["name"] | ComputedColumnsT[string]["name"],
+    name: Extract<keyof ColumnSchemasT | keyof ComputedColumnsT, string>,
   ): Column.Any | undefined {
-    return this.storedColumnsByName[name] ?? this.computedColumnsByName[name]
+    return this.columnsByName[name]
   }
 
   getColumnByNameOrThrow(
-    name: ColumnSchemasT[string]["name"] | ComputedColumnsT[string]["name"],
+    name: Extract<keyof ColumnSchemasT | keyof ComputedColumnsT, string>,
   ): Column.Any {
     const column = this.getColumnByName(name)
     if (column == null) {
@@ -200,9 +216,8 @@ export class TableSchema<
   withUniqueConstraint<
     CName extends string,
     CInputNames extends ColumnSchemasT[string]["name"][],
-    CInput extends Pick<
-      StoredRecordForColumnSchemas<ColumnSchemasT>,
-      CInputNames[number]
+    CInput extends StoredRecordForColumnSchemas<
+      Pick<ColumnSchemasT, CInputNames[number]>
     >,
     COutput,
   >(

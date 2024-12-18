@@ -3,6 +3,7 @@ import { expect } from "@std/expect"
 import {
   InsertRecordForColumnSchemas,
   InsertRecordForTableSchema,
+  ISchema,
   makeTableSchemaStruct,
   TableSchema,
 } from "./TableSchema.ts"
@@ -18,6 +19,7 @@ import {
 } from "./columns/ColumnBuilder.ts"
 import { DBSchema } from "./DBSchema.ts"
 import { assertTrue, assertType, TypeEquals } from "../testing.ts"
+import type { ConditionalPick } from "type-fest"
 
 describe("ColumnSchemas", () => {
   const nameColumn = column(
@@ -227,6 +229,16 @@ describe("Schemas", () => {
     const peopleSchema = TableSchema.create("people")
       .with(column("name", ColumnTypes.string()))
       .with(column("age", ColumnTypes.uint32()))
+
+    peopleSchema.columnsByName.name
+    type foo = ISchema<
+      typeof peopleSchema["name"],
+      typeof peopleSchema.columnsByName
+    >
+    type Blah = ConditionalPick<foo["columnsByName"], Column.Stored.Any>
+
+    type blahCols = StoredRecordForColumnSchemas<Blah>
+
     type Person = StoredRecordForTableSchema<typeof peopleSchema>
     assertTrue<
       TypeEquals<

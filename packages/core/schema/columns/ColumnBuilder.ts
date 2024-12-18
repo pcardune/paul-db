@@ -1,5 +1,5 @@
 import { ColumnType, SerialUInt32ColumnType } from "./ColumnType.ts"
-import type { Simplify } from "type-fest"
+import type { ConditionalKeys, Simplify } from "type-fest"
 import * as Column from "./index.ts"
 
 export const DEFAULT_INDEX_CONFIG: Column.Index.ShouldIndex = {
@@ -243,7 +243,9 @@ export function computedColumn<
 }
 
 export type StoredRecordForColumnSchemas<
-  CS extends Record<string, Column.Stored.Any>,
+  CS extends Record<string, Column.Any>,
 > = Simplify<
-  { [K in keyof CS]: Column.Stored.GetValue<CS[K]> }
+  {
+    [K in ConditionalKeys<CS, Column.Stored.Any>]: Column.Stored.GetValue<CS[K]>
+  }
 >

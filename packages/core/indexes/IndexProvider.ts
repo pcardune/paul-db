@@ -54,7 +54,7 @@ export class InMemoryIndexProvider<RowIdT, SchemaT extends SomeTableSchema>
     this.droppable.assertNotDropped("IndexProvider has been dropped")
     let index = this.indexes.get(name) ?? null
     if (index == null) {
-      const column = this.schema.getColumnByName(name)
+      const column = this.schema.columnsByName[name]
       if (column == null || !column.indexed.shouldIndex) return null
       index = Index.inMemory({
         isEqual: column.type.isEqual,

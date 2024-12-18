@@ -20,9 +20,6 @@ export interface IDBSchema<
 > {
   readonly name: DBName
   readonly schemas: SchemasT
-  withTables<TableSchemasT extends NonEmptyTuple<SomeTableSchema>>(
-    ...tables: TableSchemasT
-  ): DBSchema<DBName, Simplify<SchemasT & SchemaMap<TableSchemasT>>>
 }
 
 export class DBSchema<
@@ -66,7 +63,7 @@ export class DBSchema<
 /**
  * Create a new database schema for a database named "default"
  */
-export function create(): IDBSchema<"default", EmptyObject>
+export function create(): DBSchema<"default", EmptyObject>
 /**
  * Create a new database schema for the system database.
  * This is a reserved name and cannot be used for user-defined databases.
@@ -78,7 +75,7 @@ export function create(name: typeof SYSTEM_DB): never
  */
 export function create<DBName extends string>(
   name: DBName,
-): IDBSchema<DBName, EmptyObject>
-export function create(name?: string): IDBSchema<string, EmptyObject> {
+): DBSchema<DBName, EmptyObject>
+export function create(name?: string): DBSchema<string, EmptyObject> {
   return DBSchema.create(name as string)
 }

@@ -6,7 +6,7 @@
 import * as Stored from "./Stored.ts"
 import * as Computed from "./Computed.ts"
 import * as Index from "./IndexConfig.ts"
-import { ConditionalKeys, ConditionalPick } from "type-fest"
+import type { ConditionalKeys, ConditionalPick } from "type-fest"
 
 export * as Index from "./IndexConfig.ts"
 export * as Computed from "./Computed.ts"

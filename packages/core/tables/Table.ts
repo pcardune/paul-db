@@ -1,9 +1,9 @@
 // deno-lint-ignore-file no-explicit-any
 import {
-  ColumnRecord,
   ComputedColumnRecord,
   InsertRecordForTableSchema,
   SomeTableSchema,
+  StoredColumnRecord,
   StoredRecordForTableSchema,
   TableSchema,
 } from "../schema/TableSchema.ts"
@@ -37,7 +37,7 @@ export type TableInfer<SchemaT extends SomeTableSchema, StorageT> =
 export type TableConfig<
   RowIdT,
   N extends string,
-  C extends ColumnRecord,
+  C extends StoredColumnRecord,
   CC extends ComputedColumnRecord,
   StorageT extends ITableStorage<
     RowIdT,
@@ -54,7 +54,7 @@ export type TableConfig<
 export class Table<
   RowIdT,
   N extends string,
-  C extends ColumnRecord,
+  C extends StoredColumnRecord,
   CC extends ComputedColumnRecord,
   StorageT extends ITableStorage<
     RowIdT,
@@ -190,7 +190,7 @@ export class Table<
     }
 
     const id = await this.data.insert(
-      record as StoredRecordForTableSchema<this["schema"]>,
+      record as any,
     )
     for (const column of this.schema.columns) {
       const index = await this.indexProvider.getIndexForColumn(column.name)
@@ -216,7 +216,9 @@ export class Table<
     id: RowIdT,
   ): Promisable<StoredRecordForTableSchema<this["schema"]> | undefined> {
     this.droppable.assertNotDropped("Table has been dropped")
-    return this.data.get(id)
+    return this.data.get(id) as
+      | StoredRecordForTableSchema<this["schema"]>
+      | undefined
   }
 
   async set(
@@ -229,15 +231,16 @@ export class Table<
     const newRowId = await this.data.set(id, newRecord)
 
     for (const column of this.schema.columns) {
+      const columnName = column.name as keyof typeof newRecord
       const index = await this.indexProvider.getIndexForColumn(column.name)
       if (index) {
         if (
-          column.type.isEqual(oldRecord[column.name], newRecord[column.name])
+          column.type.isEqual(oldRecord[columnName], newRecord[columnName])
         ) {
           continue
         }
-        await index.remove(oldRecord[column.name], id)
-        await index.insert(newRecord[column.name], id)
+        await index.remove(oldRecord[columnName], id)
+        await index.insert(newRecord[columnName], id)
       } else if (column.indexed.shouldIndex) {
         throw new Error(`Column ${column.name} is not indexed`)
       }
@@ -310,7 +313,7 @@ export class Table<
     if (oldRecord == null) return // already removed?
     for (const column of this.schema.columns) {
       const index = await this.indexProvider.getIndexForColumn(column.name)
-      await index?.remove(oldRecord[column.name], id)
+      await index?.remove(oldRecord[column.name as keyof typeof oldRecord], id)
     }
     for (const column of this.schema.computedColumns) {
       const index = await this.indexProvider.getIndexForColumn(column.name)
@@ -336,7 +339,7 @@ export class Table<
       console.error(`Record not found for`, indexName, value)
       throw new Error(`Record not found`)
     }
-    return record
+    return record as StoredRecordForTableSchema<this["schema"]>
   }
 
   async lookupUnique<IName extends Column.FindUniqueNames<C & CC>>(
@@ -348,7 +351,9 @@ export class Table<
     if (rowIds.length === 0) {
       return
     }
-    return this.data.get(rowIds[0])
+    return this.data.get(rowIds[0]) as StoredRecordForTableSchema<
+      this["schema"]
+    >
   }
 
   /**
@@ -430,12 +435,9 @@ export class Table<
     ) as AsyncIterableWrapper<StoredRecordForTableSchema<this["schema"]>>
   }
 
-  scanIter<
-    IName extends C[string]["name"],
-    IValue extends StoredRecordForTableSchema<this["schema"]>[IName],
-  >(
+  scanIter<IName extends keyof StoredRecordForTableSchema<this["schema"]>>(
     columnName: IName,
-    value: IValue,
+    value: StoredRecordForTableSchema<this["schema"]>[IName],
   ): AsyncIterableWrapper<StoredRecordForTableSchema<this["schema"]>> {
     this.droppable.assertNotDropped("Table has been dropped")
 
@@ -446,12 +448,9 @@ export class Table<
     )
   }
 
-  scan<
-    IName extends C[string]["name"],
-    IValue extends StoredRecordForTableSchema<this["schema"]>[IName],
-  >(
+  scan<IName extends keyof StoredRecordForTableSchema<this["schema"]>>(
     columnName: IName,
-    value: IValue,
+    value: StoredRecordForTableSchema<this["schema"]>[IName],
   ): Promise<StoredRecordForTableSchema<this["schema"]>[]> {
     this.droppable.assertNotDropped("Table has been dropped")
 

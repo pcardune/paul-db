@@ -10,9 +10,9 @@ import {
   WriteableVariableLengthRecordPage,
 } from "../pages/VariableLengthRecordPage.ts"
 import {
-  ColumnRecord,
   ComputedColumnRecord,
   SomeTableSchema,
+  StoredColumnRecord,
   StoredRecordForTableSchema,
   TableSchema,
 } from "../schema/TableSchema.ts"
@@ -67,7 +67,7 @@ export class JsonFileTableStorage<RowData>
 
   static forSchema<
     N extends string,
-    C extends ColumnRecord,
+    C extends StoredColumnRecord,
     CC extends ComputedColumnRecord,
   >(
     schema: TableSchema<N, C, CC>,
@@ -178,7 +178,7 @@ export class InMemoryTableStorage<RowId, RowData>
 
   static forSchema<
     N extends string,
-    C extends ColumnRecord,
+    C extends StoredColumnRecord,
     CC extends ComputedColumnRecord,
   >(
     schema: TableSchema<N, C, CC>,

@@ -6,7 +6,7 @@ import {
   type StoredRecordForTableSchema,
   TableSchema,
 } from "../schema/TableSchema.ts"
-import { EmptyObject } from "type-fest"
+import type { EmptyObject } from "type-fest"
 
 type ULIDColumn = Column.Stored.Any<
   "id",

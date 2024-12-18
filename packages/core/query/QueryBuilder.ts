@@ -1,10 +1,10 @@
 import {
   Column,
+  ISchema,
   StoredRecordForTableSchema,
   TableSchemaColumnNames,
 } from "../schema/TableSchema.ts"
 import * as plan from "./QueryPlanNode.ts"
-import type { DBSchema } from "../schema/DBSchema.ts"
 import {
   AndOrExpr,
   ColumnRefExpr,
@@ -25,18 +25,29 @@ import type { EmptyObject, NonEmptyTuple, TupleToUnion } from "type-fest"
 import { ColumnType } from "../schema/columns/ColumnType.ts"
 import { Json } from "../types.ts"
 
+interface IQueryableDBSchema<
+  DBNameT extends string = string,
+  SchemasT extends Record<string, ISchema> = Record<string, ISchema>,
+> {
+  readonly name: DBNameT
+  readonly schemas: SchemasT
+}
+
 /**
  * @ignore
  */
-export interface IQB<DBSchemaT extends DBSchema = DBSchema> {
+export interface IQB<
+  DBSchemaT extends IQueryableDBSchema = IQueryableDBSchema,
+> {
   readonly dbSchema: DBSchemaT
 }
 
 /**
  * Provides a type safe way to build query plans from a schema.
  */
-export class QueryBuilder<DBSchemaT extends DBSchema = DBSchema>
-  implements IQB<DBSchemaT> {
+export class QueryBuilder<
+  DBSchemaT extends IQueryableDBSchema = IQueryableDBSchema,
+> implements IQB<DBSchemaT> {
   /**
    * Constructs a new query builder from the given schema.
    */
@@ -449,10 +460,7 @@ export type ColumnWithName<
   TQB extends ITQB,
   SchemaName extends keyof SchemasForTQB<TQB>,
   CName extends ColumnNames<TQB, SchemaName>,
-> = (
-  & SchemasForTQB<TQB>[SchemaName]["storedColumnsByName"]
-  & SchemasForTQB<TQB>[SchemaName]["computedColumnsByName"]
-)[CName]
+> = SchemasForTQB<TQB>[SchemaName]["columnsByName"][CName]
 
 class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
   constructor(readonly tqb: TQB, readonly expr: Expr<T>) {}
@@ -488,7 +496,10 @@ class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
     const schema = this.tqb.queryBuilder.dbSchema.schemas[
       table
     ]
-    const columnSchema = schema.getColumnByNameOrThrow(column)
+    const columnSchema = schema.columnsByName[column]
+    if (columnSchema == null) {
+      throw new Error(`Column ${column} not found in table ${table}`)
+    }
     const ref = new ColumnRefExpr(columnSchema, table)
     return new ExprBuilder(this.tqb, ref)
   }
