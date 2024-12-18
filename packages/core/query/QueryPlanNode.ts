@@ -127,8 +127,8 @@ export class TableScan<T extends RowData> extends AbstractQueryPlan<T> {
    * @ignore
    */
   async getSchema(dbFile: DbFile): Promise<SomeTableSchema> {
-    const schemas = await dbFile.getSchemasOrThrow(this.db, this.table)
-    if (schemas.length === 0) {
+    const schemas = await dbFile.getSchemas(this.db, this.table)
+    if (schemas == null || schemas.length === 0) {
       throw new TableNotFoundError(`Table ${this.db}.${this.table} not found`)
     }
     return schemas[0].schema
@@ -351,8 +351,8 @@ export class GroupBy<
 /**
  * A Select node projects the results of the child node into a new set of columns.
  */
-export class Select<T extends UnknownRecord>
-  extends AbstractQueryPlan<Record<"$0", T>> {
+export class Select<Alias extends string, T extends UnknownRecord>
+  extends AbstractQueryPlan<Record<Alias, T>> {
   /**
    * Constructs a new Select node with the given child and columns.
    * @param child
@@ -360,6 +360,7 @@ export class Select<T extends UnknownRecord>
    */
   constructor(
     readonly child: IQueryPlanNode,
+    readonly alias: Alias,
     readonly columns: Record<string, Expr<any>>,
   ) {
     super()
@@ -372,14 +373,14 @@ export class Select<T extends UnknownRecord>
       Object.entries(this.columns).map(([key, value]) =>
         `${value.describe()} AS ${key}`
       ).join(", ")
-    }, ${this.child.describe()})`
+    }, ${this.child.describe()}) AS ${this.alias}`
   }
   /**
    * @ignore
    */
   override getIter(
     ctx: ExecutionContext,
-  ): AsyncIterableWrapper<Record<"$0", T>> {
+  ): AsyncIterableWrapper<Record<Alias, T>> {
     return this.child.execute(ctx).map(async (row) => {
       const result = {} as T
       for (const [key, column] of Object.entries(this.columns)) {
@@ -387,7 +388,7 @@ export class Select<T extends UnknownRecord>
           ctx.withRowData(row),
         )
       }
-      return { "$0": result }
+      return { [this.alias]: result } as Record<Alias, T>
     })
   }
 
@@ -397,8 +398,8 @@ export class Select<T extends UnknownRecord>
   addColumn<CName extends string, ValueT>(
     name: string,
     expr: Expr<T>,
-  ): Select<T & { [name in CName]: ValueT }> {
-    return new Select(this.child, { ...this.columns, [name]: expr })
+  ): Select<Alias, T & { [name in CName]: ValueT }> {
+    return new Select(this.child, this.alias, { ...this.columns, [name]: expr })
   }
 
   /**

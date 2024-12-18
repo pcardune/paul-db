@@ -24,6 +24,7 @@ import {
 import type { EmptyObject, NonEmptyTuple, TupleToUnion } from "type-fest"
 import { ColumnType } from "../schema/columns/ColumnType.ts"
 import { Json } from "../types.ts"
+import { column } from "../schema/columns/ColumnBuilder.ts"
 
 interface IQueryableDBSchema<
   DBNameT extends string = string,
@@ -60,7 +61,15 @@ export class QueryBuilder<
   from<TName extends Extract<keyof DBSchemaT["schemas"], string>>(
     table: TName,
   ): TableQueryBuilder<this, [TName]> {
-    return new TableQueryBuilder(this, [table], table) as TableQueryBuilder<
+    return new TableQueryBuilder(
+      this,
+      [table],
+      table,
+      new TableScan(
+        this.dbSchema.name,
+        table,
+      ),
+    ) as TableQueryBuilder<
       this,
       [TName]
     >
@@ -110,6 +119,13 @@ export class TableQueryBuilder<
     readonly queryBuilder: QB,
     readonly tableNames: TableNamesT,
     readonly rootTable: string,
+    readonly rootPlan: plan.IQueryPlanNode<
+      {
+        [K in TupleToUnion<TableNamesT>]: StoredRecordForTableSchema<
+          QB["dbSchema"]["schemas"][K]
+        >
+      }
+    >,
     // TODO: surey this is a nasty type to figure out.
     private joinPredicates: Array<
       [string, (e: ExprBuilder<ITQB, never>) => ExprBuilder<ITQB, boolean>]
@@ -129,6 +145,7 @@ export class TableQueryBuilder<
       this.queryBuilder,
       [...this.tableNames, table] as [...TableNamesT, JoinTableNameT],
       this.rootTable,
+      this.rootPlan as any, // FIX THIS
       [...this.joinPredicates, [table, on as any]],
     )
   }
@@ -173,13 +190,14 @@ export class TableQueryBuilder<
         tqb: ExprBuilder<ITQB<QB, TableNamesT>, never>,
       ) => SelectT[Property]
     },
-  ): SelectBuilder<ITQB<QB, TableNamesT>, SelectT> {
+  ): SelectBuilder<ITQB<QB, TableNamesT>, "$0", SelectT> {
     const mapped = Object.fromEntries(
       Object.entries(selection).map((
         [key, func],
       ) => [key, func(new ExprBuilder(this, new NeverExpr()))]),
     ) as SelectT
-    return new SelectBuilder(this, mapped)
+
+    return new SelectBuilder(this, "$0", mapped)
   }
 
   groupBy<
@@ -241,10 +259,7 @@ export class TableQueryBuilder<
       >
     }
 
-    let root: plan.IQueryPlanNode<T> = new TableScan<T>(
-      this.queryBuilder.dbSchema.name,
-      this.rootTable,
-    )
+    let root: plan.IQueryPlanNode<T> = this.rootPlan
     if (this.joinPredicates.length > 0) {
       for (let i = 0; i < this.joinPredicates.length; i++) {
         const [joinTableName, on] = this.joinPredicates[i]
@@ -280,10 +295,71 @@ export class TableQueryBuilder<
 
 class SelectBuilder<
   TQB extends ITQB = ITQB,
+  AliasT extends string = string,
   SelectT extends Record<string, ExprBuilder> = Record<string, ExprBuilder>,
 > {
-  constructor(readonly tqb: TQB, readonly select: SelectT) {}
+  constructor(
+    readonly tqb: TQB,
+    readonly alias: AliasT,
+    readonly select: SelectT,
+  ) {}
+
+  asTable<NewAlias extends string>(newAlias: NewAlias): TableQueryBuilder<
+    QueryBuilder<
+      IAugmentedDBSchema<
+        TQB["queryBuilder"]["dbSchema"],
+        ISchema<
+          NewAlias,
+          {
+            [K in Extract<keyof SelectT, string>]: Column.Stored.Any<
+              K,
+              ExprType<SelectT[K]>
+            >
+          }
+        >
+      >
+    >,
+    [NewAlias]
+  > {
+    const newSchema = {
+      name: newAlias,
+      columnsByName: Object.fromEntries(
+        Object.entries(this.select).map((
+          [key, value],
+        ) => [key, column(key, value.expr.getType())]),
+      ) as unknown as {
+        [K in Extract<keyof SelectT, string>]: Column.Stored.Any<
+          K,
+          ExprType<SelectT[K]>
+        >
+      },
+    }
+
+    const newDBSchema: IAugmentedDBSchema<
+      TQB["queryBuilder"]["dbSchema"],
+      ISchema<
+        NewAlias,
+        {
+          [K in Extract<keyof SelectT, string>]: Column.Stored.Any<
+            K,
+            ExprType<SelectT[K]>
+          >
+        }
+      >
+    > = augmentDbSchema(this.tqb.queryBuilder.dbSchema, newSchema)
+    const newTQB = new TableQueryBuilder(
+      new QueryBuilder(newDBSchema),
+      [newSchema.name],
+      newAlias,
+      new SelectBuilder(this.tqb, newAlias, this.select).plan() as any,
+      [],
+    )
+
+    return newTQB
+  }
+
   plan(): plan.Select<
+    AliasT,
     {
       [Property in keyof SelectT]: SelectT[Property] extends
         ExprBuilder<infer TQB, infer T> ? T : never
@@ -291,6 +367,7 @@ class SelectBuilder<
   > {
     return new plan.Select(
       this.tqb.plan(),
+      this.alias,
       Object.fromEntries(
         Object.entries(this.select).map((
           [key, valueExpr],
@@ -461,6 +538,10 @@ export type ColumnWithName<
   SchemaName extends keyof SchemasForTQB<TQB>,
   CName extends ColumnNames<TQB, SchemaName>,
 > = SchemasForTQB<TQB>[SchemaName]["columnsByName"][CName]
+
+type ExprType<T extends ExprBuilder> = T extends ExprBuilder<infer TQB, infer T>
+  ? T
+  : never
 
 class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
   constructor(readonly tqb: TQB, readonly expr: Expr<T>) {}
@@ -636,6 +717,34 @@ export class SubQueryBuilder<
       this,
       [...this.tqb.tableNames, table],
       table,
+      new TableScan(
+        this.dbSchema.name,
+        table,
+      ),
     )
   }
+}
+
+type IAugmentedDBSchema<
+  DBSchemaT extends IQueryableDBSchema,
+  SchemasT extends ISchema,
+> = IQueryableDBSchema<
+  DBSchemaT["name"],
+  DBSchemaT["schemas"] & { [K in SchemasT["name"]]: SchemasT }
+>
+
+function augmentDbSchema<
+  DBSchemaT extends IQueryableDBSchema,
+  SchemaT extends ISchema,
+>(
+  dbSchema: DBSchemaT,
+  schema: ISchema,
+): IAugmentedDBSchema<DBSchemaT, SchemaT> {
+  return {
+    name: dbSchema.name,
+    schemas: {
+      ...dbSchema.schemas,
+      [schema.name]: schema,
+    },
+  } as IAugmentedDBSchema<DBSchemaT, SchemaT>
 }

@@ -69,6 +69,7 @@ Deno.test("QueryPlanNode", async () => {
           new LiteralValueExpr("fluffy", ColumnTypes.string()),
         ),
       ),
+      "$0",
       {
         name: new ColumnRefExpr(nameCol, "cats"),
         age: new ColumnRefExpr(ageCol, "cats"),
@@ -83,7 +84,7 @@ Deno.test("QueryPlanNode", async () => {
   )
 
   expect(plan.describe()).toEqual(
-    'Limit(Select(name AS name, age AS age, Compare(age > 3) AS isOld, Filter(TableScan(default.cats), Compare(name = "fluffy"))), 1)',
+    'Limit(Select(name AS name, age AS age, Compare(age > 3) AS isOld, Filter(TableScan(default.cats), Compare(name = "fluffy"))) AS $0, 1)',
   )
 
   expect(await plan.execute(db).toArray()).toEqual([{
@@ -209,6 +210,7 @@ Deno.test("QueryPlanNode JOINS", async () => {
         ),
       ),
     ),
+    "$0",
     {
       name: new ColumnRefExpr(catNameCol, "cats"),
       ownerId: new ColumnRefExpr(ownerIdCol, "catOwners"),
@@ -390,7 +392,7 @@ Deno.test("QueryBuilder .in()", async () => {
     .select({ name: (t) => t.column("cats", "name") })
     .plan()
   expect(plan.describe()).toEqual(
-    `Select(name AS name, Filter(TableScan(default.cats), In(name, ["fluffy", "Mr. Blue"])))`,
+    `Select(name AS name, Filter(TableScan(default.cats), In(name, ["fluffy", "Mr. Blue"]))) AS $0`,
   )
   expect(await plan.execute(db).toArray()).toEqual([
     { "$0": { name: "fluffy" } },
@@ -407,7 +409,7 @@ Deno.test("QueryBuilder .not()", async () => {
     .select({ name: (t) => t.column("cats", "name") })
     .plan()
   expect(plan.describe()).toEqual(
-    `Select(name AS name, Filter(TableScan(default.cats), NOT(Compare(name = "fluffy"))))`,
+    `Select(name AS name, Filter(TableScan(default.cats), NOT(Compare(name = "fluffy")))) AS $0`,
   )
   expect(await plan.execute(db).toArray()).toEqual([
     { "$0": { name: "mittens" } },
@@ -468,8 +470,6 @@ Deno.test("QueryBuilder .aggregate()", async () => {
   >()
 })
 
-type foo = Extract<number, string>
-
 Deno.test("QueryBuilder subqueries", async () => {
   const { db } = await init()
   const query = dbSchema.query()
@@ -487,7 +487,7 @@ Deno.test("QueryBuilder subqueries", async () => {
     })
   const plan = query.plan()
   expect(plan.describe()).toEqual(
-    "Select(firstName AS name, Subquery(Aggregate(Filter(TableScan(default.catOwners), Compare(ownerId = id)), MultiAggregation(count: COUNT(*)))) AS numCats, TableScan(default.humans))",
+    "Select(firstName AS name, Subquery(Aggregate(Filter(TableScan(default.catOwners), Compare(ownerId = id)), MultiAggregation(count: COUNT(*)))) AS numCats, TableScan(default.humans)) AS $0",
   )
   const data = await plan.execute(db).toArray()
   expect(data).toEqual([
@@ -611,4 +611,49 @@ Deno.test("QueryBuilder .groupBy", async () => {
       }>
     >
   >()
+})
+
+Deno.test("Even more stuff", async () => {
+  const db = await PaulDB.inMemory()
+  const dbSchema = s.db().withTables(
+    s.table("products").with(
+      s.column("id", "serial"),
+      s.column("name", s.type.string()),
+      s.column("category", s.type.string()),
+      s.column("color", s.type.string()),
+      s.column("price", s.type.float()),
+    ),
+  )
+  const model = await db.dbFile.getDBModel(dbSchema)
+
+  await model.products.insertMany([
+    { name: "apple", category: "fruit", color: "red", price: 1.0 },
+    { name: "tomato", category: "fruit", color: "red", price: 0.75 },
+    { name: "lettuce", category: "veg", color: "green", price: 0.75 },
+    // the below are all have price less than or equal to 0.5, the above not.
+    { name: "cherry", category: "fruit", color: "red", price: 0.5 },
+    { name: "banana", category: "fruit", color: "yellow", price: 0.5 },
+    { name: "carrot", category: "veg", color: "orange", price: 0.25 },
+    { name: "cucumber", category: "veg", color: "green", price: 0.5 },
+    { name: "potato", category: "veg", color: "brown", price: 0.25 },
+  ])
+
+  const selectedQuery = dbSchema.query()
+    .from("products")
+    .where((t) => t.column("products.price").gt(0.5))
+    .select({
+      category: (t) => t.column("products.category"),
+      price: (t) => t.column("products.price"),
+    })
+
+  const aggregatedQuery = selectedQuery.asTable("selected").groupBy({
+    category: (t) => t.column("selected.category"),
+  }).aggregate({
+    totalPrice: (agg, t) => agg.sum(t.column("selected.price")),
+  })
+
+  expect(await db.query(aggregatedQuery).toArray()).toEqual([
+    { category: "fruit", totalPrice: 1.75 },
+    { category: "veg", totalPrice: 0.75 },
+  ])
 })

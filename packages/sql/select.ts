@@ -109,7 +109,7 @@ export async function parseSelect(ast: Select, { dbFile }: PaulDB) {
       parseAggregationColumns(astColumns, schemas),
     )
   } else {
-    let select = new plan.Select(rootPlan, {})
+    let select = new plan.Select(rootPlan, "$0", {})
     for (const astColumn of astColumns) {
       if (isColumnRefItem(astColumn.expr) && astColumn.expr.column === "*") {
         const schemaEntries = Object.entries(schemas)
