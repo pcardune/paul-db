@@ -18,6 +18,7 @@ import { PaulDB, s } from "../mod.ts"
 import { ColumnTypes } from "../schema/columns/ColumnType.ts"
 import { assertTrue, TypeEquals } from "../testing.ts"
 import { ColumnNames, SchemasForTQB, TQBTableNames } from "./QueryBuilder.ts"
+import { Simplify } from "type-fest"
 
 const dbSchema = s.db().withTables(
   s.table("humans").with(
@@ -171,6 +172,7 @@ Deno.test("QueryPlanNode Aggregates", async () => {
       count: new CountAggregation(),
       max: new MaxAggregation(new ColumnRefExpr(ageCol, "cats")),
     }),
+    "$0",
   )
   expect(await plan.execute(db).toArray()).toEqual([
     { "$0": { count: 2, max: 5 } },
@@ -270,9 +272,10 @@ Deno.test("QueryPlanNode GroupBy", async () => {
         ),
       ),
     }),
+    "$0",
   )
   expect(plan.describe()).toEqual(
-    "GroupBy(TableScan(default.products), category: category, color: color, MultiAggregation(count: COUNT(*), maxPrice: MAX(price)))",
+    "GroupBy(TableScan(default.products), category: category, color: color, MultiAggregation(count: COUNT(*), maxPrice: MAX(price))) AS $0",
   )
   const results = await plan.execute(db).toArray()
   expect(results).toEqual(
@@ -438,7 +441,7 @@ Deno.test("QueryBuilder .aggregate()", async () => {
     .plan()
 
   expect(plan.describe()).toEqual(
-    "Aggregate(TableScan(default.cats), MultiAggregation(count: COUNT(*), maxAge: MAX(age), maxName: MAX(name), minName: MIN(name), totalAge: SUM(age)))",
+    "Aggregate(TableScan(default.cats), MultiAggregation(count: COUNT(*), maxAge: MAX(age), maxName: MAX(name), minName: MIN(name), totalAge: SUM(age))) AS $0",
   )
   const data = await plan.execute(db).toArray()
   expect(data).toEqual([
@@ -487,7 +490,7 @@ Deno.test("QueryBuilder subqueries", async () => {
     })
   const plan = query.plan()
   expect(plan.describe()).toEqual(
-    "Select(firstName AS name, Subquery(Aggregate(Filter(TableScan(default.catOwners), Compare(ownerId = id)), MultiAggregation(count: COUNT(*)))) AS numCats, TableScan(default.humans)) AS $0",
+    "Select(firstName AS name, Subquery(Aggregate(Filter(TableScan(default.catOwners), Compare(ownerId = id)), MultiAggregation(count: COUNT(*))) AS $0) AS numCats, TableScan(default.humans)) AS $0",
   )
   const data = await plan.execute(db).toArray()
   expect(data).toEqual([
@@ -502,6 +505,7 @@ Deno.test("QueryBuilder subqueries", async () => {
   >()
   expect(plan.toJSON()).toEqual({
     type: "Select",
+    alias: "$0",
     child: {
       alias: "humans",
       db: "default",
@@ -517,6 +521,7 @@ Deno.test("QueryBuilder subqueries", async () => {
         type: "subquery",
         subplan: {
           type: "Aggregate",
+          alias: "$0",
           aggregation: {
             type: "multi_agg",
             aggregations: {
@@ -588,7 +593,7 @@ Deno.test("QueryBuilder .groupBy", async () => {
     })
 
   expect(query.plan().describe()).toEqual(
-    "GroupBy(TableScan(default.products), category: category, color: color, MultiAggregation(count: COUNT(*), maxPrice: MAX(price)))",
+    "GroupBy(TableScan(default.products), category: category, color: color, MultiAggregation(count: COUNT(*), maxPrice: MAX(price))) AS $0",
   )
 
   const results = await db.query(query).toArray()
@@ -637,6 +642,26 @@ Deno.test("Even more stuff", async () => {
     { name: "cucumber", category: "veg", color: "green", price: 0.5 },
     { name: "potato", category: "veg", color: "brown", price: 0.25 },
   ])
+
+  expect(
+    await db.query(
+      dbSchema.query()
+        .with(
+          (q) =>
+            q.from("products")
+              .where((t) => t.column("products.price").gt(0.5))
+              .select({
+                category: (t) => t.column("products.category"),
+                price: (t) => t.column("products.price"),
+              })
+              .asTable("selected"),
+        )
+        .from("selected")
+        .aggregate({
+          totalPrice: (agg, t) => agg.sum(t.column("selected.price")),
+        }),
+    ).toArray(),
+  ).toEqual([{ totalPrice: 2.50 }])
 
   const selectedQuery = dbSchema.query()
     .from("products")

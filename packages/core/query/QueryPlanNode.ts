@@ -153,8 +153,8 @@ export class TableScan<T extends RowData> extends AbstractQueryPlan<T> {
  * An Aggregate node aggregates the results of the child node based on the given
  * aggregation.
  */
-export class Aggregate<T extends UnknownRecord>
-  extends AbstractQueryPlan<Record<"$0", T>> {
+export class Aggregate<T extends UnknownRecord, AliasT extends string>
+  extends AbstractQueryPlan<Record<AliasT, T>> {
   /**
    * Constructs a new Aggregate node with the given child and aggregation.
    * @param child
@@ -163,6 +163,7 @@ export class Aggregate<T extends UnknownRecord>
   constructor(
     readonly child: IQueryPlanNode,
     readonly aggregation: MultiAggregation<T>,
+    readonly alias: AliasT,
   ) {
     super()
   }
@@ -170,7 +171,7 @@ export class Aggregate<T extends UnknownRecord>
    * Returns a human-readable description of the query plan
    */
   describe(): string {
-    return `Aggregate(${this.child.describe()}, ${this.aggregation.describe()})`
+    return `Aggregate(${this.child.describe()}, ${this.aggregation.describe()}) AS ${this.alias}`
   }
 
   /**
@@ -181,6 +182,7 @@ export class Aggregate<T extends UnknownRecord>
       type: "Aggregate",
       child: this.child.toJSON(),
       aggregation: this.aggregation.toJSON(),
+      alias: this.alias,
     }
   }
   /**
@@ -188,14 +190,14 @@ export class Aggregate<T extends UnknownRecord>
    */
   override async getIter(
     ctx: ExecutionContext,
-  ): Promise<AsyncIterableWrapper<Record<"$0", T>>> {
+  ): Promise<AsyncIterableWrapper<Record<AliasT, T>>> {
     const aggregation = this.aggregation
     let accumulator: T | undefined = undefined
     for await (const row of this.child.execute(ctx)) {
       accumulator = await aggregation.update(accumulator, ctx.withRowData(row))
     }
     return new AsyncIterableWrapper([
-      { "$0": accumulator as T },
+      { [this.alias]: accumulator as T } as Record<AliasT, T>,
     ])
   }
 }
@@ -266,20 +268,22 @@ export class GroupBy<
   GroupKey extends UnknownRecord = UnknownRecord,
   AggregateT extends UnknownRecord = UnknownRecord,
   RowDataT extends RowData = RowData,
+  AliasT extends string = string,
 > extends AbstractQueryPlan<
-  Record<"$0", GroupKey & AggregateT>
+  Record<AliasT, GroupKey & AggregateT>
 > {
   constructor(
     readonly child: IQueryPlanNode<RowDataT>,
     readonly groupByExpr: { [Key in keyof GroupKey]: Expr<GroupKey[Key]> },
     readonly aggregation: MultiAggregation<AggregateT>,
+    readonly alias: AliasT,
   ) {
     super()
   }
   override getIter(
     ctx: ExecutionContext,
   ): AsyncIterableWrapper<
-    Record<"$0", GroupKey & AggregateT>
+    Record<AliasT, GroupKey & AggregateT>
   > {
     const childIter = this.child.execute(ctx)
     const groupByExpr = this.groupByExpr
@@ -298,6 +302,7 @@ export class GroupBy<
       },
     })
     const aggregation = this.aggregation
+    const alias = this.alias
     return new AsyncIterableWrapper(async function* () {
       for await (const row of childIter) {
         const groupKey = {} as GroupKey
@@ -321,7 +326,10 @@ export class GroupBy<
         }
       }
       for (const { groupKey, accumulator } of groups) {
-        yield { "$0": { ...groupKey, ...accumulator } }
+        yield { [alias]: { ...groupKey, ...accumulator } } as Record<
+          AliasT,
+          GroupKey & AggregateT
+        >
       }
     })
   }
@@ -331,7 +339,7 @@ export class GroupBy<
       Object.entries(this.groupByExpr).map(([key, value]) =>
         `${key}: ${value.describe()}`
       ).join(", ")
-    }, ${this.aggregation.describe()})`
+    }, ${this.aggregation.describe()}) AS ${this.alias}`
   }
 
   override toJSON(): Json {
@@ -344,6 +352,7 @@ export class GroupBy<
         ) => [key, value.toJSON()]),
       ),
       aggregation: this.aggregation.toJSON(),
+      alias: this.alias,
     }
   }
 }
@@ -414,6 +423,7 @@ export class Select<Alias extends string, T extends UnknownRecord>
           [key, value],
         ) => [key, value.toJSON()]),
       ),
+      alias: this.alias,
     }
   }
 }

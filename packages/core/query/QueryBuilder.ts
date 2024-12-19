@@ -21,12 +21,18 @@ import {
   OrderBy,
   TableScan,
 } from "./QueryPlanNode.ts"
-import type { EmptyObject, NonEmptyTuple, TupleToUnion } from "type-fest"
+import type {
+  EmptyObject,
+  NonEmptyTuple,
+  Simplify,
+  TupleToUnion,
+} from "type-fest"
 import { ColumnType } from "../schema/columns/ColumnType.ts"
 import { Json } from "../types.ts"
 import { column } from "../schema/columns/ColumnBuilder.ts"
+import { Aggregation } from "./Aggregation.ts"
 
-interface IQueryableDBSchema<
+export interface IQueryableDBSchema<
   DBNameT extends string = string,
   SchemasT extends Record<string, ISchema> = Record<string, ISchema>,
 > {
@@ -52,7 +58,11 @@ export class QueryBuilder<
   /**
    * Constructs a new query builder from the given schema.
    */
-  constructor(readonly dbSchema: DBSchemaT) {}
+  constructor(
+    readonly dbSchema: DBSchemaT,
+    private tableExpressions: Record<string, TableQueryBuilder> = {},
+  ) {
+  }
 
   /**
    * Adds a "FROM" clause to the query.
@@ -61,6 +71,22 @@ export class QueryBuilder<
   from<TName extends Extract<keyof DBSchemaT["schemas"], string>>(
     table: TName,
   ): TableQueryBuilder<this, [TName]> {
+    if (this.tableExpressions[table]) {
+      return new TableQueryBuilder(
+        this,
+        [table],
+        table,
+        this.tableExpressions[table].rootPlan as plan.IQueryPlanNode<
+          MultiTableRow<this, [TName]>
+        >,
+        [],
+      )
+    }
+
+    if (this.dbSchema.schemas[table] == null) {
+      throw new Error(`Table ${table} not found in schema`)
+    }
+
     return new TableQueryBuilder(
       this,
       [table],
@@ -73,6 +99,16 @@ export class QueryBuilder<
       this,
       [TName]
     >
+  }
+
+  with<TQB extends TableQueryBuilder<IQB, NonEmptyTuple<string>>>(
+    func: (qb: this) => TQB,
+  ): TQB["queryBuilder"] {
+    const tqb = func(this)
+    return new QueryBuilder(tqb.queryBuilder.dbSchema, {
+      ...this.tableExpressions,
+      [tqb.rootTable]: tqb,
+    })
   }
 }
 
@@ -108,6 +144,13 @@ interface ITQB<
   readonly tableNames: TableNamesT
 }
 
+type MultiTableRow<QB extends IQB, TableNamesT extends NonEmptyTuple<string>> =
+  {
+    [K in TupleToUnion<TableNamesT>]: StoredRecordForTableSchema<
+      QB["dbSchema"]["schemas"][K]
+    >
+  }
+
 /**
  * @ignore
  */
@@ -119,13 +162,7 @@ export class TableQueryBuilder<
     readonly queryBuilder: QB,
     readonly tableNames: TableNamesT,
     readonly rootTable: string,
-    readonly rootPlan: plan.IQueryPlanNode<
-      {
-        [K in TupleToUnion<TableNamesT>]: StoredRecordForTableSchema<
-          QB["dbSchema"]["schemas"][K]
-        >
-      }
-    >,
+    readonly rootPlan: plan.IQueryPlanNode<MultiTableRow<QB, TableNamesT>>,
     // TODO: surey this is a nasty type to figure out.
     private joinPredicates: Array<
       [string, (e: ExprBuilder<ITQB, never>) => ExprBuilder<ITQB, boolean>]
@@ -269,7 +306,8 @@ export class TableQueryBuilder<
             this.queryBuilder.dbSchema.name,
             joinTableName,
           ),
-          on(new ExprBuilder(this, new NeverExpr())).expr,
+          on(new ExprBuilder(this, new NeverExpr()) as any /*TODO: FIX THIS */)
+            .expr,
         )
       }
     }
@@ -293,10 +331,22 @@ export class TableQueryBuilder<
   }
 }
 
+type SelectConfig = Record<string, ExprBuilder>
+type SelectColumns<SelectT extends SelectConfig> = Simplify<
+  {
+    [K in Extract<keyof SelectT, string>]: Column.Stored.Any<
+      K,
+      ExprType<SelectT[K]>
+    >
+  }
+>
+type SelectSchema<NewAlias extends string, SelectT extends SelectConfig> =
+  Simplify<ISchema<NewAlias, SelectColumns<SelectT>>>
+
 class SelectBuilder<
   TQB extends ITQB = ITQB,
   AliasT extends string = string,
-  SelectT extends Record<string, ExprBuilder> = Record<string, ExprBuilder>,
+  SelectT extends SelectConfig = SelectConfig,
 > {
   constructor(
     readonly tqb: TQB,
@@ -308,15 +358,7 @@ class SelectBuilder<
     QueryBuilder<
       IAugmentedDBSchema<
         TQB["queryBuilder"]["dbSchema"],
-        ISchema<
-          NewAlias,
-          {
-            [K in Extract<keyof SelectT, string>]: Column.Stored.Any<
-              K,
-              ExprType<SelectT[K]>
-            >
-          }
-        >
+        SelectSchema<NewAlias, SelectT>
       >
     >,
     [NewAlias]
@@ -327,25 +369,12 @@ class SelectBuilder<
         Object.entries(this.select).map((
           [key, value],
         ) => [key, column(key, value.expr.getType())]),
-      ) as unknown as {
-        [K in Extract<keyof SelectT, string>]: Column.Stored.Any<
-          K,
-          ExprType<SelectT[K]>
-        >
-      },
+      ) as unknown as SelectSchema<NewAlias, SelectT>["columnsByName"],
     }
 
     const newDBSchema: IAugmentedDBSchema<
       TQB["queryBuilder"]["dbSchema"],
-      ISchema<
-        NewAlias,
-        {
-          [K in Extract<keyof SelectT, string>]: Column.Stored.Any<
-            K,
-            ExprType<SelectT[K]>
-          >
-        }
-      >
+      SelectSchema<NewAlias, SelectT>
     > = augmentDbSchema(this.tqb.queryBuilder.dbSchema, newSchema)
     const newTQB = new TableQueryBuilder(
       new QueryBuilder(newDBSchema),
@@ -430,38 +459,78 @@ class AggregationFuncs<TQB extends ITQB = ITQB> {
   }
 }
 
+type AggConfig = Record<string, plan.Aggregation<any>>
+type AggregatedRecord<AggT extends AggConfig> = {
+  [Key in keyof AggT]: AggT[Key] extends plan.Aggregation<infer T> ? T
+    : never
+}
+type AggregatedColumns<AggT extends AggConfig> = {
+  [K in Extract<keyof AggT, string>]: Column.Stored.Any<
+    K,
+    AggregationType<AggT[K]>
+  >
+}
+type AggregatedSchema<Name extends string, AggT extends AggConfig> = ISchema<
+  Name,
+  AggregatedColumns<AggT>
+>
+
 class AggregateBuilder<
   TQB extends ITQB = ITQB,
-  AggT extends Record<string, plan.Aggregation<any>> = Record<
-    string,
-    plan.Aggregation<any>
-  >,
-> {
+  AggT extends AggConfig = AggConfig,
+> implements IPlanBuilder<Record<"$0", AggregatedRecord<AggT>>> {
   constructor(readonly tqb: TQB, readonly aggregations: AggT) {}
 
-  plan(): IQueryPlanNode<
-    Record<
-      "$0",
-      {
-        [Key in keyof AggT]: AggT[Key] extends plan.Aggregation<infer T> ? T
-          : never
-      }
-    >
+  asTable<NewAlias extends string>(newAlias: NewAlias): TableQueryBuilder<
+    QueryBuilder<
+      IAugmentedDBSchema<
+        TQB["queryBuilder"]["dbSchema"],
+        AggregatedSchema<NewAlias, AggT>
+      >
+    >,
+    [NewAlias]
   > {
+    const newSchema = {
+      name: newAlias,
+      columnsByName: Object.fromEntries(
+        Object.entries(this.aggregations).map((
+          [key, value],
+        ) => [key, column(key, value.getType())]),
+      ) as unknown as AggregatedColumns<AggT>,
+    }
+
+    const newDBSchema: IAugmentedDBSchema<
+      TQB["queryBuilder"]["dbSchema"],
+      AggregatedSchema<NewAlias, AggT>
+    > = augmentDbSchema(this.tqb.queryBuilder.dbSchema, newSchema)
+    const newTQB = new TableQueryBuilder(
+      new QueryBuilder(newDBSchema),
+      [newSchema.name],
+      newAlias,
+      new plan.Aggregate(
+        this.tqb.plan(),
+        new MultiAggregation(this.aggregations),
+        newAlias,
+      ) as any, // TODO: fix this
+      [],
+    )
+
+    return newTQB
+  }
+
+  plan(): IQueryPlanNode<Record<"$0", AggregatedRecord<AggT>>> {
     return new plan.Aggregate(
       this.tqb.plan(),
       new MultiAggregation(this.aggregations),
+      "$0",
     ) as any // TODO: fix this
   }
 }
 
 class GroupByBuilder<
   TQB extends ITQB = ITQB,
-  GroupKeyT extends Record<string, ExprBuilder> = Record<string, ExprBuilder>,
-  AggT extends Record<string, plan.Aggregation<any>> = Record<
-    string,
-    plan.Aggregation<any>
-  >,
+  GroupKeyT extends SelectConfig = SelectConfig,
+  AggT extends AggConfig = AggConfig,
 > {
   constructor(
     readonly tqb: TQB,
@@ -469,7 +538,7 @@ class GroupByBuilder<
     readonly aggregations: AggT,
   ) {}
 
-  aggregate<AggregateT extends Record<string, plan.Aggregation<any>>>(
+  aggregate<AggregateT extends AggConfig>(
     aggregations: {
       [K in keyof AggregateT]: (
         aggFuncs: AggregationFuncs<TQB>,
@@ -497,6 +566,73 @@ class GroupByBuilder<
     )
   }
 
+  asTable<NewAlias extends string>(newAlias: NewAlias): TableQueryBuilder<
+    QueryBuilder<
+      IAugmentedDBSchema<
+        TQB["queryBuilder"]["dbSchema"],
+        ISchema<NewAlias, SelectColumns<GroupKeyT> & AggregatedColumns<AggT>>
+      >
+    >,
+    [NewAlias]
+  > {
+    const selectSchema = {
+      name: newAlias,
+      columnsByName: Object.fromEntries(
+        Object.entries(this.groupKey).map((
+          [key, value],
+        ) => [key, column(key, value.expr.getType())]),
+      ) as unknown as SelectColumns<GroupKeyT>,
+    }
+
+    const aggSchema = {
+      name: newAlias,
+      columnsByName: Object.fromEntries(
+        Object.entries(this.aggregations).map((
+          [key, value],
+        ) => [key, column(key, value.getType())]),
+      ) as unknown as AggregatedColumns<AggT>,
+    }
+
+    const newSchema = {
+      name: newAlias,
+      columnsByName: {
+        ...selectSchema.columnsByName,
+        ...aggSchema.columnsByName,
+      } as SelectColumns<GroupKeyT> & AggregatedColumns<AggT>,
+    }
+
+    const newDBSchema: IAugmentedDBSchema<
+      TQB["queryBuilder"]["dbSchema"],
+      SelectSchema<NewAlias, GroupKeyT>
+    > = augmentDbSchema(this.tqb.queryBuilder.dbSchema, newSchema)
+    const newTQB = new TableQueryBuilder(
+      new QueryBuilder(newDBSchema),
+      [newSchema.name],
+      newAlias,
+      new plan.GroupBy(
+        this.tqb.plan(),
+        Object.fromEntries(
+          Object.entries(this.groupKey).map((
+            [key, valueExpr],
+          ) => [key, valueExpr.expr]),
+        ),
+        new MultiAggregation(this.aggregations),
+        newAlias,
+      ) as any,
+      [],
+    )
+
+    return newTQB as TableQueryBuilder<
+      QueryBuilder<
+        IAugmentedDBSchema<
+          TQB["queryBuilder"]["dbSchema"],
+          ISchema<NewAlias, SelectColumns<GroupKeyT> & AggregatedColumns<AggT>>
+        >
+      >,
+      [NewAlias]
+    >
+  }
+
   plan(): IQueryPlanNode<
     Record<
       "$0",
@@ -518,6 +654,7 @@ class GroupByBuilder<
         ) => [key, valueExpr.expr]),
       ),
       new MultiAggregation(this.aggregations),
+      "$0",
     ) as any // TODO: fix this
   }
 }
@@ -538,6 +675,9 @@ export type ColumnWithName<
   SchemaName extends keyof SchemasForTQB<TQB>,
   CName extends ColumnNames<TQB, SchemaName>,
 > = SchemasForTQB<TQB>[SchemaName]["columnsByName"][CName]
+
+type AggregationType<T extends Aggregation<any>> = T extends
+  Aggregation<infer T> ? T : never
 
 type ExprType<T extends ExprBuilder> = T extends ExprBuilder<infer TQB, infer T>
   ? T

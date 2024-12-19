@@ -9,7 +9,7 @@ export function parseAggregationColumns(
   astColumns: SQLParser.Column[],
   schemas: Record<string, schema.SomeTableSchema>,
 ) {
-  let multiAgg = new plan.MultiAggregation({})
+  const aggregations: { [key: string]: plan.Aggregation<any> } = {}
   for (const astColumn of astColumns) {
     let colName: string | null = null
     if (astColumn.as != null) {
@@ -26,23 +26,14 @@ export function parseAggregationColumns(
       if (exprAst.name === "MAX") {
         const expr = parseExpr(schemas, exprAst.args.expr)
         const aggregation = new plan.MaxAggregation(expr)
-        multiAgg = multiAgg.withAggregation(
-          colName ?? aggregation.describe(),
-          aggregation,
-        )
+        aggregations[colName ?? aggregation.describe()] = aggregation
       } else if (exprAst.name === "COUNT") {
         const aggregation = new plan.CountAggregation()
-        multiAgg = multiAgg.withAggregation(
-          colName ?? aggregation.describe(),
-          aggregation,
-        )
+        aggregations[colName ?? aggregation.describe()] = aggregation
       } else if (exprAst.name === "ARRAY_AGG") {
         const expr = parseExpr(schemas, exprAst.args.expr)
         const aggregation = new plan.ArrayAggregation(expr)
-        multiAgg = multiAgg.withAggregation(
-          colName ?? aggregation.describe(),
-          aggregation,
-        )
+        aggregations[colName ?? aggregation.describe()] = aggregation
       } else {
         throw new NotImplementedError(
           `Aggregate function ${exprAst.name} not supported: ${
@@ -89,10 +80,7 @@ export function parseAggregationColumns(
         const aggregation = new plan.ArrayAggregation(
           parseExpr(schemas, exprAst.args.value[0]),
         )
-        multiAgg = multiAgg.withAggregation(
-          colName ?? aggregation.describe(),
-          aggregation,
-        )
+        aggregations[colName ?? aggregation.describe()] = aggregation
       }
     } else {
       throw new NotImplementedError(
@@ -102,5 +90,5 @@ export function parseAggregationColumns(
       )
     }
   }
-  return multiAgg
+  return new plan.MultiAggregation(aggregations)
 }

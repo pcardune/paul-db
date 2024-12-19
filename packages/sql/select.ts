@@ -107,6 +107,7 @@ export async function parseSelect(ast: Select, { dbFile }: PaulDB) {
     rootPlan = new plan.Aggregate(
       rootPlan,
       parseAggregationColumns(astColumns, schemas),
+      "$0",
     )
   } else {
     let select = new plan.Select(rootPlan, "$0", {})

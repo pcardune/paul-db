@@ -1,3 +1,4 @@
+import { ColumnType, ColumnTypes } from "../schema/columns/ColumnType.ts"
 import { Json } from "../types.ts"
 import type { ExecutionContext, Expr } from "./QueryPlanNode.ts"
 import type { Promisable, UnknownRecord } from "type-fest"
@@ -19,6 +20,11 @@ export interface Aggregation<AccT> {
    * Generates a json representation of the aggregation.
    */
   toJSON(): Json
+
+  /**
+   * Get the column type of the aggregation.
+   */
+  getType(): ColumnType<AccT>
 }
 
 abstract class ExprAggregation<AccT> implements Aggregation<AccT> {
@@ -58,6 +64,10 @@ abstract class ExprAggregation<AccT> implements Aggregation<AccT> {
   toJSON(): Json {
     return { type: this.type, expr: this.expr.toJSON() }
   }
+
+  getType(): ColumnType<AccT> {
+    return this.expr.getType()
+  }
 }
 
 /**
@@ -85,6 +95,10 @@ export class CountAggregation implements Aggregation<number> {
    */
   toJSON(): Json {
     return { type: "count" }
+  }
+
+  getType(): ColumnType<number> {
+    return ColumnTypes.int32()
   }
 }
 
@@ -184,6 +198,10 @@ export class ArrayAggregation<T> implements Aggregation<T[]> {
   toJSON(): Json {
     return { type: "array_agg", expr: this.expr.toJSON() }
   }
+
+  getType(): ColumnType<T[]> {
+    return this.expr.getType().array()
+  }
 }
 
 /**
@@ -217,6 +235,9 @@ export class MultiAggregation<T extends UnknownRecord>
    */
   constructor(readonly aggregations: { [K in keyof T]: Aggregation<T[K]> }) {}
 
+  getType(): ColumnType<T> {
+    throw new Error("Record column types are not implemented yet")
+  }
   /**
    * Updates the accumulator with the values from the context.
    */
@@ -231,22 +252,6 @@ export class MultiAggregation<T extends UnknownRecord>
       )
     }
     return accumulator
-  }
-
-  /**
-   * Creates a new MultiAggregation with an additional aggregation.
-   *
-   * @param name name of the aggregation
-   * @param aggr the aggregation to add
-   */
-  withAggregation<CName extends string, ValueT>(
-    name: CName,
-    aggr: Aggregation<ValueT>,
-  ): MultiAggregation<T & { [name in CName]: ValueT }> {
-    return new MultiAggregation({
-      ...this.aggregations,
-      [name]: aggr,
-    }) as MultiAggregation<T & { [name in CName]: ValueT }>
   }
 
   /**
