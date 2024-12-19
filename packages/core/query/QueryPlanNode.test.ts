@@ -14,11 +14,10 @@ import {
   Select,
   TableScan,
 } from "./QueryPlanNode.ts"
-import { PaulDB, s } from "../mod.ts"
+import { PaulDB, schema as s } from "../exports/mod.ts"
 import { ColumnTypes } from "../schema/columns/ColumnType.ts"
 import { assertTrue, TypeEquals } from "../testing.ts"
 import { ColumnNames, SchemasForTQB, TQBTableNames } from "./QueryBuilder.ts"
-import { Simplify } from "type-fest"
 
 const dbSchema = s.db().withTables(
   s.table("humans").with(

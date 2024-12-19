@@ -6,7 +6,8 @@
     "@cliffy/prompt": "jsr:@cliffy/prompt@^1.0.0-rc.7",
     "@commander-js/extra-typings": "npm:@commander-js/extra-typings@12.1.0",
     "@std/assert": "jsr:@std/assert@1",
-    "@std/fs": "jsr:@std/fs@^1.0.6"
+    "@std/fs": "jsr:@std/fs@^1.0.6",
+    "node-sql-parser": "npm:node-sql-parser@^5.3.5"
   },
   "fmt": {
     "semiColons": false

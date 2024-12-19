@@ -9,7 +9,6 @@ import { PaulDB } from "@paul-db/core"
 import { SQLExecutor } from "@paul-db/sql"
 
 const db = await PaulDB.inMemory()
-const db = PaulDB.inMemory()
 const executor = new SQLExecutor(db)
 await executor.execute("CREATE TABLE test (id INT, name TEXT)")
 await executor.execute("INSERT INTO test (id, name) VALUES (1, 'Alice')")

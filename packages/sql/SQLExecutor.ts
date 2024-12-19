@@ -41,10 +41,9 @@ export class SQLExecutor {
    *
    * @returns The result of the SQL command
    *
-   * @example
-   *
    * ```ts
-   * const db = PaulDB.inMemory()
+   * import {PaulDB} from "@paul-db/core"
+   * const db = await PaulDB.inMemory()
    * const executor = new SQLExecutor(db)
    * await executor.execute("CREATE TABLE test (id INT, name TEXT)")
    * await executor.execute("INSERT INTO test (id, name) VALUES (1, 'Alice')")
@@ -68,7 +67,7 @@ export class SQLExecutor {
   /**
    * @ignore
    */
-  private async handleAST(ast: SQLParser.TableColumnAst) {
+  async handleAST(ast: SQLParser.TableColumnAst) {
     const commands = Array.isArray(ast.ast) ? ast.ast : [ast.ast]
 
     const results = []

@@ -13,9 +13,6 @@ export { column, computedColumn } from "../schema/columns/ColumnBuilder.ts"
  */
 export { create as table } from "../schema/TableSchema.ts"
 
-/**
- * Create an empty database schema.
- */
 export { create as db } from "../schema/DBSchema.ts"
 
 export type {

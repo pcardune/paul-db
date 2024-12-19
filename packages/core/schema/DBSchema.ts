@@ -45,6 +45,25 @@ export class DBSchema<
     return new DBSchema(name ?? "default", {})
   }
 
+  /**
+   * Add tables to the database schema.
+   * This will return a new database schema with the aditional tables
+   * you provide.
+   *
+   * ```ts
+   * import {schema as s} from "@paul-db/core"
+   * const appDBSchema = s.db().withTables(
+   *  s.table("users").with(
+   *   s.column("id", s.type.serial()),
+   *   s.column("name", s.type.string()),
+   *  ),
+   *  s.table("posts").with(
+   *    s.column("id", s.type.serial()),
+   *    s.column("title", s.type.string()),
+   *  ),
+   * )
+   * ```
+   */
   withTables<TableSchemasT extends NonEmptyTuple<SomeTableSchema>>(
     ...tables: TableSchemasT
   ): DBSchema<DBName, Simplify<SchemasT & SchemaMap<TableSchemasT>>> {
@@ -55,13 +74,56 @@ export class DBSchema<
     >
   }
 
+  /**
+   * Creates a QueryBuilder instance based on this schema.
+   *
+   * ```ts
+   * import {dbSchema} from "@paul-db/core/examples"
+   * const numRecentlyLoggedInUsersQuery = dbSchema.query()
+   *   .from("users")
+   *   .where(
+   *     (t) => t.column("users.lastLogin")
+   *       .gt(new Date(Date.now() - 1000 * 60 * 60 * 24))
+   *   )
+   *   .aggregate({ count: (agg) => agg.count() })
+   * ```
+   */
   query(): QueryBuilder<this> {
     return new QueryBuilder(this)
   }
 }
 
 /**
- * Create a new database schema for a database named "default"
+ * Create a new database schema for the default database.
+ *
+ * ```ts
+ * import {schema as s} from "@paul-db/core"
+ * const appDBSchema = s.db().withTables(
+ *   s.table("users").with(
+ *     s.column("id", s.type.serial()),
+ *     s.column("name", s.type.string()),
+ *   ),
+ *   s.table("posts").with(
+ *    s.column("id", s.type.serial()),
+ *    s.column("title", s.type.string()),
+ *    s.column("content", s.type.string()),
+ *   ),
+ * )
+ * ```
+ *
+ * You can optionally pass in a name for the database in case you
+ * have multiple databases in your application.
+ *
+ * ```ts
+ * import {schema as s} from "@paul-db/core"
+ * const analyticsDBSchema = s.db("analytics").withTables(
+ *   s.table("events").with(
+ *     s.column("timestamp", s.type.timestamp()),
+ *     s.column("type", s.type.string()),
+ *     s.column("data", s.type.json()),
+ *   ),
+ * )
+ * ```
  */
 export function create(): DBSchema<"default", EmptyObject>
 /**
@@ -72,6 +134,16 @@ export function create(): DBSchema<"default", EmptyObject>
 export function create(name: typeof SYSTEM_DB): never
 /**
  * Create a new database schema for a database with a custom name
+ * ```ts
+ * import {schema as s} from "@paul-db/core"
+ * const myDB = s.db("analytics").withTables(
+ *   s.table("events").with(
+ *     s.column("timestamp", s.type.timestamp()),
+ *     s.column("type", s.type.string()),
+ *     s.column("data", s.type.json()),
+ *   )
+ * )
+ * ```
  */
 export function create<DBName extends string>(
   name: DBName,

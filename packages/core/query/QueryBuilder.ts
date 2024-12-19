@@ -65,8 +65,15 @@ export class QueryBuilder<
   }
 
   /**
-   * Adds a "FROM" clause to the query.
-   * @param table The table to query from
+   * Query a particular table in the database. This is roughly
+   * equivalent to the `FROM` clause in SQL.
+   *
+   * For example, to query the `users` table in the database:
+   *
+   * ```ts
+   * import {dbSchema} from "@paul-db/core/examples"
+   * dbSchema.query().from("users")
+   * ```
    */
   from<TName extends Extract<keyof DBSchemaT["schemas"], string>>(
     table: TName,
@@ -169,6 +176,25 @@ export class TableQueryBuilder<
     > = [],
   ) {}
 
+  /**
+   * Joins the table with another table in the database. This is roughly
+   * equivalent to the `JOIN` clause in SQL. When two tables are joined,
+   * you can select columns from both tables in the query.
+   *
+   * For example, to join the `users` table with the `posts` table wherever
+   * the `users.id` column is equal to the `posts.authorId` column:
+   *
+   * ```ts
+   * import {dbSchema} from "@paul-db/core/examples"
+   * dbSchema.query()
+   *   .from("users")
+   *   .join("posts", (t) => t.column("users.id").eq(t.column("posts.authorId")))
+   *   .select({
+   *     postTitle: (t) => t.column("posts.title"),
+   *     authorName: (t) => t.column("users.name"),
+   *   })
+   * ```
+   */
   join<JoinTableNameT extends QBTableNames<QB>>(
     table: JoinTableNameT,
     on: (
@@ -189,6 +215,20 @@ export class TableQueryBuilder<
 
   private whereClause: ExprBuilder<ITQB<QB, TableNamesT>, boolean> | undefined
 
+  /**
+   * Filters the rows in the table using the given expression.
+   * This is roughly equivalent to the `WHERE` clause in SQL.
+   *
+   * For example, to find the user row with the username "pcardune",
+   * you could write:
+   *
+   * ```ts
+   * import {dbSchema} from "@paul-db/core/examples"
+   * dbSchema.query()
+   *   .from("users")
+   *   .where((t) => t.column("users.username").eq("pcardune"))
+   * ```
+   */
   where(
     func: (
       tqb: ExprBuilder<ITQB<QB, TableNamesT>, never>,
@@ -199,6 +239,23 @@ export class TableQueryBuilder<
   }
 
   private limitClause: number | undefined
+
+  /**
+   * Limits the number of rows returned by the query, similar to the
+   * `LIMIT` clause in SQL. This is typically used in conjunction with
+   * `orderBy`.
+   *
+   * For example, to get the first 10 posts by a certain author:
+   *
+   * ```ts
+   * import {dbSchema} from "@paul-db/core/examples"
+   * dbSchema.query()
+   *  .from("posts")
+   *  .where((t) => t.column("posts.authorId").eq(123))
+   *  .orderBy((t) => t.column("posts.createdAt"), "DESC")
+   *  .limit(10)
+   * ```
+   */
   limit(limit: number): this {
     this.limitClause = limit
     return this
@@ -208,6 +265,22 @@ export class TableQueryBuilder<
     expr: ExprBuilder<ITQB<QB, TableNamesT>, any>
     order: "ASC" | "DESC"
   }[] = []
+
+  /**
+   * Orders the rows in the table by the given expression. This can
+   * be used multiple times to order by multiple columns. The `order`
+   * parameter specifies whether to order in ascending or descending.
+   *
+   * For example, to order the posts by the `createdAt` column in
+   * descending order:
+   *
+   * ```ts
+   * import {dbSchema} from "@paul-db/core/examples"
+   * dbSchema.query()
+   *   .from("posts")
+   *   .orderBy((t) => t.column("posts.createdAt"), "DESC")
+   * ```
+   */
   orderBy(
     func: (tqb: ExprBuilder<this, never>) => ExprBuilder<this, any>,
     order: "ASC" | "DESC",
@@ -219,6 +292,23 @@ export class TableQueryBuilder<
     return this
   }
 
+  /**
+   * Select columns from the table. This is roughly equivalent to the
+   * `SELECT` clause in SQL.
+   *
+   * For example, to select the `name` and `username` columns from the
+   * `users` table:
+   *
+   * ```ts
+   * import {dbSchema} from "@paul-db/core/examples"
+   * dbSchema.query()
+   *   .from("users")
+   *   .select({
+   *     name: (t) => t.column("users.name"),
+   *     username: (t) => t.column("users.username"),
+   *   })
+   * ```
+   */
   select<
     SelectT extends Record<string, ExprBuilder<ITQB<QB, TableNamesT>, any>>,
   >(
@@ -237,6 +327,28 @@ export class TableQueryBuilder<
     return new SelectBuilder(this, "$0", mapped)
   }
 
+  /**
+   * Groups the rows in the table by the given key. This is roughly
+   * equivalent to the `GROUP BY` clause in SQL. This is typically used
+   * in conjunction with `aggregate`.
+   *
+   * For example, to count the number of posts by each author, along with
+   * the author's highest post rating:
+   * ```ts
+   * import {dbSchema} from "@paul-db/core/examples"
+   * dbSchema.query()
+   *   .from("posts")
+   *   .groupBy({
+   *     authorId: (t) => t.column("posts.authorId"),
+   *   })
+   *   .aggregate({
+   *     count: (agg, t) => agg.count(),
+   *     highestRating: (agg, t) => agg.max(t.column("posts.rating")),
+   *   })
+   * ```
+   * When queries, this will return rows of {authorId: string, count: number}.
+   * Unlike in SQL, the group by keys are automatically included in the output.
+   */
   groupBy<
     GroupKeyT extends Record<string, ExprBuilder<ITQB<QB, TableNamesT>, any>>,
   >(
@@ -257,6 +369,20 @@ export class TableQueryBuilder<
     )
   }
 
+  /**
+   * Aggregates the rows in the table. This is roughly equivalent to the
+   * `SELECT` clause in SQL, but for aggregate functions.
+   *
+   * For example, to get the highest rating of all posts:
+   * ```ts
+   * import {dbSchema} from "@paul-db/core/examples"
+   * dbSchema.query()
+   *   .from("posts")
+   *   .aggregate({
+   *     count: (agg, t) => agg.max(t.column("posts.rating")),
+   *   })
+   * ```
+   */
   aggregate<
     AggregateT extends Record<string, plan.Aggregation<any>>, // TODO: fix this any
   >(
@@ -538,6 +664,36 @@ class GroupByBuilder<
     readonly aggregations: AggT,
   ) {}
 
+  /**
+   * Aggregates across grouped rows.
+   *
+   * For example, to count the number of posts by each author, along with
+   * the author's highest post rating:
+   *
+   * ```ts
+   * import {type Query} from "@paul-db/core/types"
+   * import {dbSchema} from "@paul-db/core/examples"
+   *
+   * type AuthorStats = {
+   *   authorId: number,
+   *   numPosts: number,
+   *   highestRating: number,
+   * }
+   *
+   * const authorStatsQuery: Query<AuthorStats> = dbSchema.query()
+   *   .from("posts")
+   *   .groupBy({
+   *     authorId: (t) => t.column("posts.authorId"),
+   *   })
+   *   .aggregate({
+   *     numPosts: (agg) => agg.count(),
+   *     highestRating: (agg, t) => agg.max(t.column("posts.rating")),
+   *   })
+   * ```
+   *
+   * When queried, this will return rows of {authorId: string, count: number, highestRating: number}.
+   * Unlike in SQL, the group by keys are automatically included in the output.
+   */
   aggregate<AggregateT extends AggConfig>(
     aggregations: {
       [K in keyof AggregateT]: (

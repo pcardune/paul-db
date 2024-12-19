@@ -73,7 +73,7 @@ const dbSchema = s.db().withTables(
 You can then read and write to the database using a model generated from the
 schema:
 
-```typescript
+```typescript ignore
 const model = await db.getModelForSchema(dbSchema)
 
 const project = await model.projects.insertAndReturn({
@@ -104,7 +104,7 @@ filtering, sorting, table joins, aggregation, and more.
 
 Start by constructing your query:
 
-```typescript
+```typescript ignore
 const allIncompleteTodosQuery = dbSchema.query()
   .from("todos")
   .join(
@@ -123,7 +123,7 @@ const allIncompleteTodosQuery = dbSchema.query()
 Next, you can execute the query to get the results in the form of an async
 iterator:
 
-```typescript
+```typescript ignore
 for await (const row of db.query(allIncompleteTodosQuery)) {
   console.log(
     `  - ${row.projectName}: [${row.taskCreatedOn.toLocaleDateString()}] ${row.taskDescription}`,
@@ -133,6 +133,6 @@ for await (const row of db.query(allIncompleteTodosQuery)) {
 
 Or just simply get all the results at once:
 
-```typescript
+```typescript ignore
 console.log(await db.query(allIncompleteTodosQuery).toArray())
 ```

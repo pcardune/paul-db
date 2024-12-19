@@ -4,7 +4,9 @@
   "exports": {
     ".": "./exports/mod.ts",
     "./schema": "./exports/schema.ts",
-    "./planner": "./exports/planner.ts"
+    "./planner": "./exports/planner.ts",
+    "./examples": "./exports/examples.ts",
+    "./types": "./exports/types.ts"
   },
   "license": "MIT",
   "imports": {

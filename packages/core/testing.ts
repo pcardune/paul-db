@@ -68,7 +68,7 @@ export type TypeEquals<Actual, Expected> = Actual extends Expected ? true
  * Usage:
  *
  * ```ts
- * assertType<TypeEquals<"green", "green">>()
+ * assertTrue<TypeEquals<"green", "green">>()
  * ```
  */
 export function assertTrue<T extends true>() {}
