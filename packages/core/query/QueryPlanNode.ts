@@ -197,7 +197,7 @@ export class Aggregate<T extends UnknownRecord, AliasT extends string>
       accumulator = await aggregation.update(accumulator, ctx.withRowData(row))
     }
     return new AsyncIterableWrapper([
-      { [this.alias]: accumulator as T } as Record<AliasT, T>,
+      { [this.alias]: aggregation.result(accumulator) } as Record<AliasT, T>,
     ])
   }
 }
@@ -326,7 +326,9 @@ export class GroupBy<
         }
       }
       for (const { groupKey, accumulator } of groups) {
-        yield { [alias]: { ...groupKey, ...accumulator } } as Record<
+        yield {
+          [alias]: { ...groupKey, ...aggregation.result(accumulator) },
+        } as Record<
           AliasT,
           GroupKey & AggregateT
         >
