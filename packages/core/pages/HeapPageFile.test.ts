@@ -2,16 +2,21 @@ import { expect } from "@std/expect"
 import { afterEach, beforeEach, describe, it } from "@std/testing/bdd"
 import { FileBackedBufferPool } from "./BufferPool.ts"
 import { HeapPageFile } from "./HeapPageFile.ts"
-import { generateTestFilePath, spyOnBufferPool } from "../testing.ts"
+import {
+  generateTestFilePath,
+  spyOnBufferPool,
+  TestFilePath,
+} from "../testing.ts"
 
 describe("HeapPageFile", () => {
-  const tempFile = generateTestFilePath("HeapPageFile.data")
+  let tempFile: TestFilePath
   const pageSize = 100
   let bufferPool: FileBackedBufferPool
   let heapPageFile: HeapPageFile<{ freeSpace: number }>
   let bufferPoolSpy: ReturnType<typeof spyOnBufferPool>
 
   beforeEach(async () => {
+    tempFile = generateTestFilePath("HeapPageFile.data")
     bufferPool = await FileBackedBufferPool.create(
       await Deno.open(tempFile.filePath, {
         read: true,

@@ -1,11 +1,24 @@
-import { afterEach, beforeEach, describe, it } from "@std/testing/bdd"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  it,
+} from "@std/testing/bdd"
 import { FileBackedBufferPool } from "./BufferPool.ts"
 import { expect } from "@std/expect"
-import { generateTestFilePath } from "../testing.ts"
+import { generateTestFilePath, TestFilePath } from "../testing.ts"
 
 describe("FileBackedBufferPool", () => {
   let bufferPool: FileBackedBufferPool
-  using tempFile = generateTestFilePath("FileBackedBufferPool.data")
+  let tempFile: TestFilePath
+  beforeAll(() => {
+    tempFile = generateTestFilePath("FileBackedBufferPool.data")
+  })
+  afterAll(() => {
+    tempFile[Symbol.dispose]()
+  })
   const pageSize = 4096
   beforeEach(async () => {
     bufferPool = await FileBackedBufferPool.create(

@@ -5,15 +5,22 @@ import { IBufferPool } from "./pages/BufferPool.ts"
 
 const subdir = `${Date.now()}`
 
+let subdirCounter = 0
+export type TestFilePath = {
+  [Symbol.dispose]: () => void
+  filePath: string
+}
+
 export function generateTestFilePath(
   filename: string = "",
-) {
+): TestFilePath {
   const dir = path.join("test_output", subdir)
   ensureDirSync(dir)
   const parts = filename.split(".")
   const prefix = parts.slice(0, -1).join(".")
   const extension = parts[parts.length - 1]
   const filePath = path.join(dir, `${prefix}-test-${Date.now()}.${extension}`)
+  subdirCounter++
   return {
     filePath: filePath,
     [Symbol.dispose]: () => {
@@ -23,6 +30,10 @@ export function generateTestFilePath(
         if (!(e instanceof Deno.errors.NotFound)) {
           throw e
         }
+      }
+      subdirCounter--
+      if (subdirCounter === 0) {
+        Deno.removeSync(dir)
       }
     },
   }
