@@ -1,6 +1,7 @@
 # deno-fmt-ignore-file
 name: Publish
 on:
+  workflow_dispatch:
   release:
     types: [published]
 
@@ -10,6 +11,19 @@ jobs:
     permissions:
       contents: read
       id-token: write # The OIDC ID token is used for authentication with JSR.
+    env:
+      DENO_DIR: /tmp/.deno-cache
+
     steps:
       - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x # Run with latest stable Deno.
+
+      - name: Cache Deno dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.DENO_DIR }}
+          key: ${{ hashFiles('deno.lock') }}
+
       - run: deno publish
