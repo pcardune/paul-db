@@ -1,3 +1,4 @@
+# deno-fmt-ignore-file
 name: Build
 
 on: push
@@ -6,7 +7,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      DENO_DIR: my_cache_directory
+      DENO_DIR: /tmp/.deno-cache
 
     steps:
       - uses: actions/checkout@v4
@@ -14,16 +15,12 @@ jobs:
         with:
           deno-version: v2.x # Run with latest stable Deno.
 
-      # Check if the code is formatted according to Deno's default
-      # formatting conventions.
-      - run: deno fmt --check
-
-      # Run all test files in the repository and collect code coverage. The example
-      # runs with all permissions, but it is recommended to run with the minimal permissions your program needs (for example --allow-read).
-      - run: deno test --doc --allow-all
-
       - name: Cache Deno dependencies
-        uses: actions/cache@v2
+        uses: actions/cache@v4
         with:
           path: ${{ env.DENO_DIR }}
           key: ${{ hashFiles('deno.lock') }}
+
+      # Check if the code is formatted according to Deno's default
+      # formatting conventions.
+      - run: deno task ci

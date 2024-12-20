@@ -78,7 +78,7 @@ export class DBSchema<
    * Creates a QueryBuilder instance based on this schema.
    *
    * ```ts
-   * import {dbSchema} from "@paul-db/core/examples"
+   * import {dbSchema} from "../examples.ts"
    * const numRecentlyLoggedInUsersQuery = dbSchema.query()
    *   .from("users")
    *   .where(

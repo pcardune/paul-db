@@ -71,7 +71,7 @@ export class QueryBuilder<
    * For example, to query the `users` table in the database:
    *
    * ```ts
-   * import {dbSchema} from "@paul-db/core/examples"
+   * import {dbSchema} from "../examples.ts"
    * dbSchema.query().from("users")
    * ```
    */
@@ -185,7 +185,7 @@ export class TableQueryBuilder<
    * the `users.id` column is equal to the `posts.authorId` column:
    *
    * ```ts
-   * import {dbSchema} from "@paul-db/core/examples"
+   * import {dbSchema} from "../examples.ts"
    * dbSchema.query()
    *   .from("users")
    *   .join("posts", (t) => t.column("users.id").eq(t.column("posts.authorId")))
@@ -223,7 +223,7 @@ export class TableQueryBuilder<
    * you could write:
    *
    * ```ts
-   * import {dbSchema} from "@paul-db/core/examples"
+   * import {dbSchema} from "../examples.ts"
    * dbSchema.query()
    *   .from("users")
    *   .where((t) => t.column("users.username").eq("pcardune"))
@@ -248,7 +248,7 @@ export class TableQueryBuilder<
    * For example, to get the first 10 posts by a certain author:
    *
    * ```ts
-   * import {dbSchema} from "@paul-db/core/examples"
+   * import {dbSchema} from "../examples.ts"
    * dbSchema.query()
    *  .from("posts")
    *  .where((t) => t.column("posts.authorId").eq(123))
@@ -275,7 +275,7 @@ export class TableQueryBuilder<
    * descending order:
    *
    * ```ts
-   * import {dbSchema} from "@paul-db/core/examples"
+   * import {dbSchema} from "../examples.ts"
    * dbSchema.query()
    *   .from("posts")
    *   .orderBy((t) => t.column("posts.createdAt"), "DESC")
@@ -300,7 +300,7 @@ export class TableQueryBuilder<
    * `users` table:
    *
    * ```ts
-   * import {dbSchema} from "@paul-db/core/examples"
+   * import {dbSchema} from "../examples.ts"
    * dbSchema.query()
    *   .from("users")
    *   .select({
@@ -335,7 +335,7 @@ export class TableQueryBuilder<
    * For example, to count the number of posts by each author, along with
    * the author's highest post rating:
    * ```ts
-   * import {dbSchema} from "@paul-db/core/examples"
+   * import {dbSchema} from "../examples.ts"
    * dbSchema.query()
    *   .from("posts")
    *   .groupBy({
@@ -375,7 +375,7 @@ export class TableQueryBuilder<
    *
    * For example, to get the highest rating of all posts:
    * ```ts
-   * import {dbSchema} from "@paul-db/core/examples"
+   * import {dbSchema} from "../examples.ts"
    * dbSchema.query()
    *   .from("posts")
    *   .aggregate({
@@ -672,7 +672,7 @@ class GroupByBuilder<
    *
    * ```ts
    * import {type Query} from "@paul-db/core/types"
-   * import {dbSchema} from "@paul-db/core/examples"
+   * import {dbSchema} from "../examples.ts"
    *
    * type AuthorStats = {
    *   authorId: number,

@@ -67,7 +67,7 @@ export class SQLExecutor {
   /**
    * @ignore
    */
-  async handleAST(ast: SQLParser.TableColumnAst) {
+  async handleAST(ast: SQLParser.TableColumnAst): Promise<unknown> {
     const commands = Array.isArray(ast.ast) ? ast.ast : [ast.ast]
 
     const results = []
