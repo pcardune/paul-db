@@ -488,6 +488,7 @@ Deno.test("QueryBuilder subqueries", async () => {
     columns: {
       name: {
         type: "column_ref",
+        table: "humans",
         column: "firstName",
       },
       numCats: {
@@ -515,11 +516,13 @@ Deno.test("QueryBuilder subqueries", async () => {
               type: "compare",
               left: {
                 type: "column_ref",
+                table: "catOwners",
                 column: "ownerId",
               },
               operator: "=",
               right: {
                 type: "column_ref",
+                table: "humans",
                 column: "id",
               },
             },

@@ -221,7 +221,11 @@ export class ColumnRefExpr<
    * Returns a JSON representation of the expression
    */
   toJSON(): Json {
-    return { type: "column_ref", column: this.column.name }
+    return {
+      type: "column_ref",
+      column: this.column.name,
+      table: this.tableName,
+    }
   }
 }
 

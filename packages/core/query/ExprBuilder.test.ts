@@ -1,10 +1,75 @@
 import { expect } from "@std/expect"
 import { PaulDB, schema as s } from "../exports/mod.ts"
-import { _NeverExpr, ExprBuilder, ITQB } from "./QueryBuilder.ts"
+import { EmptyExprBuilder, ITQB } from "./QueryBuilder.ts"
+import { assertTrue, TypeEquals } from "../testing.ts"
 
 function exprBuilder<TQB extends ITQB>(tqb: TQB) {
-  return new ExprBuilder(tqb, new _NeverExpr())
+  return new EmptyExprBuilder(tqb)
 }
+
+Deno.test("ExprBuilder .column()", async (test) => {
+  const dbSchema = s.db().withTables(
+    s.table("cats").with(
+      s.column("name", s.type.string()),
+    ),
+    s.table("humans").with(
+      s.column("name", s.type.string()),
+      s.column("age", s.type.uint32()),
+    ),
+  )
+
+  const catExpr = exprBuilder(dbSchema.query().from("cats"))
+  const nameColExpr = catExpr.column("cats.name")
+  expect(nameColExpr.expr.describe()).toEqual("name")
+  expect(nameColExpr.expr.getType().name).toEqual(s.type.string().name)
+  expect(nameColExpr.expr.toJSON()).toEqual({
+    type: "column_ref",
+    table: "cats",
+    column: "name",
+  })
+  expect(catExpr.column("cats", "name").expr.toJSON()).toEqual(
+    nameColExpr.expr.toJSON(),
+  )
+  await test.step("throws error when column/table not found", () => {
+    // @ts-expect-error There should be a type error if we use the wrong column
+    // name
+    expect(() => catExpr.column("cats.invalid_column")).toThrow(
+      "Column invalid_column not found in table cats",
+    )
+    // @ts-expect-error There should be a type error if we use the wrong column
+    // name
+    expect(() => catExpr.column("cats", "invalid_column")).toThrow(
+      "Column invalid_column not found in table cats",
+    )
+    // @ts-expect-error There should be a type error if we use the wrong table
+    expect(() => catExpr.column("invalid_table.name")).toThrow(
+      "Table invalid_table not found in schema",
+    )
+    // @ts-expect-error There should be a type error if we use the wrong table
+    expect(() => catExpr.column("invalid_table", "name")).toThrow(
+      "Table invalid_table not found in schema",
+    )
+  })
+
+  await test.step("Knows about columns from joined tables", () => {
+    const joinExpr = exprBuilder(
+      dbSchema.query().from("cats").join("humans", (t) => t.literal(true)),
+    )
+    expect(() => joinExpr.column("humans.age")).not.toThrow()
+    expect(() => joinExpr.column("cats.name")).not.toThrow()
+  })
+
+  await test.step("Has premade column references on EmptyExprBuilder", () => {
+    const joinExpr = exprBuilder(
+      dbSchema.query().from("cats").join("humans", (t) => t.literal(true)),
+    )
+    expect(() => joinExpr.tables.cats.name).not.toThrow()
+    expect(() => joinExpr.tables.humans.age).not.toThrow()
+    expect(joinExpr.tables.cats.name.expr.toJSON()).toEqual(
+      joinExpr.column("cats.name").expr.toJSON(),
+    )
+  })
+})
 
 Deno.test("ExprBuilder .in()", async () => {
   const dbSchema = s.db().withTables(
@@ -107,6 +172,13 @@ Deno.test("ExprBuilder .not()", async (test) => {
       { name: "Mr. Blue" },
     ])
   })
+
+  await test.step("throws error when .not() without passed value used at top of expression stack", () => {
+    const t = exprBuilder(dbSchema.query().from("cats"))
+    const foo = () => t.not()
+    assertTrue<TypeEquals<ReturnType<typeof foo>, never>>()
+    expect(foo).toThrow("Cannot call not() without a value")
+  })
 })
 
 Deno.test("ExprBuilder .literal()", async (test) => {
@@ -142,8 +214,6 @@ Deno.test("ExprBuilder .literal()", async (test) => {
       'Type must be provided for literal ["foo"]',
     )
 
-    const tqb = dbSchema.query().from("cats")
-    new ExprBuilder(tqb, new _NeverExpr())
     const results = await db.query(
       dbSchema.query()
         .from("cats")

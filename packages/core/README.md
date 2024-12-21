@@ -109,14 +109,14 @@ const allIncompleteTodosQuery = dbSchema.query()
   .from("todos")
   .join(
     "projects",
-    (t) => t.column("todos.projectId").eq(t.column("projects.id")),
+    (t) => t.tables.todos.projectId.eq(t.tables.projects.id),
   )
-  .where((t) => t.column("todos.completedAt").eq(null))
-  .orderBy((t) => t.column("todos.createdAt"), "ASC")
+  .where((t) => t.tables.todos.completedAt.eq(null))
+  .orderBy((t) => t.tables.todos.createdAt, "ASC")
   .select({
-    taskDescription: (t) => t.column("todos.description"),
-    taskCreatedOn: (t) => t.column("todos.createdAt"),
-    projectName: (t) => t.column("projects.name"),
+    taskDescription: (t) => t.tables.todos.description,
+    taskCreatedOn: (t) => t.tables.todos.createdAt,
+    projectName: (t) => t.tables.projects.name,
   })
 ```
 
