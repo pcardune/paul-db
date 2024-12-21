@@ -1,6 +1,7 @@
 import {
   Column,
   ISchema,
+  NullableSchema,
   StoredRecordForTableSchema,
   TableSchemaColumnNames,
 } from "../schema/TableSchema.ts"
@@ -14,6 +15,7 @@ import {
   Filter,
   In,
   IQueryPlanNode,
+  LeftJoin,
   Limit,
   LiteralValueExpr,
   MultiAggregation,
@@ -33,6 +35,19 @@ type MergeQBSchema<
   QB extends IQB,
   SName extends keyof QB["dbSchema"]["schemas"],
 > = Merge<FromSchemasT, Pick<QB["dbSchema"]["schemas"], SName>>
+
+type NullableSchemas<SchemasT extends Record<string, ISchema>> = {
+  [K in keyof SchemasT]: NullableSchema<SchemasT[K]>
+}
+
+/**
+ * Same as MergeQBSchema, but makes all the schema being merged nullable
+ */
+type MergeQBSchemaNullable<
+  FromSchemasT extends Record<string, ISchema>,
+  QB extends IQB,
+  SName extends keyof QB["dbSchema"]["schemas"],
+> = Merge<FromSchemasT, NullableSchemas<Pick<QB["dbSchema"]["schemas"], SName>>>
 
 function singleKeyRecord<K extends string, V>(key: K, value: V): Record<K, V> {
   return { [key]: value } as Record<K, V>
@@ -173,13 +188,17 @@ export class TableQueryBuilder<
     readonly rootPlan: plan.IQueryPlanNode<MultiTableRow<SchemasT>>,
     // TODO: surey this is a nasty type to figure out.
     private joinPredicates: Array<
-      [string, (e: ExprBuilder<ITQB, never>) => ExprBuilder<ITQB, boolean>]
+      [
+        string,
+        "inner" | "left",
+        (e: ExprBuilder<ITQB, never>) => ExprBuilder<ITQB, boolean>,
+      ]
     > = [],
   ) {}
 
   /**
    * Joins the table with another table in the database. This is roughly
-   * equivalent to the `JOIN` clause in SQL. When two tables are joined,
+   * equivalent to the `INNER JOIN` clause in SQL. When two tables are joined,
    * you can select columns from both tables in the query.
    *
    * For example, to join the `users` table with the `posts` table wherever
@@ -218,8 +237,66 @@ export class TableQueryBuilder<
         [table]: this.queryBuilder.dbSchema.schemas[table],
       },
       this.rootTable,
-      this.rootPlan as any, // FIX THIS
-      [...this.joinPredicates, [table, on as any]],
+      this.rootPlan,
+      [...this.joinPredicates, [table, "inner", on as any]],
+    )
+  }
+
+  /**
+   * Joins the table with another table in the database. This is roughly
+   * equivalent to the `LEFT JOIN` clause in SQL. When two tables are joined,
+   * you can select columns from both tables in the query.
+   *
+   * For example, to join the `users` table with the `posts` table wherever
+   * the `users.id` column is equal to the `posts.authorId` column:
+   *
+   * ```ts
+   * import {dbSchema} from "../examples.ts"
+   * dbSchema.query()
+   *   .from("users")
+   *   .join("posts", (t) => t.column("users.id").eq(t.column("posts.authorId")))
+   *   .select({
+   *     postTitle: (t) => t.column("posts.title"),
+   *     authorName: (t) => t.column("users.name"),
+   *   })
+   * ```
+   */
+  leftJoin<JoinTableNameT extends QBTableNames<QB>>(
+    table: JoinTableNameT,
+    on: (
+      tqb: ExprBuilder<
+        ITQB<QB, MergeQBSchemaNullable<SchemasT, QB, JoinTableNameT>>,
+        never
+      >,
+    ) => ExprBuilder<
+      ITQB<QB, MergeQBSchemaNullable<SchemasT, QB, JoinTableNameT>>,
+      boolean
+    >,
+  ): TableQueryBuilder<
+    QB,
+    MergeQBSchemaNullable<SchemasT, QB, JoinTableNameT>
+  > {
+    const joinSchema = this.queryBuilder.dbSchema.schemas[table]
+    const nullableJoinSchema = {
+      name: joinSchema.name,
+      columnsByName: Object.fromEntries(
+        Object.entries(joinSchema.columnsByName).map(([key, value]) =>
+          [key, { ...value, type: value.type.nullable() }] as const
+        ),
+      ),
+    }
+    return new TableQueryBuilder<
+      QB,
+      MergeQBSchemaNullable<SchemasT, QB, JoinTableNameT>
+    >(
+      this.queryBuilder,
+      {
+        ...this.tableSchemas,
+        [table]: nullableJoinSchema,
+      } as unknown as MergeQBSchemaNullable<SchemasT, QB, JoinTableNameT>,
+      this.rootTable,
+      this.rootPlan,
+      [...this.joinPredicates, [table, "left", on as any]],
     )
   }
 
@@ -425,16 +502,26 @@ export class TableQueryBuilder<
     let root: plan.IQueryPlanNode<T> = this.rootPlan
     if (this.joinPredicates.length > 0) {
       for (let i = 0; i < this.joinPredicates.length; i++) {
-        const [joinTableName, on] = this.joinPredicates[i]
-        root = new plan.Join(
-          root,
-          new TableScan<T>(
-            this.queryBuilder.dbSchema.name,
-            joinTableName,
-          ),
-          on(new ExprBuilder(this, new NeverExpr()) as any /*TODO: FIX THIS */)
-            .expr,
-        )
+        const [joinTableName, joinType, on] = this.joinPredicates[i]
+        if (joinType === "inner") {
+          root = new plan.Join(
+            root,
+            new TableScan<T>(
+              this.queryBuilder.dbSchema.name,
+              joinTableName,
+            ),
+            on(new ExprBuilder(this, new NeverExpr())).expr,
+          )
+        } else if (joinType === "left") {
+          root = new LeftJoin(
+            root,
+            new TableScan<T>(
+              this.queryBuilder.dbSchema.name,
+              joinTableName,
+            ),
+            on(new ExprBuilder(this, new NeverExpr())).expr,
+          )
+        }
       }
     }
 
@@ -867,9 +954,7 @@ class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
     } else {
       table = tableOrColumn
     }
-    const schema = this.tqb.queryBuilder.dbSchema.schemas[
-      table
-    ]
+    const schema = this.tqb.tableSchemas[table]
     const columnSchema = schema.columnsByName[column]
     if (columnSchema == null) {
       throw new Error(`Column ${column} not found in table ${table}`)
@@ -900,19 +985,21 @@ class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
 
   private compare(
     operator: CompareOperator,
-    value: ExprBuilder<TQB, T> | T,
+    value: ExprBuilder<TQB, T> | ExprBuilder<TQB, T | null> | T,
   ): ExprBuilder<TQB, boolean> {
     const expr = new Compare(
-      this.expr,
+      this.expr as Expr<T | null>,
       operator,
-      value instanceof ExprBuilder
+      (value instanceof ExprBuilder
         ? value.expr
-        : new LiteralValueExpr(value, this.expr.getType()),
+        : new LiteralValueExpr(value, this.expr.getType())) as Expr<T | null>,
     )
     return new ExprBuilder(this.tqb, expr)
   }
 
-  eq(value: ExprBuilder<TQB, T> | T): ExprBuilder<TQB, boolean> {
+  eq(
+    value: ExprBuilder<TQB, T> | ExprBuilder<TQB, T | null> | T,
+  ): ExprBuilder<TQB, boolean> {
     return this.compare("=", value)
   }
   gt(value: ExprBuilder<TQB, T> | T): ExprBuilder<TQB, boolean> {

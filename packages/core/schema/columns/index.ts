@@ -54,3 +54,11 @@ export type GetRecordContainingColumn<C extends Any> = C extends Computed.Any
   : {
     [Property in C["name"]]: Stored.GetValue<C>
   }
+
+/**
+ * Converts a column type to a nullable column type
+ */
+export type MakeNullable<C extends Any> = C extends Stored.Any
+  ? Stored.MakeNullable<C>
+  : C extends Computed.Any ? Computed.MakeNullable<C>
+  : never

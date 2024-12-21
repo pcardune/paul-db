@@ -93,6 +93,22 @@ export interface ISchema<
   readonly columnsByName: ColumnsT
 }
 
+/**
+ * Makes all the columns in a column record nullable
+ */
+export type NullableColumnRecord<T extends ColumnRecord> = {
+  [K in keyof T]: Column.MakeNullable<T[K]>
+}
+
+/**
+ * Makes all the columns in a schema nullable
+ */
+export type NullableSchema<T extends ISchema> = T extends ISchema<
+  infer TName,
+  infer ColumnsT
+> ? ISchema<TName, NullableColumnRecord<ColumnsT>>
+  : never
+
 export class TableSchema<
   TableName extends string,
   ColumnSchemasT extends StoredColumnRecord,

@@ -367,6 +367,38 @@ Deno.test("QueryBuilder (INNER) JOINS", async () => {
   ])
 })
 
+Deno.test("QueryBuilder LEFT JOINS", async () => {
+  const { db } = await init()
+
+  const cats = await db.query(
+    dbSchema.query()
+      .from("cats")
+      .leftJoin(
+        "catOwners",
+        (t) => t.column("cats", "id").eq(t.column("catOwners", "petId")),
+      )
+      .leftJoin(
+        "humans",
+        (t) => t.column("humans.id").eq(t.column("catOwners.ownerId")),
+      )
+      .select({
+        catName: (t) => t.column("cats.name"),
+        owner: (t) => t.column("humans.firstName"),
+      }),
+  ).toArray()
+
+  expect(cats).toEqual([
+    { catName: "fluffy", owner: "Alice" },
+    { catName: "fluffy", owner: "Bob" },
+    { catName: "mittens", owner: "Bob" },
+    { catName: "Mr. Blue", owner: null },
+  ])
+
+  assertTrue<
+    TypeEquals<Array<{ catName: string; owner: string | null }>, typeof cats>
+  >()
+})
+
 Deno.test("QueryBuilder .in()", async () => {
   const { db } = await init()
   const plan = dbSchema.query()

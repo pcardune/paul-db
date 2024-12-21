@@ -25,6 +25,18 @@ export type Any<
 }
 
 /**
+ * Converts a computed column type to a nullable type
+ */
+export type MakeNullable<C extends Any> = C extends Any<
+  infer Name,
+  infer Unique,
+  infer Indexed,
+  infer Input,
+  infer Output
+> ? Any<Name, Unique, Indexed, Input | null, Output | null>
+  : never
+
+/**
  * Infer the output type of a computed column
  */
 export type GetOutput<C> = C extends
