@@ -1,6 +1,7 @@
 import {
   Column,
   ISchema,
+  NullableSchema,
   StoredRecordForTableSchema,
   TableSchemaColumnNames,
 } from "../schema/TableSchema.ts"
@@ -14,6 +15,7 @@ import {
   Filter,
   In,
   IQueryPlanNode,
+  LeftJoin,
   Limit,
   LiteralValueExpr,
   MultiAggregation,
@@ -21,16 +23,35 @@ import {
   OrderBy,
   TableScan,
 } from "./QueryPlanNode.ts"
-import type {
-  EmptyObject,
-  NonEmptyTuple,
-  Simplify,
-  TupleToUnion,
-} from "type-fest"
+import type { EmptyObject, Merge, NonEmptyTuple, Simplify } from "type-fest"
 import { ColumnType } from "../schema/columns/ColumnType.ts"
 import { Json } from "../types.ts"
 import { column } from "../schema/columns/ColumnBuilder.ts"
 import { Aggregation } from "./Aggregation.ts"
+import { pick } from "@std/collections/pick"
+
+type MergeQBSchema<
+  FromSchemasT extends Record<string, ISchema>,
+  QB extends IQB,
+  SName extends keyof QB["dbSchema"]["schemas"],
+> = Merge<FromSchemasT, Pick<QB["dbSchema"]["schemas"], SName>>
+
+type NullableSchemas<SchemasT extends Record<string, ISchema>> = {
+  [K in keyof SchemasT]: NullableSchema<SchemasT[K]>
+}
+
+/**
+ * Same as MergeQBSchema, but makes all the schema being merged nullable
+ */
+type MergeQBSchemaNullable<
+  FromSchemasT extends Record<string, ISchema>,
+  QB extends IQB,
+  SName extends keyof QB["dbSchema"]["schemas"],
+> = Merge<FromSchemasT, NullableSchemas<Pick<QB["dbSchema"]["schemas"], SName>>>
+
+function singleKeyRecord<K extends string, V>(key: K, value: V): Record<K, V> {
+  return { [key]: value } as Record<K, V>
+}
 
 export interface IQueryableDBSchema<
   DBNameT extends string = string,
@@ -60,7 +81,7 @@ export class QueryBuilder<
    */
   constructor(
     readonly dbSchema: DBSchemaT,
-    private tableExpressions: Record<string, TableQueryBuilder> = {},
+    private tableExpressions: Record<string, ITQB> = {},
   ) {
   }
 
@@ -77,14 +98,15 @@ export class QueryBuilder<
    */
   from<TName extends Extract<keyof DBSchemaT["schemas"], string>>(
     table: TName,
-  ): TableQueryBuilder<this, [TName]> {
+  ): TableQueryBuilder<this, Pick<DBSchemaT["schemas"], TName>> {
+    const schemas = pick(this.dbSchema.schemas, [table])
     if (this.tableExpressions[table]) {
-      return new TableQueryBuilder(
+      return new TableQueryBuilder<this, Pick<DBSchemaT["schemas"], TName>>(
         this,
-        [table],
+        schemas,
         table,
         this.tableExpressions[table].rootPlan as plan.IQueryPlanNode<
-          MultiTableRow<this, [TName]>
+          MultiTableRow<Record<TName, ISchema>>
         >,
         [],
       )
@@ -94,23 +116,18 @@ export class QueryBuilder<
       throw new Error(`Table ${table} not found in schema`)
     }
 
-    return new TableQueryBuilder(
+    return new TableQueryBuilder<this, Pick<DBSchemaT["schemas"], TName>>(
       this,
-      [table],
+      schemas,
       table,
       new TableScan(
         this.dbSchema.name,
         table,
       ),
-    ) as TableQueryBuilder<
-      this,
-      [TName]
-    >
+    )
   }
 
-  with<TQB extends TableQueryBuilder<IQB, NonEmptyTuple<string>>>(
-    func: (qb: this) => TQB,
-  ): TQB["queryBuilder"] {
+  with<TQB extends ITQB>(func: (qb: this) => TQB): TQB["queryBuilder"] {
     const tqb = func(this)
     return new QueryBuilder(tqb.queryBuilder.dbSchema, {
       ...this.tableExpressions,
@@ -145,40 +162,43 @@ export interface IPlanBuilder<T extends plan.RowData = plan.RowData> {
 
 interface ITQB<
   QB extends IQB = IQB,
-  TableNamesT extends NonEmptyTuple<string> = NonEmptyTuple<string>,
+  SchemasT extends Record<string, ISchema> = Record<string, ISchema>,
 > extends IPlanBuilder {
   readonly queryBuilder: QB
-  readonly tableNames: TableNamesT
+  readonly tableSchemas: SchemasT
+  readonly rootTable: string
+  readonly rootPlan: plan.IQueryPlanNode<MultiTableRow<SchemasT>>
 }
 
-type MultiTableRow<QB extends IQB, TableNamesT extends NonEmptyTuple<string>> =
-  {
-    [K in TupleToUnion<TableNamesT>]: StoredRecordForTableSchema<
-      QB["dbSchema"]["schemas"][K]
-    >
-  }
+type MultiTableRow<SchemasT extends Record<string, ISchema>> = {
+  [K in keyof SchemasT]: StoredRecordForTableSchema<SchemasT[K]>
+}
 
 /**
  * @ignore
  */
 export class TableQueryBuilder<
   QB extends IQB = IQB,
-  TableNamesT extends NonEmptyTuple<string> = NonEmptyTuple<string>,
-> implements ITQB<QB, TableNamesT> {
+  SchemasT extends Record<string, ISchema> = Record<string, ISchema>,
+> implements ITQB<QB, SchemasT> {
   constructor(
     readonly queryBuilder: QB,
-    readonly tableNames: TableNamesT,
+    readonly tableSchemas: SchemasT,
     readonly rootTable: string,
-    readonly rootPlan: plan.IQueryPlanNode<MultiTableRow<QB, TableNamesT>>,
+    readonly rootPlan: plan.IQueryPlanNode<MultiTableRow<SchemasT>>,
     // TODO: surey this is a nasty type to figure out.
     private joinPredicates: Array<
-      [string, (e: ExprBuilder<ITQB, never>) => ExprBuilder<ITQB, boolean>]
+      [
+        string,
+        "inner" | "left",
+        (e: ExprBuilder<ITQB, never>) => ExprBuilder<ITQB, boolean>,
+      ]
     > = [],
   ) {}
 
   /**
    * Joins the table with another table in the database. This is roughly
-   * equivalent to the `JOIN` clause in SQL. When two tables are joined,
+   * equivalent to the `INNER JOIN` clause in SQL. When two tables are joined,
    * you can select columns from both tables in the query.
    *
    * For example, to join the `users` table with the `posts` table wherever
@@ -199,21 +219,88 @@ export class TableQueryBuilder<
     table: JoinTableNameT,
     on: (
       tqb: ExprBuilder<
-        ITQB<QB, [...TableNamesT, JoinTableNameT]>,
+        ITQB<QB, MergeQBSchema<SchemasT, QB, JoinTableNameT>>,
         never
       >,
-    ) => ExprBuilder<ITQB<QB, [...TableNamesT, JoinTableNameT]>, boolean>,
-  ): TableQueryBuilder<QB, [...TableNamesT, JoinTableNameT]> {
-    return new TableQueryBuilder(
+    ) => ExprBuilder<
+      ITQB<QB, MergeQBSchema<SchemasT, QB, JoinTableNameT>>,
+      boolean
+    >,
+  ): TableQueryBuilder<QB, MergeQBSchema<SchemasT, QB, JoinTableNameT>> {
+    return new TableQueryBuilder<
+      QB,
+      MergeQBSchema<SchemasT, QB, JoinTableNameT>
+    >(
       this.queryBuilder,
-      [...this.tableNames, table] as [...TableNamesT, JoinTableNameT],
+      {
+        ...this.tableSchemas,
+        [table]: this.queryBuilder.dbSchema.schemas[table],
+      },
       this.rootTable,
-      this.rootPlan as any, // FIX THIS
-      [...this.joinPredicates, [table, on as any]],
+      this.rootPlan,
+      [...this.joinPredicates, [table, "inner", on as any]],
     )
   }
 
-  private whereClause: ExprBuilder<ITQB<QB, TableNamesT>, boolean> | undefined
+  /**
+   * Joins the table with another table in the database. This is roughly
+   * equivalent to the `LEFT JOIN` clause in SQL. When two tables are joined,
+   * you can select columns from both tables in the query.
+   *
+   * For example, to join the `users` table with the `posts` table wherever
+   * the `users.id` column is equal to the `posts.authorId` column:
+   *
+   * ```ts
+   * import {dbSchema} from "../examples.ts"
+   * dbSchema.query()
+   *   .from("users")
+   *   .join("posts", (t) => t.column("users.id").eq(t.column("posts.authorId")))
+   *   .select({
+   *     postTitle: (t) => t.column("posts.title"),
+   *     authorName: (t) => t.column("users.name"),
+   *   })
+   * ```
+   */
+  leftJoin<JoinTableNameT extends QBTableNames<QB>>(
+    table: JoinTableNameT,
+    on: (
+      tqb: ExprBuilder<
+        ITQB<QB, MergeQBSchemaNullable<SchemasT, QB, JoinTableNameT>>,
+        never
+      >,
+    ) => ExprBuilder<
+      ITQB<QB, MergeQBSchemaNullable<SchemasT, QB, JoinTableNameT>>,
+      boolean
+    >,
+  ): TableQueryBuilder<
+    QB,
+    MergeQBSchemaNullable<SchemasT, QB, JoinTableNameT>
+  > {
+    const joinSchema = this.queryBuilder.dbSchema.schemas[table]
+    const nullableJoinSchema = {
+      name: joinSchema.name,
+      columnsByName: Object.fromEntries(
+        Object.entries(joinSchema.columnsByName).map(([key, value]) =>
+          [key, { ...value, type: value.type.nullable() }] as const
+        ),
+      ),
+    }
+    return new TableQueryBuilder<
+      QB,
+      MergeQBSchemaNullable<SchemasT, QB, JoinTableNameT>
+    >(
+      this.queryBuilder,
+      {
+        ...this.tableSchemas,
+        [table]: nullableJoinSchema,
+      } as unknown as MergeQBSchemaNullable<SchemasT, QB, JoinTableNameT>,
+      this.rootTable,
+      this.rootPlan,
+      [...this.joinPredicates, [table, "left", on as any]],
+    )
+  }
+
+  private whereClause: ExprBuilder<ITQB<QB, SchemasT>, boolean> | undefined
 
   /**
    * Filters the rows in the table using the given expression.
@@ -231,8 +318,8 @@ export class TableQueryBuilder<
    */
   where(
     func: (
-      tqb: ExprBuilder<ITQB<QB, TableNamesT>, never>,
-    ) => ExprBuilder<ITQB<QB, TableNamesT>, boolean>,
+      tqb: ExprBuilder<ITQB<QB, SchemasT>, never>,
+    ) => ExprBuilder<ITQB<QB, SchemasT>, boolean>,
   ): this {
     this.whereClause = func(new ExprBuilder(this, new NeverExpr()))
     return this
@@ -262,7 +349,7 @@ export class TableQueryBuilder<
   }
 
   private orderByClauses: {
-    expr: ExprBuilder<ITQB<QB, TableNamesT>, any>
+    expr: ExprBuilder<ITQB<QB, SchemasT>, any>
     order: "ASC" | "DESC"
   }[] = []
 
@@ -310,14 +397,14 @@ export class TableQueryBuilder<
    * ```
    */
   select<
-    SelectT extends Record<string, ExprBuilder<ITQB<QB, TableNamesT>, any>>,
+    SelectT extends Record<string, ExprBuilder<ITQB<QB, SchemasT>, any>>,
   >(
     selection: {
       [Property in keyof SelectT]: (
-        tqb: ExprBuilder<ITQB<QB, TableNamesT>, never>,
+        tqb: ExprBuilder<ITQB<QB, SchemasT>, never>,
       ) => SelectT[Property]
     },
-  ): SelectBuilder<ITQB<QB, TableNamesT>, "$0", SelectT> {
+  ): SelectBuilder<ITQB<QB, SchemasT>, "$0", SelectT> {
     const mapped = Object.fromEntries(
       Object.entries(selection).map((
         [key, func],
@@ -350,14 +437,14 @@ export class TableQueryBuilder<
    * Unlike in SQL, the group by keys are automatically included in the output.
    */
   groupBy<
-    GroupKeyT extends Record<string, ExprBuilder<ITQB<QB, TableNamesT>, any>>,
+    GroupKeyT extends Record<string, ExprBuilder<ITQB<QB, SchemasT>, any>>,
   >(
     key: {
       [Property in keyof GroupKeyT]: (
-        tqb: ExprBuilder<ITQB<QB, TableNamesT>, never>,
+        tqb: ExprBuilder<ITQB<QB, SchemasT>, never>,
       ) => GroupKeyT[Property]
     },
-  ): GroupByBuilder<ITQB<QB, TableNamesT>, GroupKeyT, EmptyObject> {
+  ): GroupByBuilder<ITQB<QB, SchemasT>, GroupKeyT, EmptyObject> {
     return new GroupByBuilder(
       this,
       Object.fromEntries(
@@ -409,32 +496,32 @@ export class TableQueryBuilder<
     )
   }
 
-  plan(): IQueryPlanNode<
-    {
-      [K in TupleToUnion<TableNamesT>]: StoredRecordForTableSchema<
-        QB["dbSchema"]["schemas"][K]
-      >
-    }
-  > {
-    type T = {
-      [K in TupleToUnion<TableNamesT>]: StoredRecordForTableSchema<
-        QB["dbSchema"]["schemas"][K]
-      >
-    }
+  plan(): IQueryPlanNode<MultiTableRow<SchemasT>> {
+    type T = MultiTableRow<SchemasT>
 
     let root: plan.IQueryPlanNode<T> = this.rootPlan
     if (this.joinPredicates.length > 0) {
       for (let i = 0; i < this.joinPredicates.length; i++) {
-        const [joinTableName, on] = this.joinPredicates[i]
-        root = new plan.Join(
-          root,
-          new TableScan<T>(
-            this.queryBuilder.dbSchema.name,
-            joinTableName,
-          ),
-          on(new ExprBuilder(this, new NeverExpr()) as any /*TODO: FIX THIS */)
-            .expr,
-        )
+        const [joinTableName, joinType, on] = this.joinPredicates[i]
+        if (joinType === "inner") {
+          root = new plan.Join(
+            root,
+            new TableScan<T>(
+              this.queryBuilder.dbSchema.name,
+              joinTableName,
+            ),
+            on(new ExprBuilder(this, new NeverExpr())).expr,
+          )
+        } else if (joinType === "left") {
+          root = new LeftJoin(
+            root,
+            new TableScan<T>(
+              this.queryBuilder.dbSchema.name,
+              joinTableName,
+            ),
+            on(new ExprBuilder(this, new NeverExpr())).expr,
+          )
+        }
       }
     }
 
@@ -480,14 +567,16 @@ class SelectBuilder<
     readonly select: SelectT,
   ) {}
 
-  asTable<NewAlias extends string>(newAlias: NewAlias): TableQueryBuilder<
+  asTable<NewAlias extends string>(
+    newAlias: NewAlias,
+  ): TableQueryBuilder<
     QueryBuilder<
       IAugmentedDBSchema<
         TQB["queryBuilder"]["dbSchema"],
         SelectSchema<NewAlias, SelectT>
       >
     >,
-    [NewAlias]
+    Record<NewAlias, SelectSchema<NewAlias, SelectT>>
   > {
     const newSchema = {
       name: newAlias,
@@ -504,7 +593,7 @@ class SelectBuilder<
     > = augmentDbSchema(this.tqb.queryBuilder.dbSchema, newSchema)
     const newTQB = new TableQueryBuilder(
       new QueryBuilder(newDBSchema),
-      [newSchema.name],
+      singleKeyRecord(newAlias, newSchema),
       newAlias,
       new SelectBuilder(this.tqb, newAlias, this.select).plan() as any,
       [],
@@ -614,7 +703,7 @@ class AggregateBuilder<
         AggregatedSchema<NewAlias, AggT>
       >
     >,
-    [NewAlias]
+    Record<NewAlias, AggregatedSchema<NewAlias, AggT>>
   > {
     const newSchema = {
       name: newAlias,
@@ -631,7 +720,7 @@ class AggregateBuilder<
     > = augmentDbSchema(this.tqb.queryBuilder.dbSchema, newSchema)
     const newTQB = new TableQueryBuilder(
       new QueryBuilder(newDBSchema),
-      [newSchema.name],
+      singleKeyRecord(newAlias, newSchema),
       newAlias,
       new plan.Aggregate(
         this.tqb.plan(),
@@ -729,7 +818,10 @@ class GroupByBuilder<
         ISchema<NewAlias, SelectColumns<GroupKeyT> & AggregatedColumns<AggT>>
       >
     >,
-    [NewAlias]
+    Record<
+      NewAlias,
+      ISchema<NewAlias, SelectColumns<GroupKeyT> & AggregatedColumns<AggT>>
+    >
   > {
     const selectSchema = {
       name: newAlias,
@@ -759,11 +851,11 @@ class GroupByBuilder<
 
     const newDBSchema: IAugmentedDBSchema<
       TQB["queryBuilder"]["dbSchema"],
-      SelectSchema<NewAlias, GroupKeyT>
+      ISchema<NewAlias, SelectColumns<GroupKeyT> & AggregatedColumns<AggT>>
     > = augmentDbSchema(this.tqb.queryBuilder.dbSchema, newSchema)
     const newTQB = new TableQueryBuilder(
       new QueryBuilder(newDBSchema),
-      [newSchema.name],
+      singleKeyRecord(newAlias, newSchema),
       newAlias,
       new plan.GroupBy(
         this.tqb.plan(),
@@ -778,15 +870,7 @@ class GroupByBuilder<
       [],
     )
 
-    return newTQB as TableQueryBuilder<
-      QueryBuilder<
-        IAugmentedDBSchema<
-          TQB["queryBuilder"]["dbSchema"],
-          ISchema<NewAlias, SelectColumns<GroupKeyT> & AggregatedColumns<AggT>>
-        >
-      >,
-      [NewAlias]
-    >
+    return newTQB
   }
 
   plan(): IQueryPlanNode<
@@ -815,16 +899,16 @@ class GroupByBuilder<
   }
 }
 
-export type SchemasForTQB<TQB extends ITQB> = Pick<
-  TQB["queryBuilder"]["dbSchema"]["schemas"],
-  TQBTableNames<TQB>
->
+export type SchemasForTQB<TQB extends ITQB> = TQB["tableSchemas"]
 
 export type ColumnNames<
   TQB extends ITQB,
   SchemaName extends keyof SchemasForTQB<TQB>,
 > = TableSchemaColumnNames<SchemasForTQB<TQB>[SchemaName]>
-export type TQBTableNames<TQB extends ITQB> = TupleToUnion<TQB["tableNames"]>
+export type TQBTableNames<TQB extends ITQB> = Extract<
+  keyof TQB["tableSchemas"],
+  string
+>
 
 export type ColumnWithName<
   TQB extends ITQB,
@@ -870,9 +954,7 @@ class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
     } else {
       table = tableOrColumn
     }
-    const schema = this.tqb.queryBuilder.dbSchema.schemas[
-      table
-    ]
+    const schema = this.tqb.tableSchemas[table]
     const columnSchema = schema.columnsByName[column]
     if (columnSchema == null) {
       throw new Error(`Column ${column} not found in table ${table}`)
@@ -903,19 +985,21 @@ class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
 
   private compare(
     operator: CompareOperator,
-    value: ExprBuilder<TQB, T> | T,
+    value: ExprBuilder<TQB, T> | ExprBuilder<TQB, T | null> | T,
   ): ExprBuilder<TQB, boolean> {
     const expr = new Compare(
-      this.expr,
+      this.expr as Expr<T | null>,
       operator,
-      value instanceof ExprBuilder
+      (value instanceof ExprBuilder
         ? value.expr
-        : new LiteralValueExpr(value, this.expr.getType()),
+        : new LiteralValueExpr(value, this.expr.getType())) as Expr<T | null>,
     )
     return new ExprBuilder(this.tqb, expr)
   }
 
-  eq(value: ExprBuilder<TQB, T> | T): ExprBuilder<TQB, boolean> {
+  eq(
+    value: ExprBuilder<TQB, T> | ExprBuilder<TQB, T | null> | T,
+  ): ExprBuilder<TQB, boolean> {
     return this.compare("=", value)
   }
   gt(value: ExprBuilder<TQB, T> | T): ExprBuilder<TQB, boolean> {
@@ -985,7 +1069,7 @@ class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
 
   subquery<T>(
     func: (
-      qb: SubQueryBuilder<TQB["queryBuilder"], TQB["tableNames"], TQB>,
+      qb: SubQueryBuilder<TQB["queryBuilder"], TQB["tableSchemas"], TQB>,
     ) => IPlanBuilder<{ "$0": Record<string, T> }>,
   ): ExprBuilder<TQB, T> {
     return new ExprBuilder(
@@ -997,7 +1081,7 @@ class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
 
 export class SubQueryBuilder<
   QB extends IQB = IQB,
-  TableNamesT extends NonEmptyTuple<string> = NonEmptyTuple<string>,
+  TableNamesT extends Record<string, ISchema> = Record<string, ISchema>,
   TQB extends ITQB<QB, TableNamesT> = ITQB<QB, TableNamesT>,
 > implements IQB<QB["dbSchema"]> {
   constructor(readonly tqb: TQB) {}
@@ -1008,10 +1092,19 @@ export class SubQueryBuilder<
 
   from<TName extends QBTableNames<QB>>(
     table: TName,
-  ): TableQueryBuilder<IQB<QB["dbSchema"]>, [...TableNamesT, TName]> {
-    return new TableQueryBuilder(
+  ): TableQueryBuilder<
+    IQB<QB["dbSchema"]>,
+    MergeQBSchema<TableNamesT, QB, TName>
+  > {
+    return new TableQueryBuilder<
+      IQB<QB["dbSchema"]>,
+      MergeQBSchema<TableNamesT, QB, TName>
+    >(
       this,
-      [...this.tqb.tableNames, table],
+      {
+        ...this.tqb.tableSchemas,
+        [table]: this.dbSchema.schemas[table],
+      },
       table,
       new TableScan(
         this.dbSchema.name,

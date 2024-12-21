@@ -185,6 +185,18 @@ export class ColumnRefExpr<
       ? ctx.rowData[this.tableName]
       : ctx.rowData as Column.GetRecordContainingColumn<C>
 
+    // if we're doing a LEFT/RIGHT JOIN, the data might be null
+    // because there is no matching row in the joined table.
+    // In that case, every column should resolve to null.
+    if (data == null) {
+      if (!this.column.type.isValid(null)) {
+        throw new Error(
+          `Cannot resolve column ${this.column.name}. Unexpected missing table data for table ${this.tableName}`,
+        )
+      }
+      return null as Column.GetOutput<C>
+    }
+
     if (this.column.kind === "stored") {
       return data[this.column.name]
     } else {
@@ -341,9 +353,9 @@ export class Compare<T> implements Expr<boolean> {
    * Creates a new Compare expression
    */
   constructor(
-    readonly left: Expr<T>,
+    readonly left: Expr<T | null>,
     readonly operator: CompareOperator,
-    readonly right: Expr<T>,
+    readonly right: Expr<T | null>,
   ) {}
 
   /**

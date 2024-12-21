@@ -7,7 +7,8 @@ import type { Promisable, UnknownRecord } from "type-fest"
  * An aggregation is a computation that summarizes a set of rows into a single
  * value.
  */
-export interface Aggregation<AccT> {
+export interface Aggregation<AccT, Result = AccT> {
+  result(accumulator: AccT | undefined): Result
   /**
    * Updates the accumulator with the values from the context.
    */
@@ -68,6 +69,10 @@ abstract class ExprAggregation<AccT> implements Aggregation<AccT> {
   getType(): ColumnType<AccT> {
     return this.expr.getType()
   }
+
+  result(accumulator: AccT): AccT {
+    return accumulator
+  }
 }
 
 /**
@@ -82,6 +87,13 @@ export class CountAggregation implements Aggregation<number> {
       return 1
     }
     return accumulator + 1
+  }
+
+  result(accumulator: number | undefined): number {
+    if (accumulator === undefined) {
+      return 0
+    }
+    return accumulator
   }
 
   /**
@@ -185,6 +197,13 @@ export class ArrayAggregation<T> implements Aggregation<T[]> {
     return accumulator
   }
 
+  result(accumulator: T[] | undefined): T[] {
+    if (accumulator === undefined) {
+      return []
+    }
+    return accumulator
+  }
+
   /**
    * Generates a human-readable description of the aggregation.
    */
@@ -249,6 +268,18 @@ export class MultiAggregation<T extends UnknownRecord>
       ;(accumulator as UnknownRecord)[key] = await value.update(
         accumulator[key],
         ctx,
+      )
+    }
+    return accumulator
+  }
+
+  result(accumulator: T | undefined): T {
+    if (accumulator === undefined) {
+      accumulator = {} as T
+    }
+    for (const [key, value] of Object.entries(this.aggregations)) {
+      ;(accumulator as UnknownRecord)[key] = value.result(
+        accumulator[key],
       )
     }
     return accumulator

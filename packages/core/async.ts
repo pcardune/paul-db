@@ -111,6 +111,12 @@ export class AsyncIterableWrapper<T, TNext = any> {
     return collectAsync(this.iterable)
   }
 
+  filter<S extends T>(
+    predicate: (item: T) => item is S,
+  ): AsyncIterableWrapper<S, TNext>
+  filter(
+    predicate: (item: T) => Promisable<boolean>,
+  ): AsyncIterableWrapper<T, TNext>
   filter(
     predicate: (item: T) => Promisable<boolean>,
   ): AsyncIterableWrapper<T, TNext> {

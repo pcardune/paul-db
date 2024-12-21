@@ -40,16 +40,20 @@ const dbSchema = s.db().withTables(
 async function init() {
   const db = await PaulDB.inMemory()
   const model = await db.dbFile.getDBModel(dbSchema)
-  await model.cats.insert({ name: "fluffy", age: 3, id: 1 })
-  await model.cats.insert({ name: "mittens", age: 5, id: 2 })
-  await model.humans.insertMany([
-    { firstName: "Alice", lastName: "Smith", id: 1 },
-    { firstName: "Bob", lastName: "Jones", id: 2 },
+  const [fluffy, mittens, _mrBlue] = await model.cats.insertManyAndReturn([
+    { name: "fluffy", age: 3 },
+    { name: "mittens", age: 5 },
+    { name: "Mr. Blue", age: 16 },
+  ])
+  const [alice, bob, _charlie] = await model.humans.insertManyAndReturn([
+    { firstName: "Alice", lastName: "Smith" },
+    { firstName: "Bob", lastName: "Jones" },
+    { firstName: "Charlie", lastName: "Brown" },
   ])
   await model.catOwners.insertMany([
-    { petId: 1, ownerId: 1 },
-    { petId: 1, ownerId: 2 },
-    { petId: 2, ownerId: 2 },
+    { petId: fluffy.id, ownerId: alice.id },
+    { petId: fluffy.id, ownerId: bob.id },
+    { petId: mittens.id, ownerId: bob.id },
   ])
   return { model, db }
 }
@@ -111,6 +115,7 @@ Deno.test("QueryPlanNode", async () => {
   expect(oldOrFluffyCats).toEqual([
     { cats: { id: 1, name: "fluffy", age: 3, likesTreats: true } },
     { cats: { id: 2, name: "mittens", age: 5, likesTreats: true } },
+    { cats: { id: 3, name: "Mr. Blue", age: 16, likesTreats: true } },
   ])
 
   // types flow through the query builder API:
@@ -174,7 +179,7 @@ Deno.test("QueryPlanNode Aggregates", async () => {
     "$0",
   )
   expect(await plan.execute(db).toArray()).toEqual([
-    { "$0": { count: 2, max: 5 } },
+    { "$0": { count: 3, max: 16 } },
   ])
 })
 
@@ -335,7 +340,7 @@ Deno.test("TypeTools", () => {
   >()
 })
 
-Deno.test("QueryBuilder JOINS", async () => {
+Deno.test("QueryBuilder (INNER) JOINS", async () => {
   const { db } = await init()
 
   const cats = await db.query(
@@ -360,34 +365,42 @@ Deno.test("QueryBuilder JOINS", async () => {
     { catName: "fluffy", owner: "Bob" },
     { catName: "mittens", owner: "Bob" },
   ])
+})
 
-  const plan = dbSchema.query()
-    .from("cats")
-    .join(
-      "catOwners",
-      (t) => t.column("cats.id").eq(t.column("catOwners.petId")),
-    )
-    .join(
-      "humans",
-      (t) => t.column("catOwners.ownerId").eq(t.column("humans.id")),
-    )
-    .select({
-      name: (t) => t.column("cats.name"),
-      ownerId: (t) => t.column("catOwners.ownerId"),
-      ownerName: (t) => t.column("humans.firstName"),
-    })
-    .plan()
+Deno.test("QueryBuilder LEFT JOINS", async () => {
+  const { db } = await init()
 
-  expect(await plan.execute(db).toArray()).toEqual([
-    { "$0": { name: "fluffy", ownerId: 1, ownerName: "Alice" } },
-    { "$0": { name: "fluffy", ownerId: 2, ownerName: "Bob" } },
-    { "$0": { name: "mittens", ownerId: 2, ownerName: "Bob" } },
+  const cats = await db.query(
+    dbSchema.query()
+      .from("cats")
+      .leftJoin(
+        "catOwners",
+        (t) => t.column("cats", "id").eq(t.column("catOwners", "petId")),
+      )
+      .leftJoin(
+        "humans",
+        (t) => t.column("humans.id").eq(t.column("catOwners.ownerId")),
+      )
+      .select({
+        catName: (t) => t.column("cats.name"),
+        owner: (t) => t.column("humans.firstName"),
+      }),
+  ).toArray()
+
+  expect(cats).toEqual([
+    { catName: "fluffy", owner: "Alice" },
+    { catName: "fluffy", owner: "Bob" },
+    { catName: "mittens", owner: "Bob" },
+    { catName: "Mr. Blue", owner: null },
   ])
+
+  assertTrue<
+    TypeEquals<Array<{ catName: string; owner: string | null }>, typeof cats>
+  >()
 })
 
 Deno.test("QueryBuilder .in()", async () => {
-  const { db, model } = await init()
-  await model.cats.insert({ name: "Mr. Blue", age: 3, id: 3 })
+  const { db } = await init()
   const plan = dbSchema.query()
     .from("cats")
     .where((t) => t.column("cats", "name").in("fluffy", "Mr. Blue"))
@@ -403,8 +416,7 @@ Deno.test("QueryBuilder .in()", async () => {
 })
 
 Deno.test("QueryBuilder .not()", async () => {
-  const { db, model } = await init()
-  await model.cats.insert({ name: "Mr. Blue", age: 3, id: 3 })
+  const { db } = await init()
   const plan = dbSchema.query()
     .from("cats")
     .where((t) => t.column("cats", "name").eq("fluffy").not())
@@ -446,11 +458,11 @@ Deno.test("QueryBuilder .aggregate()", async () => {
   expect(data).toEqual([
     {
       "$0": {
-        count: 2,
-        maxAge: 5,
+        count: 3,
+        maxAge: 16,
         maxName: "mittens",
-        minName: "fluffy",
-        totalAge: 8,
+        minName: "Mr. Blue",
+        totalAge: 24,
       },
     },
   ])
@@ -495,6 +507,7 @@ Deno.test("QueryBuilder subqueries", async () => {
   expect(data).toEqual([
     { "$0": { name: "Alice", numCats: 1 } },
     { "$0": { name: "Bob", numCats: 2 } },
+    { "$0": { name: "Charlie", numCats: 0 } },
   ])
   assertTrue<
     TypeEquals<

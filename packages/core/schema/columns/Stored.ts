@@ -44,6 +44,18 @@ export type Simple<Name extends string = string, ValueT = any> = Any<
 >
 
 /**
+ * Converts a stored column type to a nullable stored column type
+ */
+export type MakeNullable<C extends Any> = C extends Any<
+  infer Name,
+  infer Value,
+  infer Unique,
+  infer Indexed,
+  infer DefaultValueFactory
+> ? Any<Name, Value | null, Unique, Indexed, DefaultValueFactory>
+  : never
+
+/**
  * Represents any stored column with a default value
  */
 export type WithDefaultValue<ValueT = unknown> = OverrideProperties<

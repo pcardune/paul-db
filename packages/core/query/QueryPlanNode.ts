@@ -197,7 +197,7 @@ export class Aggregate<T extends UnknownRecord, AliasT extends string>
       accumulator = await aggregation.update(accumulator, ctx.withRowData(row))
     }
     return new AsyncIterableWrapper([
-      { [this.alias]: accumulator as T } as Record<AliasT, T>,
+      { [this.alias]: aggregation.result(accumulator) } as Record<AliasT, T>,
     ])
   }
 }
@@ -326,7 +326,9 @@ export class GroupBy<
         }
       }
       for (const { groupKey, accumulator } of groups) {
-        yield { [alias]: { ...groupKey, ...accumulator } } as Record<
+        yield {
+          [alias]: { ...groupKey, ...aggregation.result(accumulator) },
+        } as Record<
           AliasT,
           GroupKey & AggregateT
         >
@@ -520,6 +522,71 @@ export class Join<
   override toJSON(): Json {
     return {
       type: "Join",
+      left: this.left.toJSON(),
+      right: this.right.toJSON(),
+      predicate: this.predicate.toJSON(),
+    }
+  }
+}
+
+/**
+ * A Join node joins the results of two child nodes based on a predicate.
+ */
+export class LeftJoin<
+  LeftT extends RowData = RowData,
+  RightT extends RowData = RowData,
+> extends AbstractQueryPlan<LeftT & Partial<RightT>> {
+  /**
+   * Constructs a new Join node with the given left and right child nodes
+   * and predicate.
+   * @param left
+   * @param right
+   * @param predicate
+   */
+  constructor(
+    readonly left: IQueryPlanNode<LeftT>,
+    readonly right: IQueryPlanNode<RightT>,
+    readonly predicate: Expr<boolean>,
+  ) {
+    super()
+  }
+  /**
+   * Returns a human-readable description of the query plan
+   */
+  override describe(): string {
+    return `LeftJoin(${this.left.describe()}, ${this.right.describe()}, ${this.predicate.describe()})`
+  }
+  /**
+   * @ignore
+   */
+  override async getIter(
+    ctx: ExecutionContext,
+  ): Promise<AsyncIterableWrapper<LeftT & Partial<RightT>>> {
+    const leftIter = await this.left.execute(ctx).toArray()
+    const rightIter = await this.right.execute(ctx).toArray()
+    const predicate = this.predicate
+    return new AsyncIterableWrapper(async function* () {
+      for (const leftRow of leftIter) {
+        let foundMatch = false
+        for (const rightRow of rightIter) {
+          const row = { ...leftRow, ...rightRow }
+          if (await predicate.resolve(ctx.withRowData(row))) {
+            foundMatch = true
+            yield row
+          }
+        }
+        if (!foundMatch) {
+          yield leftRow as LeftT & Partial<RightT>
+        }
+      }
+    })
+  }
+  /**
+   * Returns a JSON representation of the query plan
+   */
+  override toJSON(): Json {
+    return {
+      type: "LeftJoin",
       left: this.left.toJSON(),
       right: this.right.toJSON(),
       predicate: this.predicate.toJSON(),
