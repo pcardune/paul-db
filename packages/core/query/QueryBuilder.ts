@@ -23,8 +23,8 @@ import {
   OrderBy,
   TableScan,
 } from "./QueryPlanNode.ts"
-import type { EmptyObject, Merge, NonEmptyTuple, Simplify } from "type-fest"
-import { ColumnType } from "../schema/columns/ColumnType.ts"
+import type { EmptyObject, Merge, Simplify } from "type-fest"
+import { ColumnType, ColumnTypes } from "../schema/columns/ColumnType.ts"
 import { Json } from "../types.ts"
 import { column } from "../schema/columns/ColumnBuilder.ts"
 import { Aggregation } from "./Aggregation.ts"
@@ -964,24 +964,18 @@ class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
   }
 
   in(
-    ...values: NonEmptyTuple<ExprBuilder<TQB, T>> | NonEmptyTuple<T>
+    ...values: Array<ExprBuilder<TQB, T> | T>
   ): ExprBuilder<TQB, boolean> {
-    if (values[0] instanceof ExprBuilder) {
       const expr = new In(
         this.expr,
-        (values as NonEmptyTuple<ExprBuilder<TQB, T>>).map((v) => v.expr),
-      )
-      return new ExprBuilder(this.tqb, expr)
-    } else {
-      const expr = new In(
-        this.expr,
-        (values as NonEmptyTuple<T>).map((v) =>
-          new LiteralValueExpr(v, this.expr.getType())
+      values.map((v) =>
+        v instanceof ExprBuilder
+          ? v.expr
+          : new LiteralValueExpr(v, this.expr.getType())
         ),
       )
       return new ExprBuilder(this.tqb, expr)
     }
-  }
 
   private compare(
     operator: CompareOperator,

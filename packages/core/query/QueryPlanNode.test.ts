@@ -415,6 +415,41 @@ Deno.test("QueryBuilder .in()", async () => {
   ])
 })
 
+Deno.test("QueryBuilder .in() with expressions", async () => {
+  const dbSchema = s.db().withTables(
+    s.table("names").with(
+      s.column("name", s.type.string()),
+      s.column("nickname", s.type.string()),
+    ),
+  )
+  const db = await PaulDB.inMemory()
+  const model = await db.dbFile.getDBModel(dbSchema)
+  await model.names.insertMany([
+    { name: "Alice", nickname: "Ali" },
+    { name: "Bob", nickname: "Bob" },
+    { name: "Charlie", nickname: "Chuck" },
+  ])
+
+  const rows = await db.query(
+    dbSchema.query()
+      .from("names")
+      .where((t) =>
+        // this is a contrived example, but it shows that you can use expressions
+        // in the `in` clause. This finds all rows where the `name` is equal to
+        // the `nickname`, or where the `name` is equal to "Chuck"
+        t.column("names", "nickname").in("Chuck", t.column("names.name"))
+      )
+      .select({
+        name: (t) => t.column("names.name"),
+        nickname: (t) => t.column("names.nickname"),
+      }),
+  ).toArray()
+  expect(rows).toEqual([
+    { name: "Bob", nickname: "Bob" },
+    { name: "Charlie", nickname: "Chuck" },
+  ])
+})
+
 Deno.test("QueryBuilder .not()", async () => {
   const { db } = await init()
   const plan = dbSchema.query()
