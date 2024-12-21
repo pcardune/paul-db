@@ -231,9 +231,9 @@ export class TableSchema<
 
   withUniqueConstraint<
     CName extends string,
-    CInputNames extends ColumnSchemasT[string]["name"][],
-    CInput extends StoredRecordForColumnSchemas<
-      Pick<ColumnSchemasT, CInputNames[number]>
+    CInputNames extends Array<keyof ColumnSchemasT>,
+    CInput extends Simplify<
+      StoredRecordForColumnSchemas<Pick<ColumnSchemasT, CInputNames[number]>>
     >,
     COutput,
   >(
