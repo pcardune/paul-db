@@ -141,7 +141,11 @@ type QBTableNames<QB extends IQB> = Extract<
   string
 >
 
-class NeverExpr implements Expr<never> {
+/**
+ * @ignore
+ * @internal
+ */
+export class _NeverExpr implements Expr<never> {
   resolve(): never {
     throw new Error("This should never be called")
   }
@@ -160,7 +164,11 @@ export interface IPlanBuilder<T extends plan.RowData = plan.RowData> {
   plan(): IQueryPlanNode<T>
 }
 
-interface ITQB<
+/**
+ * @ignore
+ * @internal
+ */
+export interface ITQB<
   QB extends IQB = IQB,
   SchemasT extends Record<string, ISchema> = Record<string, ISchema>,
 > extends IPlanBuilder {
@@ -321,7 +329,7 @@ export class TableQueryBuilder<
       tqb: ExprBuilder<ITQB<QB, SchemasT>, never>,
     ) => ExprBuilder<ITQB<QB, SchemasT>, boolean>,
   ): this {
-    this.whereClause = func(new ExprBuilder(this, new NeverExpr()))
+    this.whereClause = func(new ExprBuilder(this, new _NeverExpr()))
     return this
   }
 
@@ -373,7 +381,7 @@ export class TableQueryBuilder<
     order: "ASC" | "DESC",
   ): this {
     this.orderByClauses.push({
-      expr: func(new ExprBuilder(this, new NeverExpr())),
+      expr: func(new ExprBuilder(this, new _NeverExpr())),
       order,
     })
     return this
@@ -408,7 +416,7 @@ export class TableQueryBuilder<
     const mapped = Object.fromEntries(
       Object.entries(selection).map((
         [key, func],
-      ) => [key, func(new ExprBuilder(this, new NeverExpr()))]),
+      ) => [key, func(new ExprBuilder(this, new _NeverExpr()))]),
     ) as SelectT
 
     return new SelectBuilder(this, "$0", mapped)
@@ -450,7 +458,7 @@ export class TableQueryBuilder<
       Object.fromEntries(
         Object.entries(key).map((
           [key, func],
-        ) => [key, func(new ExprBuilder(this, new NeverExpr()))]),
+        ) => [key, func(new ExprBuilder(this, new _NeverExpr()))]),
       ) as GroupKeyT,
       {},
     )
@@ -489,7 +497,7 @@ export class TableQueryBuilder<
           key,
           func(
             new AggregationFuncs(this),
-            new ExprBuilder(this, new NeverExpr()),
+            new ExprBuilder(this, new _NeverExpr()),
           ),
         ]),
       ) as AggregateT,
@@ -510,7 +518,7 @@ export class TableQueryBuilder<
               this.queryBuilder.dbSchema.name,
               joinTableName,
             ),
-            on(new ExprBuilder(this, new NeverExpr())).expr,
+            on(new ExprBuilder(this, new _NeverExpr())).expr,
           )
         } else if (joinType === "left") {
           root = new LeftJoin(
@@ -519,7 +527,7 @@ export class TableQueryBuilder<
               this.queryBuilder.dbSchema.name,
               joinTableName,
             ),
-            on(new ExprBuilder(this, new NeverExpr())).expr,
+            on(new ExprBuilder(this, new _NeverExpr())).expr,
           )
         }
       }
@@ -803,7 +811,7 @@ class GroupByBuilder<
             key,
             func(
               new AggregationFuncs(this.tqb),
-              new ExprBuilder(this.tqb, new NeverExpr()),
+              new ExprBuilder(this.tqb, new _NeverExpr()),
             ),
           ]),
         ) as AggregateT,
@@ -923,7 +931,11 @@ type ExprType<T extends ExprBuilder> = T extends ExprBuilder<infer TQB, infer T>
   ? T
   : never
 
-class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
+/**
+ * @ignore
+ * @internal
+ */
+export class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
   constructor(readonly tqb: TQB, readonly expr: Expr<T>) {}
 
   column<
@@ -966,16 +978,16 @@ class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
   in(
     ...values: Array<ExprBuilder<TQB, T> | T>
   ): ExprBuilder<TQB, boolean> {
-      const expr = new In(
-        this.expr,
+    const expr = new In(
+      this.expr,
       values.map((v) =>
         v instanceof ExprBuilder
           ? v.expr
           : new LiteralValueExpr(v, this.expr.getType())
-        ),
-      )
-      return new ExprBuilder(this.tqb, expr)
-    }
+      ),
+    )
+    return new ExprBuilder(this.tqb, expr)
+  }
 
   private compare(
     operator: CompareOperator,
@@ -1056,7 +1068,32 @@ class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
     return this.andOr("OR", value)
   }
 
-  literal<T>(value: T, type: ColumnType<T>): ExprBuilder<TQB, T> {
+  literal(value: boolean): ExprBuilder<TQB, boolean>
+  literal(value: string): ExprBuilder<TQB, string>
+  literal(value: number): ExprBuilder<TQB, number>
+  literal<T>(value: T, type: ColumnType<T>): ExprBuilder<TQB, T>
+  literal<T>(value: T, type?: ColumnType<T>): ExprBuilder<TQB, T> {
+    if (type == null) {
+      if (typeof value === "boolean") {
+        type = ColumnTypes.boolean() as unknown as ColumnType<T>
+      } else if (typeof value === "string") {
+        type = ColumnTypes.string() as unknown as ColumnType<T>
+      } else if (typeof value === "number") {
+        if (Number.isInteger(value)) {
+          type = ColumnTypes.int32() as unknown as ColumnType<T>
+        } else {
+          type = ColumnTypes.float() as unknown as ColumnType<T>
+        }
+      }
+    }
+    if (type == null) {
+      throw new Error(
+        `Type must be provided for literal ${JSON.stringify(value)}`,
+      )
+    }
+    if (!type.isValid(value)) {
+      throw new Error(`Value ${value} is not valid for type ${type.name}`)
+    }
     const expr = new LiteralValueExpr(value, type)
     return new ExprBuilder(this.tqb, expr)
   }
