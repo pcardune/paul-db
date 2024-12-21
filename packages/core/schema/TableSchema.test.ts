@@ -321,6 +321,26 @@ describe("Schemas", () => {
   })
 })
 
+describe("unique constraints", () => {
+  it("can be added to a table schema", () => {
+    const schema = TableSchema.create("people")
+      .with(column("name", ColumnTypes.string()))
+      .with(column("age", ColumnTypes.uint32()))
+      .withUniqueConstraint(
+        "nameAndAge",
+        ColumnTypes.string(),
+        ["name", "age"],
+        (input) => `${input.name}:${input.age}`,
+      )
+
+    expect(schema.computedColumnsByName.nameAndAge).toBeDefined()
+    const nameAndAgeCol = schema.computedColumnsByName.nameAndAge
+    expect(nameAndAgeCol.isUnique).toBe(true)
+    expect(nameAndAgeCol.indexed.shouldIndex).toBe(true)
+    expect(nameAndAgeCol.compute({ name: "Alice", age: 25 })).toBe("Alice:25")
+  })
+})
+
 describe("Serializing and deserializing records", () => {
   it("can serialize and deserialize records", () => {
     const peopleSchema = TableSchema.create("people")
