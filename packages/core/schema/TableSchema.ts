@@ -4,7 +4,7 @@ import {
   computedColumn,
   StoredRecordForColumnSchemas,
 } from "./columns/ColumnBuilder.ts"
-import { ColumnType } from "./columns/ColumnType.ts"
+import { ColumnType, ColValueOf } from "./columns/ColumnType.ts"
 import type {
   ConditionalPick,
   EmptyObject,
@@ -18,11 +18,19 @@ export { Column }
 
 type UnwrapColumnBuilder<T extends Column.Stored.Any> = T extends ColumnBuilder<
   infer Name,
-  infer ValueT,
+  infer ColT,
   infer UniqueT,
   infer IndexedT,
   infer DefaultValueFactoryT
-> ? Column.Stored.Any<Name, ValueT, UniqueT, IndexedT, DefaultValueFactoryT>
+>
+  ? Column.Stored.Any<
+    Name,
+    ColValueOf<ColT>,
+    ColT,
+    UniqueT,
+    IndexedT,
+    DefaultValueFactoryT
+  >
   : T
 
 type RemoveSymbols<T> = Simplify<

@@ -1,13 +1,17 @@
 import type { Promisable } from "type-fest"
 import { Column } from "../schema/TableSchema.ts"
 import { assertUnreachable, Json } from "../types.ts"
-import { ColumnType, ColumnTypes } from "../schema/columns/ColumnType.ts"
+import {
+  ArrayColumnType,
+  ColumnType,
+  ColumnTypes,
+} from "../schema/columns/ColumnType.ts"
 import { type ExecutionContext, type IQueryPlanNode } from "./QueryPlanNode.ts"
 
 /**
  * An expression that can be evaluated to a value
  */
-export interface Expr<T> {
+export interface Expr<T, ColT extends ColumnType<T> = ColumnType<T>> {
   /**
    * Resolves the expression to a value from the
    * given execution context
@@ -17,7 +21,7 @@ export interface Expr<T> {
   /**
    * Returns the type that the expression resolves to
    */
-  getType(): ColumnType<T>
+  getType(): ColT
 
   /**
    * Returns a human-readable description of the expression
@@ -283,6 +287,37 @@ export class In<T> implements Expr<boolean> {
       type: "in",
       left: this.left.toJSON(),
       right: this.right.map((r) => r.toJSON()),
+    }
+  }
+}
+
+export class OverlapsExpr<T> implements Expr<boolean> {
+  constructor(
+    readonly left: Expr<T[], ArrayColumnType<T>>,
+    readonly right: Expr<T[], ArrayColumnType<T>>,
+  ) {}
+  async resolve(ctx: ExecutionContext): Promise<boolean> {
+    const leftVals = await this.left.resolve(ctx)
+    const rightVals = await this.right.resolve(ctx)
+    const leftType = this.left.getType().type
+    for (const leftVal of leftVals) {
+      if (rightVals.some((rightVal) => leftType.isEqual(leftVal, rightVal))) {
+        return true
+      }
+    }
+    return false
+  }
+  getType(): ColumnType<boolean> {
+    return ColumnTypes.boolean()
+  }
+  describe(): string {
+    return `${this.left.describe()} && ${this.right.describe()}`
+  }
+  toJSON(): Json {
+    return {
+      type: "overlaps",
+      left: this.left.toJSON(),
+      right: this.right.toJSON(),
     }
   }
 }

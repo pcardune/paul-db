@@ -261,3 +261,55 @@ Deno.test("ExprBuilder .literal()", async (test) => {
     }])
   })
 })
+
+Deno.test("ExprBuilder .overlaps()", async (test) => {
+  const dbSchema = s.db().withTables(
+    s.table("posts").with(
+      s.column("title", s.type.string()),
+      s.column("tags", s.type.string().array()),
+    ),
+  )
+  const db = await PaulDB.inMemory()
+  const model = await db.dbFile.getDBModel(dbSchema)
+  await model.posts.insertMany([
+    { title: "Post 1", tags: ["tag1", "tag2"] },
+    { title: "Post 2", tags: ["tag2", "tag3"] },
+    { title: "Post 3", tags: ["tag3", "tag4"] },
+  ])
+
+  await test.step("When passed an array of strings", async () => {
+    const doQuery = (tags: string[]) =>
+      db.query(
+        dbSchema.query()
+          .from("posts")
+          .where((t) =>
+            t.tables.posts.tags.overlaps(
+              t.literal(tags, s.type.string().array()),
+            )
+          )
+          .select({ title: (t) => t.column("posts", "title") }),
+      ).toArray()
+
+    expect(await doQuery(["tag1"])).toEqual([
+      { title: "Post 1" },
+    ])
+    expect(await doQuery(["tag2"])).toEqual([
+      { title: "Post 1" },
+      { title: "Post 2" },
+    ])
+    expect(await doQuery(["tag3"])).toEqual([
+      { title: "Post 2" },
+      { title: "Post 3" },
+    ])
+    expect(await doQuery(["tag3", "foobar"])).toEqual([
+      { title: "Post 2" },
+      { title: "Post 3" },
+    ])
+    expect(await doQuery([])).toEqual([])
+    expect(await doQuery(["foobar"])).toEqual([])
+    expect(await doQuery(["tag1", "tag2"])).toEqual([
+      { title: "Post 1" },
+      { title: "Post 2" },
+    ])
+  })
+})

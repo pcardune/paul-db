@@ -18,6 +18,7 @@ export type DefaultValueConfig<ValueT = unknown> = (() => ValueT) | undefined
 export type Any<
   Name extends string = string,
   ValueT = any,
+  ColT extends ColumnType<ValueT> = ColumnType<ValueT>,
   UniqueT extends boolean = boolean,
   IndexedT extends Index.Config = Index.Config,
   DefaultValueFactoryT extends DefaultValueConfig<ValueT> = DefaultValueConfig<
@@ -26,7 +27,7 @@ export type Any<
 > = {
   kind: "stored"
   name: Name
-  type: ColumnType<ValueT>
+  type: ColT
   isUnique: UniqueT
   indexed: IndexedT
   defaultValueFactory: DefaultValueFactoryT
@@ -38,6 +39,7 @@ export type Any<
 export type Simple<Name extends string = string, ValueT = any> = Any<
   Name,
   ValueT,
+  ColumnType<ValueT>,
   false,
   Index.ShouldNotIndex,
   undefined
@@ -49,10 +51,18 @@ export type Simple<Name extends string = string, ValueT = any> = Any<
 export type MakeNullable<C extends Any> = C extends Any<
   infer Name,
   infer Value,
+  infer ColT,
   infer Unique,
   infer Indexed,
   infer DefaultValueFactory
-> ? Any<Name, Value | null, Unique, Indexed, DefaultValueFactory>
+> ? Any<
+    Name,
+    Value | null,
+    ColumnType<Value | null>,
+    Unique,
+    Indexed,
+    DefaultValueFactory
+  >
   : never
 
 /**

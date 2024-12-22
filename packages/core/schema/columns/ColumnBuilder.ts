@@ -1,4 +1,4 @@
-import { ColumnType, SerialUInt32ColumnType } from "./ColumnType.ts"
+import { ColumnType, ColValueOf, SerialUInt32ColumnType } from "./ColumnType.ts"
 import type { ConditionalKeys, Simplify } from "type-fest"
 import * as Column from "./index.ts"
 
@@ -10,18 +10,17 @@ export const DEFAULT_INDEX_CONFIG: Column.Index.ShouldIndex = {
 
 export class ColumnBuilder<
   Name extends string = string,
-  ValueT = unknown,
+  ColT extends ColumnType<any> = ColumnType<any>,
   UniqueT extends boolean = boolean,
   IndexedT extends Column.Index.Config = Column.Index.Config,
-  DefaultValueFactoryT extends Column.Stored.DefaultValueConfig<ValueT> =
-    Column.Stored.DefaultValueConfig<
-      ValueT
-    >,
+  DefaultValueFactoryT extends Column.Stored.DefaultValueConfig<
+    ColValueOf<ColT>
+  > = Column.Stored.DefaultValueConfig<ColValueOf<ColT>>,
 > {
   readonly kind: "stored" = "stored"
   constructor(
     readonly name: Name,
-    readonly type: ColumnType<ValueT>,
+    readonly type: ColT,
     readonly isUnique: UniqueT,
     readonly indexed: IndexedT,
     readonly defaultValueFactory: DefaultValueFactoryT,
@@ -29,7 +28,8 @@ export class ColumnBuilder<
 
   finalize(): Column.Stored.Any<
     Name,
-    ValueT,
+    ColValueOf<ColT>,
+    ColT,
     UniqueT,
     IndexedT,
     DefaultValueFactoryT
@@ -46,14 +46,14 @@ export class ColumnBuilder<
 
   named<NewName extends string>(name: NewName): ColumnBuilder<
     NewName,
-    ValueT,
+    ColT,
     UniqueT,
     IndexedT,
     DefaultValueFactoryT
   > {
     return new ColumnBuilder<
       NewName,
-      ValueT,
+      ColT,
       UniqueT,
       IndexedT,
       DefaultValueFactoryT
@@ -70,7 +70,7 @@ export class ColumnBuilder<
     indexConfig: Partial<Column.Index.ShouldIndex> = {},
   ): ColumnBuilder<
     Name,
-    ValueT,
+    ColT,
     true,
     Column.Index.ShouldIndex,
     DefaultValueFactoryT
@@ -86,7 +86,7 @@ export class ColumnBuilder<
 
   index(indexConfig: Partial<Column.Index.ShouldIndex> = {}): ColumnBuilder<
     Name,
-    ValueT,
+    ColT,
     UniqueT,
     Column.Index.ShouldIndex,
     DefaultValueFactoryT
@@ -101,8 +101,8 @@ export class ColumnBuilder<
   }
 
   defaultTo(
-    defaultValueFactory: () => ValueT,
-  ): ColumnBuilder<Name, ValueT, UniqueT, IndexedT, () => ValueT> {
+    defaultValueFactory: () => ColValueOf<ColT>,
+  ): ColumnBuilder<Name, ColT, UniqueT, IndexedT, () => ColValueOf<ColT>> {
     return new ColumnBuilder(
       this.name,
       this.type,
@@ -121,16 +121,31 @@ export class ColumnBuilder<
 export function column<Name extends string, ValueT>(
   name: Name,
   type: "serial",
-): ColumnBuilder<Name, number, true, Column.Index.ShouldIndex, () => number>
+): ColumnBuilder<
+  Name,
+  SerialUInt32ColumnType,
+  true,
+  Column.Index.ShouldIndex,
+  () => number
+>
 /**
  * Creates a column with the given name and type.
  * @param name name of the column
  * @param type type of the column
  */
-export function column<Name extends string, ValueT>(
+export function column<
+  Name extends string,
+  ColT extends ColumnType<any>,
+>(
   name: Name,
-  type: ColumnType<ValueT>,
-): ColumnBuilder<Name, ValueT, false, Column.Index.ShouldNotIndex, undefined>
+  type: ColT,
+): ColumnBuilder<
+  Name,
+  ColT,
+  false,
+  Column.Index.ShouldNotIndex,
+  undefined
+>
 /**
  * Creates a column with the given name and type.
  * @param name name of the column
@@ -141,7 +156,7 @@ export function column<Name extends string>(
   type: ColumnType | "serial",
 ): ColumnBuilder<
   Name,
-  any,
+  ColumnType<any>,
   boolean,
   Column.Index.Config,
   Column.Stored.DefaultValueConfig<unknown>

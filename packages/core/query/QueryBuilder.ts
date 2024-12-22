@@ -21,10 +21,16 @@ import {
   MultiAggregation,
   NotExpr,
   OrderBy,
+  OverlapsExpr,
   TableScan,
 } from "./QueryPlanNode.ts"
 import type { EmptyObject, Merge, Simplify } from "type-fest"
-import { ColumnType, ColumnTypes } from "../schema/columns/ColumnType.ts"
+import {
+  ArrayColumnType,
+  ColumnType,
+  ColumnTypes,
+  ColValueOf,
+} from "../schema/columns/ColumnType.ts"
 import { Json } from "../types.ts"
 import { column } from "../schema/columns/ColumnBuilder.ts"
 import { Aggregation } from "./Aggregation.ts"
@@ -933,8 +939,12 @@ type ExprType<T extends ExprBuilder> = T extends ExprBuilder<infer TQB, infer T>
  * @ignore
  * @internal
  */
-export class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
-  constructor(readonly tqb: TQB, readonly expr: Expr<T>) {}
+export class ExprBuilder<
+  TQB extends ITQB = ITQB,
+  T = any,
+  ColT extends ColumnType<T> = ColumnType<T>,
+> {
+  constructor(readonly tqb: TQB, readonly expr: Expr<T, ColT>) {}
 
   column<
     TName extends TQBTableNames<TQB>,
@@ -1064,18 +1074,24 @@ export class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
   literal(value: boolean): ExprBuilder<TQB, boolean>
   literal(value: string): ExprBuilder<TQB, string>
   literal(value: number): ExprBuilder<TQB, number>
-  literal<T>(value: T, type: ColumnType<T>): ExprBuilder<TQB, T>
-  literal<T>(value: T, type?: ColumnType<T>): ExprBuilder<TQB, T> {
+  literal<ColT extends ColumnType<any>>(
+    value: ColValueOf<ColT>,
+    type: ColT,
+  ): ExprBuilder<TQB, ColValueOf<ColT>, ColT>
+  literal<ColT extends ColumnType<any>>(
+    value: ColValueOf<ColT>,
+    type?: ColT,
+  ): ExprBuilder<TQB, ColValueOf<ColT>, ColT> {
     if (type == null) {
       if (typeof value === "boolean") {
-        type = ColumnTypes.boolean() as unknown as ColumnType<T>
+        type = ColumnTypes.boolean() as unknown as ColT
       } else if (typeof value === "string") {
-        type = ColumnTypes.string() as unknown as ColumnType<T>
+        type = ColumnTypes.string() as unknown as ColT
       } else if (typeof value === "number") {
         if (Number.isInteger(value)) {
-          type = ColumnTypes.int32() as unknown as ColumnType<T>
+          type = ColumnTypes.int32() as unknown as ColT
         } else {
-          type = ColumnTypes.float() as unknown as ColumnType<T>
+          type = ColumnTypes.float() as unknown as ColT
         }
       }
     }
@@ -1088,7 +1104,11 @@ export class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
       throw new Error(`Value ${value} is not valid for type ${type.name}`)
     }
     const expr = new LiteralValueExpr(value, type)
-    return new ExprBuilder(this.tqb, expr)
+    return new ExprBuilder(this.tqb, expr) as ExprBuilder<
+      TQB,
+      ColValueOf<ColT>,
+      ColT
+    >
   }
 
   subquery<T>(
@@ -1101,6 +1121,14 @@ export class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
       new plan.SubqueryExpr(func(new SubQueryBuilder(this.tqb)).plan()),
     )
   }
+
+  overlaps<V>(
+    this: ExprBuilder<TQB, V[], ArrayColumnType<V>>,
+    value: ExprBuilder<TQB, V[], ArrayColumnType<V>>,
+  ): ExprBuilder<TQB, boolean> {
+    const expr = new OverlapsExpr(this.expr, value.expr)
+    return new ExprBuilder(this.tqb, expr)
+  }
 }
 
 /**
@@ -1112,7 +1140,8 @@ export class EmptyExprBuilder<TQB extends ITQB = ITQB>
     [TName in keyof TQB["tableSchemas"]]: {
       [CName in ColumnNames<TQB, TName>]: ExprBuilder<
         TQB,
-        Column.GetOutput<ColumnWithName<TQB, TName, CName>>
+        Column.GetOutput<ColumnWithName<TQB, TName, CName>>,
+        ColumnWithName<TQB, TName, CName>["type"]
       >
     }
   }

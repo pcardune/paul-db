@@ -103,21 +103,8 @@ export class ColumnType<T = unknown> {
   /**
    * Takes a ColumnType and returns a new ColumnType that allows arrays of values
    */
-  array(): ColumnType<T[]> {
-    return new ColumnType<T[]>({
-      name: this.name + "[]",
-      isValid: (value) => Array.isArray(value) && value.every(this.isValid),
-      equals: (a, b) =>
-        a.length === b.length && a.every((v, i) => this.isEqual(v, b[i])),
-      compare: (a, b) => {
-        for (let i = 0; i < Math.min(a.length, b.length); i++) {
-          const cmp = this.compare(a[i], b[i])
-          if (cmp !== 0) return cmp
-        }
-        return a.length - b.length
-      },
-      serializer: this.serializer?.array(),
-    })
+  array(): ArrayColumnType<T> {
+    return new ArrayColumnType<T>(this)
   }
 
   /**
@@ -140,6 +127,25 @@ export class ColumnType<T = unknown> {
   }
 }
 
+export class ArrayColumnType<T> extends ColumnType<T[]> {
+  constructor(readonly type: ColumnType<T>) {
+    super({
+      name: type.name + "[]",
+      isValid: (value) => Array.isArray(value) && value.every(type.isValid),
+      equals: (a, b) =>
+        a.length === b.length && a.every((v, i) => type.isEqual(v, b[i])),
+      compare: (a, b) => {
+        for (let i = 0; i < Math.min(a.length, b.length); i++) {
+          const cmp = type.compare(a[i], b[i])
+          if (cmp !== 0) return cmp
+        }
+        return a.length - b.length
+      },
+      serializer: type.serializer?.array(),
+    })
+  }
+}
+
 export class SerialUInt32ColumnType extends ColumnType<number> {
   constructor() {
     super({
@@ -149,3 +155,7 @@ export class SerialUInt32ColumnType extends ColumnType<number> {
     })
   }
 }
+
+export type ColValueOf<T extends ColumnType<any>> = T extends
+  ColumnType<infer V> ? V
+  : never
