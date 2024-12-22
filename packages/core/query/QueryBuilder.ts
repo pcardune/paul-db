@@ -421,14 +421,14 @@ export class TableQueryBuilder<
         tqb: EmptyExprBuilder<ITQB<QB, SchemasT>>,
       ) => SelectT[Property]
     },
-  ): SelectBuilder<ITQB<QB, SchemasT>, "$0", SelectT> {
+  ): GroupByBuilder<ITQB<QB, SchemasT>, SelectT, EmptyObject> {
     const mapped = Object.fromEntries(
       Object.entries(selection).map((
         [key, func],
       ) => [key, func(new EmptyExprBuilder(this))]),
     ) as SelectT
 
-    return new SelectBuilder(this, "$0", mapped)
+    return new GroupByBuilder(this, mapped, {})
   }
 
   /**
@@ -496,9 +496,10 @@ export class TableQueryBuilder<
         exprFuncs: EmptyExprBuilder<this>,
       ) => AggregateT[K]
     },
-  ): AggregateBuilder<this, AggregateT> {
-    return new AggregateBuilder(
+  ): GroupByBuilder<this, EmptyObject, AggregateT> {
+    return new GroupByBuilder(
       this,
+      {},
       Object.fromEntries(
         Object.entries(aggregations).map((
           [key, func],
@@ -570,73 +571,6 @@ type SelectColumns<SelectT extends SelectConfig> = Simplify<
     >
   }
 >
-type SelectSchema<NewAlias extends string, SelectT extends SelectConfig> =
-  Simplify<ISchema<NewAlias, SelectColumns<SelectT>>>
-
-class SelectBuilder<
-  TQB extends ITQB = ITQB,
-  AliasT extends string = string,
-  SelectT extends SelectConfig = SelectConfig,
-> {
-  constructor(
-    readonly tqb: TQB,
-    readonly alias: AliasT,
-    readonly select: SelectT,
-  ) {}
-
-  asTable<NewAlias extends string>(
-    newAlias: NewAlias,
-  ): TableQueryBuilder<
-    QueryBuilder<
-      IAugmentedDBSchema<
-        TQB["queryBuilder"]["dbSchema"],
-        SelectSchema<NewAlias, SelectT>
-      >
-    >,
-    Record<NewAlias, SelectSchema<NewAlias, SelectT>>
-  > {
-    const newSchema = {
-      name: newAlias,
-      columnsByName: Object.fromEntries(
-        Object.entries(this.select).map((
-          [key, value],
-        ) => [key, column(key, value.expr.getType())]),
-      ) as unknown as SelectSchema<NewAlias, SelectT>["columnsByName"],
-    }
-
-    const newDBSchema: IAugmentedDBSchema<
-      TQB["queryBuilder"]["dbSchema"],
-      SelectSchema<NewAlias, SelectT>
-    > = augmentDbSchema(this.tqb.queryBuilder.dbSchema, newSchema)
-    const newTQB = new TableQueryBuilder(
-      new QueryBuilder(newDBSchema),
-      singleKeyRecord(newAlias, newSchema),
-      newAlias,
-      new SelectBuilder(this.tqb, newAlias, this.select).plan() as any,
-      [],
-    )
-
-    return newTQB
-  }
-
-  plan(): plan.Select<
-    AliasT,
-    {
-      [Property in keyof SelectT]: SelectT[Property] extends
-        ExprBuilder<infer TQB, ColumnType<infer T>> ? T : never
-    }
-  > {
-    return new plan.Select(
-      this.tqb.plan(),
-      this.alias,
-      Object.fromEntries(
-        Object.entries(this.select).map((
-          [key, valueExpr],
-        ) => [key, valueExpr.expr]),
-      ),
-    )
-  }
-}
 
 /**
  * Helper for constructing aggregations
@@ -700,74 +634,11 @@ class AggregationFuncs<TQB extends ITQB = ITQB> {
 }
 
 type AggConfig = Record<string, plan.Aggregation<any>>
-type AggregatedRecord<AggT extends AggConfig> = Simplify<
-  {
-    [Key in keyof AggT]: AggT[Key] extends
-      plan.Aggregation<infer Acc, ColumnType<infer T>> ? T
-      : never
-  }
->
 type AggregatedColumns<AggT extends AggConfig> = {
   [K in Extract<keyof AggT, string>]: Column.Stored.Any<
     K,
     AggregationType<AggT[K]>
   >
-}
-type AggregatedSchema<Name extends string, AggT extends AggConfig> = ISchema<
-  Name,
-  AggregatedColumns<AggT>
->
-
-class AggregateBuilder<
-  TQB extends ITQB = ITQB,
-  AggT extends AggConfig = AggConfig,
-> implements IPlanBuilder<Record<"$0", AggregatedRecord<AggT>>> {
-  constructor(readonly tqb: TQB, readonly aggregations: AggT) {}
-
-  asTable<NewAlias extends string>(newAlias: NewAlias): TableQueryBuilder<
-    QueryBuilder<
-      IAugmentedDBSchema<
-        TQB["queryBuilder"]["dbSchema"],
-        AggregatedSchema<NewAlias, AggT>
-      >
-    >,
-    Record<NewAlias, AggregatedSchema<NewAlias, AggT>>
-  > {
-    const newSchema = {
-      name: newAlias,
-      columnsByName: Object.fromEntries(
-        Object.entries(this.aggregations).map((
-          [key, value],
-        ) => [key, column(key, value.getType())]),
-      ) as unknown as AggregatedColumns<AggT>,
-    }
-
-    const newDBSchema: IAugmentedDBSchema<
-      TQB["queryBuilder"]["dbSchema"],
-      AggregatedSchema<NewAlias, AggT>
-    > = augmentDbSchema(this.tqb.queryBuilder.dbSchema, newSchema)
-    const newTQB = new TableQueryBuilder(
-      new QueryBuilder(newDBSchema),
-      singleKeyRecord(newAlias, newSchema),
-      newAlias,
-      new plan.Aggregate(
-        this.tqb.plan(),
-        new MultiAggregation(this.aggregations),
-        newAlias,
-      ) as any, // TODO: fix this
-      [],
-    )
-
-    return newTQB
-  }
-
-  plan(): IQueryPlanNode<Record<"$0", AggregatedRecord<AggT>>> {
-    return new plan.Aggregate(
-      this.tqb.plan(),
-      new MultiAggregation(this.aggregations),
-      "$0",
-    ) as any // TODO: fix this
-  }
 }
 
 class GroupByBuilder<
@@ -885,20 +756,55 @@ class GroupByBuilder<
       new QueryBuilder(newDBSchema),
       singleKeyRecord(newAlias, newSchema),
       newAlias,
-      new plan.GroupBy(
+      this._plan(newAlias) as any,
+      [],
+    )
+
+    return newTQB
+  }
+
+  private _plan<NewAlias extends string>(newAlias: NewAlias): IQueryPlanNode<
+    Record<
+      NewAlias,
+      & {
+        [Property in keyof GroupKeyT]: GroupKeyT[Property] extends
+          ExprBuilder<infer TQB, ColumnType<infer T>> ? T : never
+      }
+      & {
+        [Key in keyof AggT]: AggT[Key] extends
+          plan.Aggregation<infer Acc, ColumnType<infer T>> ? T
+          : never
+      }
+    >
+  > {
+    if (Object.keys(this.aggregations).length === 0) {
+      return new plan.Select(
         this.tqb.plan(),
+        newAlias,
         Object.fromEntries(
           Object.entries(this.groupKey).map((
             [key, valueExpr],
           ) => [key, valueExpr.expr]),
         ),
+      )
+    }
+    if (Object.keys(this.groupKey).length === 0) {
+      return new plan.Aggregate(
+        this.tqb.plan(),
         new MultiAggregation(this.aggregations),
         newAlias,
-      ) as any,
-      [],
-    )
-
-    return newTQB
+      ) as any
+    }
+    return new plan.GroupBy(
+      this.tqb.plan(),
+      Object.fromEntries(
+        Object.entries(this.groupKey).map((
+          [key, valueExpr],
+        ) => [key, valueExpr.expr]),
+      ),
+      new MultiAggregation(this.aggregations),
+      newAlias,
+    ) as any // TODO: fix this
   }
 
   plan(): IQueryPlanNode<
@@ -915,16 +821,7 @@ class GroupByBuilder<
       }
     >
   > {
-    return new plan.GroupBy(
-      this.tqb.plan(),
-      Object.fromEntries(
-        Object.entries(this.groupKey).map((
-          [key, valueExpr],
-        ) => [key, valueExpr.expr]),
-      ),
-      new MultiAggregation(this.aggregations),
-      "$0",
-    ) as any // TODO: fix this
+    return this._plan("$0")
   }
 }
 

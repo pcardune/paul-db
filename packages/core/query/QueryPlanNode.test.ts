@@ -409,11 +409,13 @@ Deno.test("QueryBuilder .aggregate()", async () => {
       maxName: (agg, t) => agg.max(t.column("cats", "name")),
       minName: (agg, t) => agg.min(t.column("cats", "name")),
       totalAge: (agg, t) => agg.sum(t.column("cats", "age")),
+      firstAge: (agg, t) => agg.first(t.column("cats", "age")),
+      names: (agg, t) => agg.arrayAgg(t.column("cats", "name")),
     })
     .plan()
 
   expect(plan.describe()).toEqual(
-    "Aggregate(TableScan(default.cats), MultiAggregation(count: COUNT(*), maxAge: MAX(age), maxName: MAX(name), minName: MIN(name), totalAge: SUM(age))) AS $0",
+    "Aggregate(TableScan(default.cats), MultiAggregation(count: COUNT(*), maxAge: MAX(age), maxName: MAX(name), minName: MIN(name), totalAge: SUM(age), firstAge: FIRST(age), names: ARRAY_AGG(name))) AS $0",
   )
   const data = await plan.execute(db).toArray()
   expect(data).toEqual([
@@ -424,23 +426,27 @@ Deno.test("QueryBuilder .aggregate()", async () => {
         maxName: "mittens",
         minName: "Mr. Blue",
         totalAge: 24,
+        firstAge: 3,
+        names: ["fluffy", "mittens", "Mr. Blue"],
       },
     },
   ])
   assertTrue<
     TypeEquals<
-      typeof data,
       Array<
         {
           "$0": {
             count: number
-            maxAge: number | undefined
-            maxName: string | undefined
-            minName: string | undefined
-            totalAge: number | undefined
+            maxAge: number
+            maxName: string
+            minName: string
+            totalAge: number
+            firstAge: number
+            names: string[]
           }
         }
-      >
+      >,
+      typeof data
     >
   >()
 })
