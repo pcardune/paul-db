@@ -399,7 +399,7 @@ Deno.test("QueryBuilder LEFT JOINS", async () => {
   >()
 })
 
-Deno.test("QueryBuilder .aggregate()", async () => {
+Deno.test("QueryBuilder .aggregate()", async (test) => {
   const { db } = await init()
   const plan = dbSchema.query()
     .from("cats")
@@ -449,6 +449,20 @@ Deno.test("QueryBuilder .aggregate()", async () => {
       typeof data
     >
   >()
+
+  await test.step(".arrayAgg().filter()", async () => {
+    const result = await db.query(
+      dbSchema.query()
+        .from("cats")
+        .aggregate({
+          names: (agg, t) =>
+            agg.arrayAgg(t.column("cats", "name")).filter(
+              (name) => name.neq("fluffy"),
+            ),
+        }),
+    ).toArray()
+    expect(result).toEqual([{ names: ["mittens", "Mr. Blue"] }])
+  })
 })
 
 Deno.test("QueryBuilder subqueries", async () => {

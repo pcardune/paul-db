@@ -494,7 +494,7 @@ export class TableQueryBuilder<
       [K in keyof AggregateT]: (
         aggFuncs: AggregationFuncs<this>,
         exprFuncs: EmptyExprBuilder<this>,
-      ) => AggregateT[K]
+      ) => AggregateT[K] | AggBuilder<plan.Aggregation<any>>
     },
   ): GroupByBuilder<this, EmptyObject, AggregateT> {
     return new GroupByBuilder(
@@ -503,13 +503,13 @@ export class TableQueryBuilder<
       Object.fromEntries(
         Object.entries(aggregations).map((
           [key, func],
-        ) => [
-          key,
-          func(
+        ) => {
+          const agg = func(
             new AggregationFuncs(this),
             new EmptyExprBuilder(this),
-          ),
-        ]),
+          )
+          return [key, agg instanceof AggBuilder ? agg.agg : agg]
+        }),
       ) as AggregateT,
     )
   }
@@ -567,7 +567,7 @@ type SelectColumns<SelectT extends SelectConfig> = Simplify<
   {
     [K in Extract<keyof SelectT, string>]: Column.Stored.Any<
       K,
-      ExprType<SelectT[K]>
+      GetExprBuilderType<SelectT[K]>
     >
   }
 >
@@ -617,10 +617,10 @@ class AggregationFuncs<TQB extends ITQB = ITQB> {
   /**
    * Aggregates rows by collecting all values into an array
    */
-  arrayAgg<T extends ColumnType<any>>(
-    expr: ExprBuilder<TQB, T>,
-  ): plan.ArrayAggregation<ColValueOf<T>> {
-    return new plan.ArrayAggregation(expr.expr)
+  arrayAgg<EB extends ExprBuilder<TQB, ColumnType<any>>>(
+    expr: EB,
+  ): ArrayAggBuilder<EB> {
+    return new ArrayAggBuilder(expr)
   }
 
   /**
@@ -630,6 +630,27 @@ class AggregationFuncs<TQB extends ITQB = ITQB> {
     expr: ExprBuilder<TQB, T>,
   ): plan.FirstAggregation<T> {
     return new plan.FirstAggregation(expr.expr)
+  }
+}
+
+abstract class AggBuilder<A extends plan.Aggregation<any>> {
+  abstract get agg(): A
+}
+
+class ArrayAggBuilder<EB extends ExprBuilder<ITQB, ColumnType>>
+  extends AggBuilder<plan.ArrayAggregation<GetExprBuilderType<EB>>> {
+  constructor(readonly expr: EB) {
+    super()
+  }
+
+  override get agg(): plan.ArrayAggregation<GetExprBuilderType<EB>> {
+    return new plan.ArrayAggregation(this.expr.expr)
+  }
+
+  filter(
+    func: (e: EB) => ExprBuilderWithType<EB, ColumnType<boolean>>,
+  ): plan.ArrayAggregation<GetExprBuilderType<EB>> {
+    return new plan.ArrayAggregation(this.expr.expr, func(this.expr).expr)
   }
 }
 
@@ -687,7 +708,7 @@ class GroupByBuilder<
       [K in keyof AggregateT]: (
         aggFuncs: AggregationFuncs<TQB>,
         exprFuncs: EmptyExprBuilder<TQB>,
-      ) => AggregateT[K]
+      ) => AggregateT[K] | AggBuilder<AggregateT[K]>
     },
   ): GroupByBuilder<TQB, GroupKeyT, AggT & AggregateT> {
     return new GroupByBuilder(
@@ -698,13 +719,13 @@ class GroupByBuilder<
         ...Object.fromEntries(
           Object.entries(aggregations).map((
             [key, func],
-          ) => [
-            key,
-            func(
+          ) => {
+            const agg = func(
               new AggregationFuncs(this.tqb),
               new EmptyExprBuilder(this.tqb),
-            ),
-          ]),
+            )
+            return [key, agg instanceof AggBuilder ? agg.agg : agg]
+          }),
         ) as AggregateT,
       },
     )
@@ -845,7 +866,9 @@ export type ColumnWithName<
 type AggregationType<T extends Aggregation<any>> = T extends
   Aggregation<infer Acc, ColumnType<infer T>> ? T : never
 
-type ExprType<T extends ExprBuilder> = T extends
+type ExprBuilderWithType<EB extends ExprBuilder, ColT extends ColumnType<any>> =
+  EB extends ExprBuilder<infer TQB, any> ? ExprBuilder<TQB, ColT> : never
+type GetExprBuilderType<T extends ExprBuilder> = T extends
   ExprBuilder<infer TQB, ColumnType<infer T>> ? T
   : never
 

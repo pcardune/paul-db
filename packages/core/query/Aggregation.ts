@@ -195,7 +195,10 @@ export class ArrayAggregation<T>
   /**
    * Creates a new ArrayAggregation with the given expression.
    */
-  constructor(readonly expr: Expr<ColumnType<T>>) {}
+  constructor(
+    readonly expr: Expr<ColumnType<T>>,
+    readonly filter?: Expr<ColumnType<boolean>>,
+  ) {}
 
   /**
    * Updates the accumulator with the values from the context.
@@ -204,6 +207,12 @@ export class ArrayAggregation<T>
     accumulator: T[] | undefined,
     ctx: ExecutionContext,
   ): Promise<T[]> {
+    if (this.filter != null) {
+      const filterValue = await this.filter.resolve(ctx)
+      if (!filterValue) {
+        return accumulator ?? []
+      }
+    }
     if (accumulator === undefined) {
       return [await this.expr.resolve(ctx)]
     }
