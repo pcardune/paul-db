@@ -5,8 +5,20 @@ import * as path from "@std/path"
 import { IPlanBuilder } from "./query/QueryBuilder.ts"
 import { AsyncIterableWrapper } from "./async.ts"
 import { DBSchema } from "./schema/DBSchema.ts"
+import { Simplify } from "type-fest"
 
 export { DbFile }
+
+/**
+ * Remove all symbol keys from an object. These show up when
+ * doing complicated things with the query builder due to the use of
+ * type-fest's EmptyObject type.
+ */
+type Clean<T> = Simplify<
+  {
+    [K in keyof T as K extends symbol ? never : K]: T[K]
+  }
+>
 
 /**
  * A database instance.
@@ -79,7 +91,7 @@ export class PaulDB {
    */
   query<T extends RowData>(
     plan: IPlanBuilder<T>,
-  ): AsyncIterableWrapper<T extends { "$0": infer U } ? U : T> {
+  ): AsyncIterableWrapper<Clean<T extends { "$0": infer U } ? U : T>> {
     return plan.plan().execute(this).map((rowData) =>
       "$0" in rowData ? rowData.$0 : rowData
     ) as AsyncIterableWrapper<T extends { "$0": infer U } ? U : T>
