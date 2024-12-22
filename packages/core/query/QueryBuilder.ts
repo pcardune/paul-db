@@ -658,7 +658,8 @@ type AggConfig = Record<string, plan.Aggregation<any>>
 type AggregatedColumns<AggT extends AggConfig> = {
   [K in Extract<keyof AggT, string>]: Column.Stored.Any<
     K,
-    AggregationType<AggT[K]>
+    AggregationType<AggT[K]>,
+    AggregationColType<AggT[K]>
   >
 }
 
@@ -865,10 +866,18 @@ export type ColumnWithName<
 
 type AggregationType<T extends Aggregation<any>> = T extends
   Aggregation<infer Acc, ColumnType<infer T>> ? T : never
+type AggregationColType<T extends Aggregation<any>> = T extends
+  Aggregation<infer Acc, infer ColT> ? ColT : never
 
 type ExprBuilderWithType<EB extends ExprBuilder, ColT extends ColumnType<any>> =
   EB extends ExprBuilder<infer TQB, any> ? ExprBuilder<TQB, ColT> : never
-type GetExprBuilderType<T extends ExprBuilder> = T extends
+
+export type ExprBuilderTypes<EB extends ExprBuilder> = EB extends ExprBuilder<
+  infer TQB,
+  infer ColT
+> ? { tqb: TQB; colT: ColT }
+  : never
+export type GetExprBuilderType<T extends ExprBuilder> = T extends
   ExprBuilder<infer TQB, ColumnType<infer T>> ? T
   : never
 

@@ -15,7 +15,7 @@ import {
   TableScan,
 } from "./QueryPlanNode.ts"
 import { PaulDB, schema as s } from "../exports/mod.ts"
-import { ColumnTypes } from "../schema/columns/ColumnType.ts"
+import { ArrayColumnType, ColumnTypes } from "../schema/columns/ColumnType.ts"
 import { assertTrue, TypeEquals } from "../testing.ts"
 import { ColumnNames, SchemasForTQB, TQBTableNames } from "./QueryBuilder.ts"
 
@@ -450,18 +450,27 @@ Deno.test("QueryBuilder .aggregate()", async (test) => {
     >
   >()
 
-  await test.step(".arrayAgg().filter()", async () => {
-    const result = await db.query(
-      dbSchema.query()
-        .from("cats")
-        .aggregate({
-          names: (agg, t) =>
-            agg.arrayAgg(t.column("cats", "name")).filter(
-              (name) => name.neq("fluffy"),
-            ),
-        }),
-    ).toArray()
+  await test.step(".arrayAgg().filter()", async (test) => {
+    const query = dbSchema.query()
+      .from("cats")
+      .aggregate({
+        names: (agg, t) =>
+          agg.arrayAgg(t.column("cats", "name")).filter(
+            (name) => name.neq("fluffy"),
+          ),
+      })
+    const result = await db.query(query).toArray()
     expect(result).toEqual([{ names: ["mittens", "Mr. Blue"] }])
+
+    await test.step("with .asTable()", () => {
+      const tqb = query.asTable("catNames")
+      assertTrue<
+        TypeEquals<
+          typeof tqb.tableSchemas.catNames.columnsByName.names.type,
+          ArrayColumnType<string>
+        >
+      >()
+    })
   })
 })
 
@@ -613,7 +622,7 @@ Deno.test("QueryBuilder .groupBy", async (test) => {
     >
   >()
 
-  await test.step("with arrayAgg", async () => {
+  await test.step("with .arrayAgg()", async (test) => {
     const query = dbSchema.query()
       .from("products")
       .groupBy({
@@ -628,6 +637,16 @@ Deno.test("QueryBuilder .groupBy", async (test) => {
       { category: "fruit", names: ["apple", "cherry", "banana", "tomato"] },
       { category: "veg", names: ["carrot", "lettuce", "cucumber", "potato"] },
     ])
+
+    await test.step("with .asTable()", () => {
+      const tqb = query.asTable("categories")
+      assertTrue<
+        TypeEquals<
+          typeof tqb.tableSchemas.categories.columnsByName.names.type,
+          ArrayColumnType<string>
+        >
+      >()
+    })
   })
 })
 
