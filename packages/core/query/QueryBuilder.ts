@@ -34,7 +34,7 @@ import {
   MakeNullableType,
   NullableColumnType,
 } from "../schema/columns/ColumnType.ts"
-import { Json } from "../types.ts"
+import { Flattened, Json } from "../types.ts"
 import { column } from "../schema/columns/ColumnBuilder.ts"
 import { Aggregation } from "./Aggregation.ts"
 import { pick } from "@std/collections/pick"
@@ -58,6 +58,18 @@ type MergeQBSchemaNullable<
   QB extends IQB,
   SName extends keyof QB["dbSchema"]["schemas"],
 > = Merge<FromSchemasT, NullableSchemas<Pick<QB["dbSchema"]["schemas"], SName>>>
+
+type SchemaTableExprBuilders<
+  QB extends IQB,
+  SchemasT extends Record<string, ISchema>,
+> = {
+  [TableName in keyof SchemasT]: {
+    [ColumnName in keyof SchemasT[TableName]["columnsByName"]]: ExprBuilder<
+      ITQB<QB, SchemasT>,
+      SchemasT[TableName]["columnsByName"][ColumnName]["type"]
+    >
+  }
+}
 
 function singleKeyRecord<K extends string, V>(key: K, value: V): Record<K, V> {
   return { [key]: value } as Record<K, V>
@@ -398,6 +410,30 @@ export class TableQueryBuilder<
   }
 
   /**
+   * Select all columns from the table. This is roughly equivalent to the
+   * `SELECT *` clause in SQL.
+   *
+   * Column names are prefixed with the table name, separated by an underscore.
+   * This is to avoid ambiguity when joining tables with columns of the same name.
+   */
+  selectAll(): GroupByBuilder<
+    ITQB<QB, SchemasT>,
+    // @ts-ignore This really does work, not sure why ts is complaining
+    Flattened<SchemaTableExprBuilders<QB, SchemasT>>,
+    EmptyObject
+  > {
+    const mapped = Object.fromEntries(
+      Object.entries(this.tableSchemas).flatMap(([tableName, schema]) =>
+        Object.keys(schema.columnsByName).map((columnName) => [
+          `${tableName}_${columnName}`,
+          new EmptyExprBuilder(this).tables[tableName][columnName],
+        ])
+      ),
+    )
+    return new GroupByBuilder(this, mapped as any, {}) as any
+  }
+
+  /**
    * Select columns from the table. This is roughly equivalent to the
    * `SELECT` clause in SQL.
    *
@@ -414,6 +450,18 @@ export class TableQueryBuilder<
    *   })
    * ```
    */
+  select<TableName extends keyof SchemasT>(
+    selection: TableName,
+  ): GroupByBuilder<
+    ITQB<QB, SchemasT>,
+    {
+      [K in keyof SchemasT[TableName]["columnsByName"]]: ExprBuilder<
+        ITQB<QB, SchemasT>,
+        SchemasT[TableName]["columnsByName"][K]["type"]
+      >
+    },
+    EmptyObject
+  >
   select<
     SelectT extends Record<string, ExprBuilder<ITQB<QB, SchemasT>, any>>,
   >(
@@ -422,7 +470,33 @@ export class TableQueryBuilder<
         tqb: EmptyExprBuilder<ITQB<QB, SchemasT>>,
       ) => SelectT[Property]
     },
+  ): GroupByBuilder<ITQB<QB, SchemasT>, SelectT, EmptyObject>
+  select<
+    TableName extends keyof SchemasT,
+    SelectT extends Record<string, ExprBuilder<ITQB<QB, SchemasT>, any>>,
+  >(
+    selection:
+      | TableName
+      | {
+        [Property in keyof SelectT]: (
+          tqb: EmptyExprBuilder<ITQB<QB, SchemasT>>,
+        ) => SelectT[Property]
+      },
   ): GroupByBuilder<ITQB<QB, SchemasT>, SelectT, EmptyObject> {
+    if (typeof selection === "string") {
+      if (this.tableSchemas[selection] == null) {
+        throw new Error(`Table ${selection} not found in schema`)
+      }
+      const mapped = Object.fromEntries(
+        Object.keys(this.tableSchemas[selection].columnsByName).map(
+          (columnName) => [
+            columnName,
+            new EmptyExprBuilder(this).tables[selection][columnName],
+          ],
+        ),
+      )
+      return new GroupByBuilder(this, mapped as any, {}) as any
+    }
     const mapped = Object.fromEntries(
       Object.entries(selection).map((
         [key, func],

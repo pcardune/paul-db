@@ -18,6 +18,7 @@ import { PaulDB, schema as s } from "../exports/mod.ts"
 import { ArrayColumnType, ColumnTypes } from "../schema/columns/ColumnType.ts"
 import { assertTrue, TypeEquals } from "../testing.ts"
 import { ColumnNames, SchemasForTQB, TQBTableNames } from "./QueryBuilder.ts"
+import { type IsEqual } from "type-fest"
 
 const dbSchema = s.db().withTables(
   s.table("humans").with(
@@ -338,6 +339,90 @@ Deno.test("TypeTools", () => {
       Pick<typeof dbSchema["schemas"], "cats" | "catOwners">
     >
   >()
+})
+
+Deno.test("TableQueryBuilder .select()", async () => {
+  const { db } = await init()
+
+  const cats = await db.query(
+    dbSchema.query()
+      .from("cats")
+      .select({
+        catName: (t) => t.column("cats.name"),
+        age: (t) => t.column("cats.age"),
+      }),
+  ).toArray()
+
+  expect(cats).toEqual([
+    { catName: "fluffy", age: 3 },
+    { catName: "mittens", age: 5 },
+    { catName: "Mr. Blue", age: 16 },
+  ])
+
+  {
+    const allCatCols = await db.query(
+      dbSchema.query().from("cats").select("cats"),
+    ).toArray()
+    expect(allCatCols).toEqual([
+      { name: "fluffy", age: 3, id: 1, likesTreats: true },
+      { name: "mittens", age: 5, id: 2, likesTreats: true },
+      { name: "Mr. Blue", age: 16, id: 3, likesTreats: true },
+    ])
+    assertTrue<
+      IsEqual<
+        typeof allCatCols,
+        Array<{ name: string; age: number; id: number; likesTreats: boolean }>
+      >
+    >()
+  }
+
+  {
+    const allCatCols = await db.query(
+      dbSchema.query().from("cats").join(
+        "catOwners",
+        (t) => t.tables.catOwners.petId.eq(t.tables.cats.id),
+      ).selectAll(),
+    ).toArray()
+    expect(allCatCols).toEqual([
+      {
+        catOwners_ownerId: 1,
+        catOwners_petId: 1,
+        cats_age: 3,
+        cats_id: 1,
+        cats_likesTreats: true,
+        cats_name: "fluffy",
+      },
+      {
+        catOwners_ownerId: 2,
+        catOwners_petId: 1,
+        cats_age: 3,
+        cats_id: 1,
+        cats_likesTreats: true,
+        cats_name: "fluffy",
+      },
+      {
+        catOwners_ownerId: 2,
+        catOwners_petId: 2,
+        cats_age: 5,
+        cats_id: 2,
+        cats_likesTreats: true,
+        cats_name: "mittens",
+      },
+    ])
+    assertTrue<
+      IsEqual<
+        typeof allCatCols,
+        {
+          cats_name: string
+          cats_id: number
+          cats_age: number
+          cats_likesTreats: boolean
+          catOwners_petId: number
+          catOwners_ownerId: number
+        }[]
+      >
+    >()
+  }
 })
 
 Deno.test("QueryBuilder (INNER) JOINS", async () => {
