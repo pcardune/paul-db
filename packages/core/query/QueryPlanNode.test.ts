@@ -472,6 +472,40 @@ Deno.test("QueryBuilder .aggregate()", async (test) => {
       >()
     })
   })
+
+  await test.step(".arrayAgg().filterNonNull()", async (test) => {
+    const dbSchema = s.db().withTables(
+      s.table("products").with(
+        s.column("category", s.type.string()),
+        s.column("tagline", s.type.string().nullable()),
+      ),
+    )
+    const model = await db.getModelForSchema(dbSchema)
+    await model.products.insertMany([
+      { category: "fruit", tagline: "juicy" },
+      { category: "fruit", tagline: null },
+      { category: "fruit", tagline: "sweet" },
+      { category: "veg", tagline: "crunchy" },
+      { category: "veg", tagline: null },
+    ])
+    const query = dbSchema.query()
+      .from("products")
+      .groupBy({
+        category: (t) => t.column("products.category"),
+      })
+      .aggregate({
+        taglines: (agg, t) =>
+          agg.arrayAgg(t.column("products.tagline")).filterNonNull(),
+      })
+    const result = await db.query(query).toArray()
+    expect(result).toEqual([
+      { category: "fruit", taglines: ["juicy", "sweet"] },
+      { category: "veg", taglines: ["crunchy"] },
+    ])
+    assertTrue<
+      TypeEquals<typeof result, Array<{ category: string; taglines: string[] }>>
+    >()
+  })
 })
 
 Deno.test("QueryBuilder subqueries", async () => {

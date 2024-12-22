@@ -29,10 +29,11 @@ export function getColumnTypeFromString(
   }
 
   if (t in ColumnTypes) {
-    return (ColumnTypes as Record<string, () => ColumnType<unknown>>)[t]()
+    return (ColumnTypes as unknown as Record<string, () => ColumnType<unknown>>)
+      [t]()
   }
   if (t === "serial") {
-    return new SerialUInt32ColumnType() as ColumnType<unknown>
+    return new SerialUInt32ColumnType() as unknown as ColumnType<unknown>
   }
   throw new Error(`Unknown type: ${type}`)
 }
@@ -110,19 +111,36 @@ export class ColumnType<T = any> {
   /**
    * Takes a ColumnType and returns a new ColumnType that allows null values
    */
-  nullable(): ColumnType<T | null> {
-    return new ColumnType<T | null>({
-      name: this.name + "?",
-      isValid: (value) => value === null || this.isValid(value),
+  nullable(): NullableColumnType<this> {
+    if (this instanceof NullableColumnType) {
+      return this as NullableColumnType<this>
+    }
+    return new NullableColumnType(this)
+  }
+
+  nonNullable(): ColumnType<NonNullable<T>> {
+    if (this instanceof NullableColumnType) {
+      return this.type as ColumnType<NonNullable<T>>
+    }
+    return this as ColumnType<NonNullable<T>>
+  }
+}
+
+export class NullableColumnType<T extends ColumnType>
+  extends ColumnType<ColValueOf<T> | null> {
+  constructor(readonly type: T) {
+    super({
+      name: type.name + "?",
+      isValid: (value) => value === null || type.isValid(value),
       equals: (a, b) =>
-        a === b || (a !== null && b !== null && this.isEqual(a, b)),
+        a === b || (a !== null && b !== null && type.isEqual(a, b)),
       compare: (a, b) => {
         if (a === b) return 0
         if (a === null) return -1
         if (b === null) return 1
-        return this.compare(a, b)
+        return type.compare(a, b)
       },
-      serializer: this.serializer?.nullable(),
+      serializer: type.serializer?.nullable(),
     })
   }
 }
@@ -160,9 +178,7 @@ export type ColValueOf<T extends ColumnType<any>> = T extends
   ColumnType<infer V> ? V
   : never
 
-export type MakeNullableType<T extends ColumnType<any>> = T extends
-  ColumnType<infer V> ? ColumnType<V | null>
-  : never
+export type MakeNullableType<T extends ColumnType<any>> = NullableColumnType<T>
 
 export type MakeNonNullableType<T extends ColumnType<any>> = T extends
   ColumnType<infer V> ? ColumnType<NonNullable<V>>

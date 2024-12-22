@@ -3,6 +3,7 @@ import {
   ColumnType,
   ColumnTypes,
   ColValueOf,
+  NullableColumnType,
 } from "../schema/columns/ColumnType.ts"
 import { Json } from "../types.ts"
 import type { ExecutionContext, Expr } from "./QueryPlanNode.ts"
@@ -14,7 +15,7 @@ import type { Promisable, UnknownRecord } from "type-fest"
  */
 export interface Aggregation<
   AccT,
-  Result extends ColumnType<any> = ColumnType<AccT>,
+  Result extends ColumnType = ColumnType<AccT>,
 > {
   result(accumulator: AccT | undefined): ColValueOf<Result>
   /**
@@ -38,7 +39,7 @@ export interface Aggregation<
 
 abstract class ExprAggregation<
   AccT,
-  Result extends ColumnType<any> = ColumnType<AccT>,
+  Result extends ColumnType = ColumnType<AccT>,
 > implements Aggregation<AccT, Result> {
   /**
    * Updates the accumulator with the values from the context.
@@ -243,6 +244,69 @@ export class ArrayAggregation<T>
 
   getType(): ArrayColumnType<T> {
     return this.expr.getType().array()
+  }
+}
+
+/**
+ * An ArrayAggregation is an aggregation that collects all values into an array.
+ */
+export class NonNullArrayAggregation<T>
+  implements Aggregation<T[], ArrayColumnType<T>> {
+  /**
+   * Creates a new ArrayAggregation with the given expression.
+   */
+  constructor(
+    readonly expr: Expr<NullableColumnType<ColumnType<T>>>,
+    readonly filter?: Expr<ColumnType<boolean>>,
+  ) {}
+
+  /**
+   * Updates the accumulator with the values from the context.
+   */
+  async update(
+    accumulator: NonNullable<T>[] | undefined,
+    ctx: ExecutionContext,
+  ): Promise<T[]> {
+    if (this.filter != null) {
+      const filterValue = await this.filter.resolve(ctx)
+      if (!filterValue) {
+        return accumulator ?? []
+      }
+    }
+    const value = await this.expr.resolve(ctx)
+    if (value == null) {
+      return accumulator ?? []
+    }
+    if (accumulator === undefined) {
+      return [value]
+    }
+    accumulator.push(value)
+    return accumulator
+  }
+
+  result(accumulator: NonNullable<T>[] | undefined): NonNullable<T>[] {
+    if (accumulator === undefined) {
+      return []
+    }
+    return accumulator
+  }
+
+  /**
+   * Generates a human-readable description of the aggregation.
+   */
+  describe(): string {
+    return `NON_NULL_ARRAY_AGG(${this.expr.describe()})`
+  }
+
+  /**
+   * Generates a json representation of the aggregation.
+   */
+  toJSON(): Json {
+    return { type: "non_null_array_agg", expr: this.expr.toJSON() }
+  }
+
+  getType(): ArrayColumnType<T> {
+    return this.expr.getType().nonNullable().array() as ArrayColumnType<T>
   }
 }
 

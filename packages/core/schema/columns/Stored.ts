@@ -5,7 +5,11 @@
 
 import type { OverrideProperties } from "type-fest"
 import * as Index from "./IndexConfig.ts"
-import type { ColumnType } from "./ColumnType.ts"
+import type {
+  ColumnType,
+  ColValueOf,
+  NullableColumnType,
+} from "./ColumnType.ts"
 
 /**
  * The configuration for a default value of a stored column
@@ -57,11 +61,11 @@ export type MakeNullable<C extends Any> = C extends Any<
   infer DefaultValueFactory
 > ? Any<
     Name,
-    Value | null,
-    ColumnType<Value | null>,
+    ColValueOf<NullableColumnType<ColT>>,
+    NullableColumnType<ColT>,
     Unique,
     Indexed,
-    DefaultValueFactory
+    DefaultValueConfig<ColValueOf<NullableColumnType<ColT>>>
   >
   : never
 

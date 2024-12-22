@@ -32,6 +32,7 @@ import {
   ColValueOf,
   MakeNonNullableType,
   MakeNullableType,
+  NullableColumnType,
 } from "../schema/columns/ColumnType.ts"
 import { Json } from "../types.ts"
 import { column } from "../schema/columns/ColumnBuilder.ts"
@@ -310,7 +311,7 @@ export class TableQueryBuilder<
         [table]: nullableJoinSchema,
       } as unknown as MergeQBSchemaNullable<SchemasT, QB, JoinTableNameT>,
       this.rootTable,
-      this.rootPlan,
+      this.rootPlan as any, // TODO: fix this any
       [...this.joinPredicates, [table, "left", on as any]],
     )
   }
@@ -651,6 +652,12 @@ class ArrayAggBuilder<EB extends ExprBuilder<ITQB, ColumnType>>
     func: (e: EB) => ExprBuilderWithType<EB, ColumnType<boolean>>,
   ): plan.ArrayAggregation<GetExprBuilderType<EB>> {
     return new plan.ArrayAggregation(this.expr.expr, func(this.expr).expr)
+  }
+
+  filterNonNull(
+    this: ArrayAggBuilder<ExprBuilder<ITQB, NullableColumnType<ColumnType>>>,
+  ): plan.NonNullArrayAggregation<NonNullable<GetExprBuilderType<EB>>> {
+    return new plan.NonNullArrayAggregation(this.expr.expr)
   }
 }
 

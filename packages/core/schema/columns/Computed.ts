@@ -3,7 +3,11 @@
  *
  * @module
  */
-import type { ColumnType } from "./ColumnType.ts"
+import type {
+  ColumnType,
+  ColValueOf,
+  NullableColumnType,
+} from "./ColumnType.ts"
 import * as Index from "./IndexConfig.ts"
 
 /**
@@ -15,10 +19,11 @@ export type Any<
   IndexedT extends Index.Config = Index.Config,
   InputT = any,
   OutputT = any,
+  ColT extends ColumnType<OutputT> = ColumnType<OutputT>,
 > = {
   kind: "computed"
   name: Name
-  type: ColumnType<OutputT>
+  type: ColT
   isUnique: UniqueT
   indexed: IndexedT
   compute: (input: InputT) => OutputT
@@ -32,8 +37,16 @@ export type MakeNullable<C extends Any> = C extends Any<
   infer Unique,
   infer Indexed,
   infer Input,
-  infer Output
-> ? Any<Name, Unique, Indexed, Input | null, Output | null>
+  infer Output,
+  infer ColT
+> ? Any<
+    Name,
+    Unique,
+    Indexed,
+    Input | null,
+    ColValueOf<NullableColumnType<ColT>>,
+    NullableColumnType<ColT>
+  >
   : never
 
 /**
