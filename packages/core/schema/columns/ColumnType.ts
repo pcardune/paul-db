@@ -40,7 +40,7 @@ export function getColumnTypeFromString(
 /**
  * Represents a column type in a database table
  */
-export class ColumnType<T = unknown> {
+export class ColumnType<T = any> {
   /**
    * The name of the column type
    */
@@ -158,4 +158,12 @@ export class SerialUInt32ColumnType extends ColumnType<number> {
 
 export type ColValueOf<T extends ColumnType<any>> = T extends
   ColumnType<infer V> ? V
+  : never
+
+export type MakeNullableType<T extends ColumnType<any>> = T extends
+  ColumnType<infer V> ? ColumnType<V | null>
+  : never
+
+export type MakeNonNullableType<T extends ColumnType<any>> = T extends
+  ColumnType<infer V> ? ColumnType<NonNullable<V>>
   : never

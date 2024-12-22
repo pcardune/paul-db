@@ -533,7 +533,7 @@ Deno.test("QueryBuilder subqueries", async () => {
   })
 })
 
-Deno.test("QueryBuilder .groupBy", async () => {
+Deno.test("QueryBuilder .groupBy", async (test) => {
   const db = await PaulDB.inMemory()
   const dbSchema = s.db().withTables(
     s.table("products").with(
@@ -592,9 +592,26 @@ Deno.test("QueryBuilder .groupBy", async () => {
       }>
     >
   >()
+
+  await test.step("with arrayAgg", async () => {
+    const query = dbSchema.query()
+      .from("products")
+      .groupBy({
+        category: (t) => t.column("products.category"),
+      })
+      .aggregate({
+        names: (agg, t) => agg.arrayAgg(t.tables.products.name),
+      })
+
+    const results = await db.query(query).toArray()
+    expect(results).toEqual([
+      { category: "fruit", names: ["apple", "cherry", "banana", "tomato"] },
+      { category: "veg", names: ["carrot", "lettuce", "cucumber", "potato"] },
+    ])
+  })
 })
 
-Deno.test("Even more stuff", async () => {
+Deno.test("QueryBuilder.with()", async () => {
   const db = await PaulDB.inMemory()
   const dbSchema = s.db().withTables(
     s.table("products").with(
@@ -619,25 +636,28 @@ Deno.test("Even more stuff", async () => {
     { name: "potato", category: "veg", color: "brown", price: 0.25 },
   ])
 
-  expect(
-    await db.query(
-      dbSchema.query()
-        .with(
-          (q) =>
-            q.from("products")
-              .where((t) => t.column("products.price").gt(0.5))
-              .select({
-                category: (t) => t.column("products.category"),
-                price: (t) => t.column("products.price"),
-              })
-              .asTable("selected"),
-        )
-        .from("selected")
-        .aggregate({
-          totalPrice: (agg, t) => agg.sum(t.column("selected.price")),
-        }),
-    ).toArray(),
-  ).toEqual([{ totalPrice: 2.50 }])
+  const priceData = await db.query(
+    dbSchema.query()
+      .with(
+        (q) =>
+          q.from("products")
+            .where((t) => t.column("products.price").gt(0.5))
+            .select({
+              category: (t) => t.column("products.category"),
+              price: (t) => t.column("products.price"),
+            })
+            .asTable("selected"),
+      )
+      .from("selected")
+      .aggregate({
+        totalPrice: (agg, t) => agg.sum(t.column("selected.price")),
+        prices: (agg, t) => {
+          const prices = agg.arrayAgg(t.tables.selected.price)
+          return prices
+        },
+      }),
+  ).toArray()
+  expect(priceData).toEqual([{ totalPrice: 2.50, prices: [1, 0.75, 0.75] }])
 
   const selectedQuery = dbSchema.query()
     .from("products")

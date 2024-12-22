@@ -313,3 +313,65 @@ Deno.test("ExprBuilder .overlaps()", async (test) => {
     ])
   })
 })
+
+Deno.test("ExprBuilder .coalesce()", async (test) => {
+  const dbSchema = s.db().withTables(
+    s.table("users").with(
+      s.column("displayName", s.type.string().nullable()),
+      s.column("username", s.type.string().nullable()),
+    ),
+  )
+  const db = await PaulDB.inMemory()
+  const model = await db.dbFile.getDBModel(dbSchema)
+  await model.users.insertMany([
+    { displayName: "Alice", username: "@alice415" },
+    { displayName: null, username: "@alex712" },
+    { displayName: "Charlie", username: null },
+    { displayName: null, username: null },
+  ])
+
+  await test.step("When the last coalesced value is non-null", async () => {
+    const result = await db.query(
+      dbSchema.query()
+        .from("users")
+        .select({
+          title: (t) =>
+            t.tables.users.displayName.coalesce(
+              t.tables.users.username,
+              t.literal("Deleted User"),
+            ),
+        }),
+    ).toArray()
+
+    assertTrue<TypeEquals<typeof result, { title: string }[]>>()
+
+    expect(result).toEqual([
+      { title: "Alice" },
+      { title: "@alex712" },
+      { title: "Charlie" },
+      { title: "Deleted User" },
+    ])
+  })
+
+  await test.step("When the last coalesced value nullable", async () => {
+    const result = await db.query(
+      dbSchema.query()
+        .from("users")
+        .select({
+          title: (t) =>
+            t.tables.users.displayName.coalesce(
+              t.tables.users.username,
+            ),
+        }),
+    ).toArray()
+
+    assertTrue<TypeEquals<typeof result, { title: string | null }[]>>()
+
+    expect(result).toEqual([
+      { title: "Alice" },
+      { title: "@alex712" },
+      { title: "Charlie" },
+      { title: null },
+    ])
+  })
+})

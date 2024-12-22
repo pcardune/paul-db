@@ -30,11 +30,14 @@ import {
   ColumnType,
   ColumnTypes,
   ColValueOf,
+  MakeNonNullableType,
+  MakeNullableType,
 } from "../schema/columns/ColumnType.ts"
 import { Json } from "../types.ts"
 import { column } from "../schema/columns/ColumnBuilder.ts"
 import { Aggregation } from "./Aggregation.ts"
 import { pick } from "@std/collections/pick"
+import { Coalesce } from "./Expr.ts"
 
 type MergeQBSchema<
   FromSchemasT extends Record<string, ISchema>,
@@ -151,11 +154,11 @@ type QBTableNames<QB extends IQB> = Extract<
  * @ignore
  * @internal
  */
-export class _NeverExpr implements Expr<never> {
+export class _NeverExpr implements Expr<ColumnType<any>> {
   resolve(): never {
     throw new Error("This should never be called")
   }
-  getType(): ColumnType<never> {
+  getType(): ColumnType<any> {
     throw new Error("This should never be called")
   }
   describe(): string {
@@ -205,7 +208,7 @@ export class TableQueryBuilder<
       [
         string,
         "inner" | "left",
-        (e: EmptyExprBuilder<ITQB>) => ExprBuilder<ITQB, boolean>,
+        (e: EmptyExprBuilder<ITQB>) => ExprBuilder<ITQB, ColumnType<boolean>>,
       ]
     > = [],
   ) {}
@@ -237,7 +240,7 @@ export class TableQueryBuilder<
       >,
     ) => ExprBuilder<
       ITQB<QB, MergeQBSchema<SchemasT, QB, JoinTableNameT>>,
-      boolean
+      ColumnType<boolean>
     >,
   ): TableQueryBuilder<QB, MergeQBSchema<SchemasT, QB, JoinTableNameT>> {
     return new TableQueryBuilder<
@@ -282,7 +285,7 @@ export class TableQueryBuilder<
       >,
     ) => ExprBuilder<
       ITQB<QB, MergeQBSchemaNullable<SchemasT, QB, JoinTableNameT>>,
-      boolean
+      ColumnType<boolean>
     >,
   ): TableQueryBuilder<
     QB,
@@ -312,7 +315,9 @@ export class TableQueryBuilder<
     )
   }
 
-  private whereClause: ExprBuilder<ITQB<QB, SchemasT>, boolean> | undefined
+  private whereClause:
+    | ExprBuilder<ITQB<QB, SchemasT>, ColumnType<boolean>>
+    | undefined
 
   /**
    * Filters the rows in the table using the given expression.
@@ -331,7 +336,7 @@ export class TableQueryBuilder<
   where(
     func: (
       tqb: EmptyExprBuilder<ITQB<QB, SchemasT>>,
-    ) => ExprBuilder<ITQB<QB, SchemasT>, boolean>,
+    ) => ExprBuilder<ITQB<QB, SchemasT>, ColumnType<boolean>>,
   ): this {
     this.whereClause = func(new EmptyExprBuilder(this))
     return this
@@ -618,7 +623,7 @@ class SelectBuilder<
     AliasT,
     {
       [Property in keyof SelectT]: SelectT[Property] extends
-        ExprBuilder<infer TQB, infer T> ? T : never
+        ExprBuilder<infer TQB, ColumnType<infer T>> ? T : never
     }
   > {
     return new plan.Select(
@@ -653,44 +658,55 @@ class AggregationFuncs<TQB extends ITQB = ITQB> {
   /**
    * aggregates rows by finding the maximum value
    */
-  max<T>(expr: ExprBuilder<TQB, T>): plan.MaxAggregation<T> {
+  max<T extends ColumnType<any>>(
+    expr: ExprBuilder<TQB, T>,
+  ): plan.MaxAggregation<T> {
     return new plan.MaxAggregation(expr.expr)
   }
 
   /**
    * aggregates rows by finding the minimum value
    */
-  min<T>(expr: ExprBuilder<TQB, T>): plan.MinAggregation<T> {
+  min<T extends ColumnType<any>>(
+    expr: ExprBuilder<TQB, T>,
+  ): plan.MinAggregation<T> {
     return new plan.MinAggregation(expr.expr)
   }
 
   /**
    * aggregates rows by summing all values
    */
-  sum(expr: ExprBuilder<TQB, number>): plan.SumAggregation {
+  sum(expr: ExprBuilder<TQB, ColumnType<number>>): plan.SumAggregation {
     return new plan.SumAggregation(expr.expr)
   }
 
   /**
    * Aggregates rows by collecting all values into an array
    */
-  arrayAgg<T>(expr: ExprBuilder<TQB, T>): plan.ArrayAggregation<T> {
+  arrayAgg<T extends ColumnType<any>>(
+    expr: ExprBuilder<TQB, T>,
+  ): plan.ArrayAggregation<ColValueOf<T>> {
     return new plan.ArrayAggregation(expr.expr)
   }
 
   /**
    * Aggregates rows by taking the first value and ignoring the rest
    */
-  first<T>(expr: ExprBuilder<TQB, T>): plan.FirstAggregation<T> {
+  first<T extends ColumnType<any>>(
+    expr: ExprBuilder<TQB, T>,
+  ): plan.FirstAggregation<T> {
     return new plan.FirstAggregation(expr.expr)
   }
 }
 
 type AggConfig = Record<string, plan.Aggregation<any>>
-type AggregatedRecord<AggT extends AggConfig> = {
-  [Key in keyof AggT]: AggT[Key] extends plan.Aggregation<infer T> ? T
-    : never
-}
+type AggregatedRecord<AggT extends AggConfig> = Simplify<
+  {
+    [Key in keyof AggT]: AggT[Key] extends
+      plan.Aggregation<infer Acc, ColumnType<infer T>> ? T
+      : never
+  }
+>
 type AggregatedColumns<AggT extends AggConfig> = {
   [K in Extract<keyof AggT, string>]: Column.Stored.Any<
     K,
@@ -890,10 +906,11 @@ class GroupByBuilder<
       "$0",
       & {
         [Property in keyof GroupKeyT]: GroupKeyT[Property] extends
-          ExprBuilder<infer TQB, infer T> ? T : never
+          ExprBuilder<infer TQB, ColumnType<infer T>> ? T : never
       }
       & {
-        [Key in keyof AggT]: AggT[Key] extends plan.Aggregation<infer T> ? T
+        [Key in keyof AggT]: AggT[Key] extends
+          plan.Aggregation<infer Acc, ColumnType<infer T>> ? T
           : never
       }
     >
@@ -929,10 +946,10 @@ export type ColumnWithName<
 > = SchemasForTQB<TQB>[SchemaName]["columnsByName"][CName]
 
 type AggregationType<T extends Aggregation<any>> = T extends
-  Aggregation<infer T> ? T : never
+  Aggregation<infer Acc, ColumnType<infer T>> ? T : never
 
-type ExprType<T extends ExprBuilder> = T extends ExprBuilder<infer TQB, infer T>
-  ? T
+type ExprType<T extends ExprBuilder> = T extends
+  ExprBuilder<infer TQB, ColumnType<infer T>> ? T
   : never
 
 /**
@@ -941,31 +958,30 @@ type ExprType<T extends ExprBuilder> = T extends ExprBuilder<infer TQB, infer T>
  */
 export class ExprBuilder<
   TQB extends ITQB = ITQB,
-  T = any,
-  ColT extends ColumnType<T> = ColumnType<T>,
+  ColT extends ColumnType<any> = ColumnType<any>,
 > {
-  constructor(readonly tqb: TQB, readonly expr: Expr<T, ColT>) {}
+  constructor(readonly tqb: TQB, readonly expr: Expr<ColT>) {}
 
   column<
     TName extends TQBTableNames<TQB>,
     CName extends ColumnNames<TQB, TName>,
   >(
     column: `${TName}.${CName}`,
-  ): ExprBuilder<TQB, Column.GetOutput<ColumnWithName<TQB, TName, CName>>>
+  ): ExprBuilder<TQB, ColumnWithName<TQB, TName, CName>["type"]>
   column<
     TName extends TQBTableNames<TQB>,
     CName extends ColumnNames<TQB, TName>,
   >(
     table: TName,
     column: CName,
-  ): ExprBuilder<TQB, Column.GetOutput<ColumnWithName<TQB, TName, CName>>>
+  ): ExprBuilder<TQB, ColumnWithName<TQB, TName, CName>["type"]>
   column<
     TName extends TQBTableNames<TQB>,
     CName extends ColumnNames<TQB, TName>,
   >(
     tableOrColumn: string,
     column?: string,
-  ): ExprBuilder<TQB, Column.GetOutput<ColumnWithName<TQB, TName, CName>>> {
+  ): ExprBuilder<TQB, ColumnWithName<TQB, TName, CName>["type"]> {
     let table: string
     if (column == null) {
       const parts = tableOrColumn.split(".")
@@ -987,8 +1003,8 @@ export class ExprBuilder<
   }
 
   in(
-    ...values: Array<ExprBuilder<TQB, T> | T>
-  ): ExprBuilder<TQB, boolean> {
+    ...values: Array<ExprBuilder<TQB, ColT> | ColValueOf<ColT>>
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     const expr = new In(
       this.expr,
       values.map((v) =>
@@ -1002,40 +1018,73 @@ export class ExprBuilder<
 
   private compare(
     operator: CompareOperator,
-    value: ExprBuilder<TQB, T> | ExprBuilder<TQB, T | null> | T,
-  ): ExprBuilder<TQB, boolean> {
+    value:
+      | ExprBuilder<TQB, ColT>
+      | ExprBuilder<TQB, MakeNullableType<ColT>>
+      | ColValueOf<ColT>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     const expr = new Compare(
-      this.expr as Expr<T | null>,
+      this.expr,
       operator,
-      (value instanceof ExprBuilder
+      value instanceof ExprBuilder
         ? value.expr
-        : new LiteralValueExpr(value, this.expr.getType())) as Expr<T | null>,
+        : new LiteralValueExpr(value, this.expr.getType()),
     )
     return new ExprBuilder(this.tqb, expr)
   }
 
   eq(
-    value: ExprBuilder<TQB, T> | ExprBuilder<TQB, T | null> | T,
-  ): ExprBuilder<TQB, boolean> {
+    value:
+      | ExprBuilder<TQB, ColT>
+      | ExprBuilder<TQB, MakeNullableType<ColT>>
+      | ColValueOf<ColT>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     return this.compare("=", value)
   }
-  gt(value: ExprBuilder<TQB, T> | T): ExprBuilder<TQB, boolean> {
+  gt(
+    value:
+      | ExprBuilder<TQB, ColT>
+      | ExprBuilder<TQB, MakeNullableType<ColT>>
+      | ColValueOf<ColT>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     return this.compare(">", value)
   }
-  gte(value: ExprBuilder<TQB, T> | T): ExprBuilder<TQB, boolean> {
+  gte(
+    value:
+      | ExprBuilder<TQB, ColT>
+      | ExprBuilder<TQB, MakeNullableType<ColT>>
+      | ColValueOf<ColT>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     return this.compare(">=", value)
   }
-  lt(value: ExprBuilder<TQB, T> | T): ExprBuilder<TQB, boolean> {
+  lt(
+    value:
+      | ExprBuilder<TQB, ColT>
+      | ExprBuilder<TQB, MakeNullableType<ColT>>
+      | ColValueOf<ColT>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     return this.compare("<", value)
   }
-  lte(value: ExprBuilder<TQB, T> | T): ExprBuilder<TQB, boolean> {
+  lte(
+    value:
+      | ExprBuilder<TQB, ColT>
+      | ExprBuilder<TQB, MakeNullableType<ColT>>
+      | ColValueOf<ColT>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     return this.compare("<=", value)
   }
-  neq(value: ExprBuilder<TQB, T> | T): ExprBuilder<TQB, boolean> {
+  neq(
+    value:
+      | ExprBuilder<TQB, ColT>
+      | ExprBuilder<TQB, MakeNullableType<ColT>>
+      | ColValueOf<ColT>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     return this.compare("!=", value)
   }
 
-  not(this: ExprBuilder<TQB, boolean>): ExprBuilder<TQB, boolean> {
+  not(
+    this: ExprBuilder<TQB, ColumnType<boolean>>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     if (this.expr.getType().name !== "boolean") {
       throw new Error(
         `Expected boolean, got ${this.expr.getType().name} for expression ${this.expr.describe()}`,
@@ -1043,45 +1092,49 @@ export class ExprBuilder<
     }
     return new ExprBuilder(
       this.tqb,
-      new NotExpr(this.expr as unknown as Expr<boolean>),
+      new NotExpr(this.expr as unknown as Expr<ColumnType<boolean>>),
     )
   }
 
   private andOr(
     operator: "AND" | "OR",
-    value: ExprBuilder<TQB, boolean>,
-  ): ExprBuilder<TQB, boolean> {
+    value: ExprBuilder<TQB, ColumnType<boolean>>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     if (this.expr.getType().name !== "boolean") {
       throw new Error(
         `Expected boolean, got ${this.expr.getType().name} for expression ${this.expr.describe()}`,
       )
     }
     const expr = new AndOrExpr(
-      this.expr as unknown as Expr<boolean>,
+      this.expr as unknown as Expr<ColumnType<boolean>>,
       operator,
       value.expr,
     )
     return new ExprBuilder(this.tqb, expr)
   }
 
-  and(value: ExprBuilder<TQB, boolean>): ExprBuilder<TQB, boolean> {
+  and(
+    value: ExprBuilder<TQB, ColumnType<boolean>>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     return this.andOr("AND", value)
   }
-  or(value: ExprBuilder<TQB, boolean>): ExprBuilder<TQB, boolean> {
+  or(
+    value: ExprBuilder<TQB, ColumnType<boolean>>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     return this.andOr("OR", value)
   }
 
-  literal(value: boolean): ExprBuilder<TQB, boolean>
-  literal(value: string): ExprBuilder<TQB, string>
-  literal(value: number): ExprBuilder<TQB, number>
+  literal(value: boolean): ExprBuilder<TQB, ColumnType<boolean>>
+  literal(value: string): ExprBuilder<TQB, ColumnType<string>>
+  literal(value: number): ExprBuilder<TQB, ColumnType<number>>
   literal<ColT extends ColumnType<any>>(
     value: ColValueOf<ColT>,
     type: ColT,
-  ): ExprBuilder<TQB, ColValueOf<ColT>, ColT>
+  ): ExprBuilder<TQB, ColT>
   literal<ColT extends ColumnType<any>>(
     value: ColValueOf<ColT>,
     type?: ColT,
-  ): ExprBuilder<TQB, ColValueOf<ColT>, ColT> {
+  ): ExprBuilder<TQB, ColT> {
     if (type == null) {
       if (typeof value === "boolean") {
         type = ColumnTypes.boolean() as unknown as ColT
@@ -1104,17 +1157,13 @@ export class ExprBuilder<
       throw new Error(`Value ${value} is not valid for type ${type.name}`)
     }
     const expr = new LiteralValueExpr(value, type)
-    return new ExprBuilder(this.tqb, expr) as ExprBuilder<
-      TQB,
-      ColValueOf<ColT>,
-      ColT
-    >
+    return new ExprBuilder(this.tqb, expr) as ExprBuilder<TQB, ColT>
   }
 
-  subquery<T>(
+  subquery<T extends ColumnType<any>>(
     func: (
       qb: SubQueryBuilder<TQB["queryBuilder"], TQB["tableSchemas"], TQB>,
-    ) => IPlanBuilder<{ "$0": Record<string, T> }>,
+    ) => IPlanBuilder<{ "$0": Record<string, ColValueOf<T>> }>,
   ): ExprBuilder<TQB, T> {
     return new ExprBuilder(
       this.tqb,
@@ -1123,10 +1172,27 @@ export class ExprBuilder<
   }
 
   overlaps<V>(
-    this: ExprBuilder<TQB, V[], ArrayColumnType<V>>,
-    value: ExprBuilder<TQB, V[], ArrayColumnType<V>>,
-  ): ExprBuilder<TQB, boolean> {
+    this: ExprBuilder<TQB, ArrayColumnType<V>>,
+    value: ExprBuilder<TQB, ArrayColumnType<V>>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     const expr = new OverlapsExpr(this.expr, value.expr)
+    return new ExprBuilder(this.tqb, expr)
+  }
+
+  coalesce<QColT extends MakeNonNullableType<ColT> | ColT>(
+    ...rest: [
+      ...ExprBuilder<TQB, ColT | MakeNullableType<ColT>>[],
+      ExprBuilder<TQB, QColT>,
+    ]
+  ): ExprBuilder<TQB, QColT> {
+    const last = rest.pop() as ExprBuilder<TQB, QColT>
+    const expr = new Coalesce(
+      [
+        this.expr,
+        ...rest.map((e) => e.expr),
+      ] as any[], // fix ths any
+      last.expr,
+    )
     return new ExprBuilder(this.tqb, expr)
   }
 }
@@ -1135,12 +1201,11 @@ export class ExprBuilder<
  * @ignore
  */
 export class EmptyExprBuilder<TQB extends ITQB = ITQB>
-  extends ExprBuilder<TQB, never> {
+  extends ExprBuilder<TQB, ColumnType<void>> {
   readonly tables: {
     [TName in keyof TQB["tableSchemas"]]: {
       [CName in ColumnNames<TQB, TName>]: ExprBuilder<
         TQB,
-        Column.GetOutput<ColumnWithName<TQB, TName, CName>>,
         ColumnWithName<TQB, TName, CName>["type"]
       >
     }
@@ -1177,8 +1242,12 @@ export class EmptyExprBuilder<TQB extends ITQB = ITQB>
   }
 
   override not(): never
-  override not(value: ExprBuilder<TQB, boolean>): ExprBuilder<TQB, boolean>
-  override not(value?: ExprBuilder<TQB, boolean>): ExprBuilder<TQB, boolean> {
+  override not(
+    value: ExprBuilder<TQB, ColumnType<boolean>>,
+  ): ExprBuilder<TQB, ColumnType<boolean>>
+  override not(
+    value?: ExprBuilder<TQB, ColumnType<boolean>>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     if (value == null) {
       throw new Error("Cannot call not() without a value")
     }
