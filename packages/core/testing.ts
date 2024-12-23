@@ -3,7 +3,7 @@ import * as path from "@std/path"
 import { spy, stub } from "@std/testing/mock"
 import { IBufferPool } from "./pages/BufferPool.ts"
 
-const subdir = `${Date.now()}`
+const subdir = `${Date.now()}-${Math.floor(Math.random() * 1000)}`
 
 let subdirCounter = 0
 export type TestFilePath = {

@@ -5,7 +5,7 @@ import * as path from "@std/path"
 import { IPlanBuilder } from "./query/QueryBuilder.ts"
 import { AsyncIterableWrapper } from "./async.ts"
 import { DBSchema } from "./schema/DBSchema.ts"
-import { Simplify } from "type-fest"
+import type { Simplify } from "type-fest"
 
 export { DbFile }
 

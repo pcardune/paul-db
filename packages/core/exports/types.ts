@@ -1,4 +1,4 @@
-import { UnknownRecord } from "type-fest"
+import type { UnknownRecord } from "type-fest"
 import { IPlanBuilder } from "../query/QueryBuilder.ts"
 
 /**

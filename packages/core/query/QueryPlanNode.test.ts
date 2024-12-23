@@ -18,7 +18,7 @@ import { PaulDB, schema as s } from "../exports/mod.ts"
 import { ArrayColumnType, ColumnTypes } from "../schema/columns/ColumnType.ts"
 import { assertTrue, TypeEquals } from "../testing.ts"
 import { ColumnNames, SchemasForTQB, TQBTableNames } from "./QueryBuilder.ts"
-import { type IsEqual } from "type-fest"
+import type { IsEqual } from "type-fest"
 
 const dbSchema = s.db().withTables(
   s.table("humans").with(

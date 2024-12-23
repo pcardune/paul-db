@@ -1,8 +1,9 @@
 import type { Promisable } from "type-fest"
+
 /**
  * Collects all items from an async iterable into an array.
  */
-export async function collectAsync<T>(
+async function collectAsync<T>(
   iterable: AsyncIterable<T>,
 ): Promise<T[]> {
   const result: T[] = []
@@ -15,7 +16,7 @@ export async function collectAsync<T>(
 /**
  * Filters an async iterable using a predicate function.
  */
-export function filterAsync<T>(
+function filterAsync<T>(
   iterable: AsyncIterable<T>,
   predicate: (item: T) => Promisable<boolean>,
 ): AsyncIterable<T> {
@@ -30,7 +31,7 @@ export function filterAsync<T>(
   }
 }
 
-export function mapAsync<T, U>(
+function mapAsync<T, U>(
   iterable: AsyncIterable<T>,
   mapper: (item: T) => Promisable<U>,
 ): AsyncIterable<U> {
@@ -43,7 +44,7 @@ export function mapAsync<T, U>(
   }
 }
 
-export function takeAsync<T>(
+function takeAsync<T>(
   iterable: AsyncIterable<T>,
   count: number,
 ): AsyncIterable<T> {
@@ -61,7 +62,7 @@ export function takeAsync<T>(
   }
 }
 
-export function skipAsync<T>(
+function skipAsync<T>(
   iterable: AsyncIterable<T>,
   count: number,
 ): AsyncIterable<T> {
@@ -76,6 +77,18 @@ export function skipAsync<T>(
       }
     },
   }
+}
+
+async function reduceAsync<T, U>(
+  iterable: AsyncIterable<T>,
+  reducer: (accumulator: U, item: T) => Promisable<U>,
+  initialValue: U,
+): Promise<U> {
+  let accumulator = initialValue
+  for await (const item of iterable) {
+    accumulator = await reducer(accumulator, item)
+  }
+  return accumulator
 }
 
 /**
@@ -107,10 +120,21 @@ export class AsyncIterableWrapper<T, TNext = any> {
     return this.iterable[Symbol.asyncIterator]()
   }
 
+  /**
+   * Collects all items from the iterable into an array.
+   */
   toArray(): Promise<T[]> {
     return collectAsync(this.iterable)
   }
 
+  async first(): Promise<T | undefined> {
+    const [first] = await this.take(1).toArray()
+    return first
+  }
+
+  /**
+   * Filters the items in the iterable using a predicate function.
+   */
   filter<S extends T>(
     predicate: (item: T) => item is S,
   ): AsyncIterableWrapper<S, TNext>
@@ -123,16 +147,35 @@ export class AsyncIterableWrapper<T, TNext = any> {
     return new AsyncIterableWrapper(filterAsync(this.iterable, predicate))
   }
 
+  /**
+   * Maps the items in the iterable using a mapper function.
+   */
   map<U>(mapper: (item: T) => Promisable<U>): AsyncIterableWrapper<U, TNext> {
     return new AsyncIterableWrapper(mapAsync(this.iterable, mapper))
   }
 
+  /**
+   * Takes the first `count` items from the iterable.
+   */
   take(count: number): AsyncIterableWrapper<T, TNext> {
     return new AsyncIterableWrapper(takeAsync(this.iterable, count))
   }
 
+  /**
+   * Skips the first `count` items in the iterable.
+   */
   skip(count: number): AsyncIterableWrapper<T, TNext> {
     return new AsyncIterableWrapper(skipAsync(this.iterable, count))
+  }
+
+  /**
+   * Reduces the items in the iterable using a reducer function.
+   */
+  reduce<U>(
+    reducer: (accumulator: U, item: T) => Promisable<U>,
+    initialValue: U,
+  ): Promise<U> {
+    return reduceAsync(this.iterable, reducer, initialValue)
   }
 }
 
