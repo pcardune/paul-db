@@ -21,14 +21,24 @@ import {
   MultiAggregation,
   NotExpr,
   OrderBy,
+  OverlapsExpr,
   TableScan,
 } from "./QueryPlanNode.ts"
-import type { EmptyObject, Merge, NonEmptyTuple, Simplify } from "type-fest"
-import { ColumnType } from "../schema/columns/ColumnType.ts"
+import type { EmptyObject, Merge, Simplify } from "type-fest"
+import {
+  ArrayColumnType,
+  ColumnType,
+  ColumnTypes,
+  ColValueOf,
+  MakeNonNullableType,
+  MakeNullableType,
+  NullableColumnType,
+} from "../schema/columns/ColumnType.ts"
 import { Json } from "../types.ts"
 import { column } from "../schema/columns/ColumnBuilder.ts"
 import { Aggregation } from "./Aggregation.ts"
 import { pick } from "@std/collections/pick"
+import { Coalesce } from "./Expr.ts"
 
 type MergeQBSchema<
   FromSchemasT extends Record<string, ISchema>,
@@ -48,6 +58,18 @@ type MergeQBSchemaNullable<
   QB extends IQB,
   SName extends keyof QB["dbSchema"]["schemas"],
 > = Merge<FromSchemasT, NullableSchemas<Pick<QB["dbSchema"]["schemas"], SName>>>
+
+export type SchemaTableExprBuilders<
+  QB extends IQB,
+  SchemasT extends Record<string, ISchema>,
+> = {
+  [TableName in keyof SchemasT]: {
+    [ColumnName in keyof SchemasT[TableName]["columnsByName"]]: ExprBuilder<
+      ITQB<QB, SchemasT>,
+      SchemasT[TableName]["columnsByName"][ColumnName]["type"]
+    >
+  }
+}
 
 function singleKeyRecord<K extends string, V>(key: K, value: V): Record<K, V> {
   return { [key]: value } as Record<K, V>
@@ -141,11 +163,15 @@ type QBTableNames<QB extends IQB> = Extract<
   string
 >
 
-class NeverExpr implements Expr<never> {
+/**
+ * @ignore
+ * @internal
+ */
+export class _NeverExpr implements Expr<ColumnType<any>> {
   resolve(): never {
     throw new Error("This should never be called")
   }
-  getType(): ColumnType<never> {
+  getType(): ColumnType<any> {
     throw new Error("This should never be called")
   }
   describe(): string {
@@ -160,7 +186,11 @@ export interface IPlanBuilder<T extends plan.RowData = plan.RowData> {
   plan(): IQueryPlanNode<T>
 }
 
-interface ITQB<
+/**
+ * @ignore
+ * @internal
+ */
+export interface ITQB<
   QB extends IQB = IQB,
   SchemasT extends Record<string, ISchema> = Record<string, ISchema>,
 > extends IPlanBuilder {
@@ -191,7 +221,7 @@ export class TableQueryBuilder<
       [
         string,
         "inner" | "left",
-        (e: ExprBuilder<ITQB, never>) => ExprBuilder<ITQB, boolean>,
+        (e: EmptyExprBuilder<ITQB>) => ExprBuilder<ITQB, ColumnType<boolean>>,
       ]
     > = [],
   ) {}
@@ -208,23 +238,22 @@ export class TableQueryBuilder<
    * import {dbSchema} from "../examples.ts"
    * dbSchema.query()
    *   .from("users")
-   *   .join("posts", (t) => t.column("users.id").eq(t.column("posts.authorId")))
+   *   .join("posts", (t) => t.tables.users.id.eq(t.tables.posts.authorId))
    *   .select({
-   *     postTitle: (t) => t.column("posts.title"),
-   *     authorName: (t) => t.column("users.name"),
+   *     postTitle: (t) => t.tables.posts.title,
+   *     authorName: (t) => t.tables.users.name,
    *   })
    * ```
    */
   join<JoinTableNameT extends QBTableNames<QB>>(
     table: JoinTableNameT,
     on: (
-      tqb: ExprBuilder<
-        ITQB<QB, MergeQBSchema<SchemasT, QB, JoinTableNameT>>,
-        never
+      tqb: EmptyExprBuilder<
+        ITQB<QB, MergeQBSchema<SchemasT, QB, JoinTableNameT>>
       >,
     ) => ExprBuilder<
       ITQB<QB, MergeQBSchema<SchemasT, QB, JoinTableNameT>>,
-      boolean
+      ColumnType<boolean>
     >,
   ): TableQueryBuilder<QB, MergeQBSchema<SchemasT, QB, JoinTableNameT>> {
     return new TableQueryBuilder<
@@ -254,23 +283,22 @@ export class TableQueryBuilder<
    * import {dbSchema} from "../examples.ts"
    * dbSchema.query()
    *   .from("users")
-   *   .join("posts", (t) => t.column("users.id").eq(t.column("posts.authorId")))
+   *   .join("posts", (t) => t.tables.users.id.eq(t.tables.posts.authorId))
    *   .select({
-   *     postTitle: (t) => t.column("posts.title"),
-   *     authorName: (t) => t.column("users.name"),
+   *     postTitle: (t) => t.tables.posts.title,
+   *     authorName: (t) => t.tables.users.name,
    *   })
    * ```
    */
   leftJoin<JoinTableNameT extends QBTableNames<QB>>(
     table: JoinTableNameT,
     on: (
-      tqb: ExprBuilder<
-        ITQB<QB, MergeQBSchemaNullable<SchemasT, QB, JoinTableNameT>>,
-        never
+      tqb: EmptyExprBuilder<
+        ITQB<QB, MergeQBSchemaNullable<SchemasT, QB, JoinTableNameT>>
       >,
     ) => ExprBuilder<
       ITQB<QB, MergeQBSchemaNullable<SchemasT, QB, JoinTableNameT>>,
-      boolean
+      ColumnType<boolean>
     >,
   ): TableQueryBuilder<
     QB,
@@ -295,12 +323,14 @@ export class TableQueryBuilder<
         [table]: nullableJoinSchema,
       } as unknown as MergeQBSchemaNullable<SchemasT, QB, JoinTableNameT>,
       this.rootTable,
-      this.rootPlan,
+      this.rootPlan as any, // TODO: fix this any
       [...this.joinPredicates, [table, "left", on as any]],
     )
   }
 
-  private whereClause: ExprBuilder<ITQB<QB, SchemasT>, boolean> | undefined
+  private whereClause:
+    | ExprBuilder<ITQB<QB, SchemasT>, ColumnType<boolean>>
+    | undefined
 
   /**
    * Filters the rows in the table using the given expression.
@@ -313,15 +343,15 @@ export class TableQueryBuilder<
    * import {dbSchema} from "../examples.ts"
    * dbSchema.query()
    *   .from("users")
-   *   .where((t) => t.column("users.username").eq("pcardune"))
+   *   .where((t) => t.tables.users.username.eq("pcardune"))
    * ```
    */
   where(
     func: (
-      tqb: ExprBuilder<ITQB<QB, SchemasT>, never>,
-    ) => ExprBuilder<ITQB<QB, SchemasT>, boolean>,
+      tqb: EmptyExprBuilder<ITQB<QB, SchemasT>>,
+    ) => ExprBuilder<ITQB<QB, SchemasT>, ColumnType<boolean>>,
   ): this {
-    this.whereClause = func(new ExprBuilder(this, new NeverExpr()))
+    this.whereClause = func(new EmptyExprBuilder(this))
     return this
   }
 
@@ -338,8 +368,8 @@ export class TableQueryBuilder<
    * import {dbSchema} from "../examples.ts"
    * dbSchema.query()
    *  .from("posts")
-   *  .where((t) => t.column("posts.authorId").eq(123))
-   *  .orderBy((t) => t.column("posts.createdAt"), "DESC")
+   *  .where((t) => t.tables.posts.authorId.eq(123))
+   *  .orderBy((t) => t.tables.posts.createdAt, "DESC")
    *  .limit(10)
    * ```
    */
@@ -365,15 +395,15 @@ export class TableQueryBuilder<
    * import {dbSchema} from "../examples.ts"
    * dbSchema.query()
    *   .from("posts")
-   *   .orderBy((t) => t.column("posts.createdAt"), "DESC")
+   *   .orderBy((t) => t.tables.posts.createdAt, "DESC")
    * ```
    */
   orderBy(
-    func: (tqb: ExprBuilder<this, never>) => ExprBuilder<this, any>,
+    func: (tqb: EmptyExprBuilder<this>) => ExprBuilder<this, any>,
     order: "ASC" | "DESC",
   ): this {
     this.orderByClauses.push({
-      expr: func(new ExprBuilder(this, new NeverExpr())),
+      expr: func(new EmptyExprBuilder(this)),
       order,
     })
     return this
@@ -391,27 +421,63 @@ export class TableQueryBuilder<
    * dbSchema.query()
    *   .from("users")
    *   .select({
-   *     name: (t) => t.column("users.name"),
-   *     username: (t) => t.column("users.username"),
+   *     name: (t) => t.tables.users.name,
+   *     username: (t) => t.tables.users.username,
    *   })
    * ```
    */
-  select<
-    SelectT extends Record<string, ExprBuilder<ITQB<QB, SchemasT>, any>>,
-  >(
+  select<TableName extends keyof SchemasT>(
+    selection: TableName,
+  ): GroupByBuilder<
+    ITQB<QB, SchemasT>,
+    {
+      [K in keyof SchemasT[TableName]["columnsByName"]]: ExprBuilder<
+        ITQB<QB, SchemasT>,
+        SchemasT[TableName]["columnsByName"][K]["type"]
+      >
+    },
+    EmptyObject
+  >
+  select<SelectT extends Record<string, ExprBuilder<ITQB<IQB, SchemasT>, any>>>(
     selection: {
       [Property in keyof SelectT]: (
-        tqb: ExprBuilder<ITQB<QB, SchemasT>, never>,
+        tqb: EmptyExprBuilder<ITQB<QB, SchemasT>>,
       ) => SelectT[Property]
     },
-  ): SelectBuilder<ITQB<QB, SchemasT>, "$0", SelectT> {
+  ): GroupByBuilder<ITQB<QB, SchemasT>, SelectT, EmptyObject>
+  select<
+    TableName extends keyof SchemasT,
+    SelectT extends Record<string, ExprBuilder<ITQB<IQB, SchemasT>, any>>,
+  >(
+    selection:
+      | TableName
+      | {
+        [Property in keyof SelectT]: (
+          tqb: EmptyExprBuilder<ITQB<QB, SchemasT>>,
+        ) => SelectT[Property]
+      },
+  ): GroupByBuilder<ITQB<QB, SchemasT>, SelectT, EmptyObject> {
+    if (typeof selection === "string") {
+      if (this.tableSchemas[selection] == null) {
+        throw new Error(`Table ${selection} not found in schema`)
+      }
+      const mapped = Object.fromEntries(
+        Object.keys(this.tableSchemas[selection].columnsByName).map(
+          (columnName) => [
+            columnName,
+            new EmptyExprBuilder(this).tables[selection][columnName],
+          ],
+        ),
+      )
+      return new GroupByBuilder(this, mapped as any, {}) as any
+    }
     const mapped = Object.fromEntries(
       Object.entries(selection).map((
         [key, func],
-      ) => [key, func(new ExprBuilder(this, new NeverExpr()))]),
+      ) => [key, func(new EmptyExprBuilder(this))]),
     ) as SelectT
 
-    return new SelectBuilder(this, "$0", mapped)
+    return new GroupByBuilder(this, mapped, {})
   }
 
   /**
@@ -426,22 +492,22 @@ export class TableQueryBuilder<
    * dbSchema.query()
    *   .from("posts")
    *   .groupBy({
-   *     authorId: (t) => t.column("posts.authorId"),
+   *     authorId: (t) => t.tables.posts.authorId,
    *   })
    *   .aggregate({
    *     count: (agg, t) => agg.count(),
-   *     highestRating: (agg, t) => agg.max(t.column("posts.rating")),
+   *     highestRating: (agg, t) => agg.max(t.tables.posts.rating),
    *   })
    * ```
    * When queries, this will return rows of {authorId: string, count: number}.
    * Unlike in SQL, the group by keys are automatically included in the output.
    */
   groupBy<
-    GroupKeyT extends Record<string, ExprBuilder<ITQB<QB, SchemasT>, any>>,
+    GroupKeyT extends Record<string, ExprBuilder<ITQB<IQB, SchemasT>, any>>,
   >(
     key: {
       [Property in keyof GroupKeyT]: (
-        tqb: ExprBuilder<ITQB<QB, SchemasT>, never>,
+        tqb: EmptyExprBuilder<ITQB<QB, SchemasT>>,
       ) => GroupKeyT[Property]
     },
   ): GroupByBuilder<ITQB<QB, SchemasT>, GroupKeyT, EmptyObject> {
@@ -450,7 +516,7 @@ export class TableQueryBuilder<
       Object.fromEntries(
         Object.entries(key).map((
           [key, func],
-        ) => [key, func(new ExprBuilder(this, new NeverExpr()))]),
+        ) => [key, func(new EmptyExprBuilder(this))]),
       ) as GroupKeyT,
       {},
     )
@@ -466,7 +532,7 @@ export class TableQueryBuilder<
    * dbSchema.query()
    *   .from("posts")
    *   .aggregate({
-   *     count: (agg, t) => agg.max(t.column("posts.rating")),
+   *     count: (agg, t) => agg.max(t.tables.posts.rating),
    *   })
    * ```
    */
@@ -476,22 +542,23 @@ export class TableQueryBuilder<
     aggregations: {
       [K in keyof AggregateT]: (
         aggFuncs: AggregationFuncs<this>,
-        exprFuncs: ExprBuilder<this, never>,
-      ) => AggregateT[K]
+        exprFuncs: EmptyExprBuilder<this>,
+      ) => AggregateT[K] | AggBuilder<plan.Aggregation<any>>
     },
-  ): AggregateBuilder<this, AggregateT> {
-    return new AggregateBuilder(
+  ): GroupByBuilder<this, EmptyObject, AggregateT> {
+    return new GroupByBuilder(
       this,
+      {},
       Object.fromEntries(
         Object.entries(aggregations).map((
           [key, func],
-        ) => [
-          key,
-          func(
+        ) => {
+          const agg = func(
             new AggregationFuncs(this),
-            new ExprBuilder(this, new NeverExpr()),
-          ),
-        ]),
+            new EmptyExprBuilder(this),
+          )
+          return [key, agg instanceof AggBuilder ? agg.agg : agg]
+        }),
       ) as AggregateT,
     )
   }
@@ -510,7 +577,7 @@ export class TableQueryBuilder<
               this.queryBuilder.dbSchema.name,
               joinTableName,
             ),
-            on(new ExprBuilder(this, new NeverExpr())).expr,
+            on(new EmptyExprBuilder(this)).expr,
           )
         } else if (joinType === "left") {
           root = new LeftJoin(
@@ -519,7 +586,7 @@ export class TableQueryBuilder<
               this.queryBuilder.dbSchema.name,
               joinTableName,
             ),
-            on(new ExprBuilder(this, new NeverExpr())).expr,
+            on(new EmptyExprBuilder(this)).expr,
           )
         }
       }
@@ -549,77 +616,10 @@ type SelectColumns<SelectT extends SelectConfig> = Simplify<
   {
     [K in Extract<keyof SelectT, string>]: Column.Stored.Any<
       K,
-      ExprType<SelectT[K]>
+      GetExprBuilderType<SelectT[K]>
     >
   }
 >
-type SelectSchema<NewAlias extends string, SelectT extends SelectConfig> =
-  Simplify<ISchema<NewAlias, SelectColumns<SelectT>>>
-
-class SelectBuilder<
-  TQB extends ITQB = ITQB,
-  AliasT extends string = string,
-  SelectT extends SelectConfig = SelectConfig,
-> {
-  constructor(
-    readonly tqb: TQB,
-    readonly alias: AliasT,
-    readonly select: SelectT,
-  ) {}
-
-  asTable<NewAlias extends string>(
-    newAlias: NewAlias,
-  ): TableQueryBuilder<
-    QueryBuilder<
-      IAugmentedDBSchema<
-        TQB["queryBuilder"]["dbSchema"],
-        SelectSchema<NewAlias, SelectT>
-      >
-    >,
-    Record<NewAlias, SelectSchema<NewAlias, SelectT>>
-  > {
-    const newSchema = {
-      name: newAlias,
-      columnsByName: Object.fromEntries(
-        Object.entries(this.select).map((
-          [key, value],
-        ) => [key, column(key, value.expr.getType())]),
-      ) as unknown as SelectSchema<NewAlias, SelectT>["columnsByName"],
-    }
-
-    const newDBSchema: IAugmentedDBSchema<
-      TQB["queryBuilder"]["dbSchema"],
-      SelectSchema<NewAlias, SelectT>
-    > = augmentDbSchema(this.tqb.queryBuilder.dbSchema, newSchema)
-    const newTQB = new TableQueryBuilder(
-      new QueryBuilder(newDBSchema),
-      singleKeyRecord(newAlias, newSchema),
-      newAlias,
-      new SelectBuilder(this.tqb, newAlias, this.select).plan() as any,
-      [],
-    )
-
-    return newTQB
-  }
-
-  plan(): plan.Select<
-    AliasT,
-    {
-      [Property in keyof SelectT]: SelectT[Property] extends
-        ExprBuilder<infer TQB, infer T> ? T : never
-    }
-  > {
-    return new plan.Select(
-      this.tqb.plan(),
-      this.alias,
-      Object.fromEntries(
-        Object.entries(this.select).map((
-          [key, valueExpr],
-        ) => [key, valueExpr.expr]),
-      ),
-    )
-  }
-}
 
 /**
  * Helper for constructing aggregations
@@ -641,111 +641,93 @@ class AggregationFuncs<TQB extends ITQB = ITQB> {
   /**
    * aggregates rows by finding the maximum value
    */
-  max<T>(expr: ExprBuilder<TQB, T>): plan.MaxAggregation<T> {
+  max<T extends ColumnType<any>>(
+    expr: ExprBuilder<TQB, T>,
+  ): plan.MaxAggregation<T> {
     return new plan.MaxAggregation(expr.expr)
   }
 
   /**
    * aggregates rows by finding the minimum value
    */
-  min<T>(expr: ExprBuilder<TQB, T>): plan.MinAggregation<T> {
+  min<T extends ColumnType<any>>(
+    expr: ExprBuilder<TQB, T>,
+  ): plan.MinAggregation<T> {
     return new plan.MinAggregation(expr.expr)
   }
 
   /**
    * aggregates rows by summing all values
    */
-  sum(expr: ExprBuilder<TQB, number>): plan.SumAggregation {
+  sum(expr: ExprBuilder<TQB, ColumnType<number>>): plan.SumAggregation {
     return new plan.SumAggregation(expr.expr)
   }
 
   /**
    * Aggregates rows by collecting all values into an array
    */
-  arrayAgg<T>(expr: ExprBuilder<TQB, T>): plan.ArrayAggregation<T> {
-    return new plan.ArrayAggregation(expr.expr)
+  arrayAgg<EB extends ExprBuilder<TQB, ColumnType<any>>>(
+    expr: EB,
+  ): ArrayAggBuilder<EB> {
+    return new ArrayAggBuilder(expr)
   }
 
   /**
    * Aggregates rows by taking the first value and ignoring the rest
    */
-  first<T>(expr: ExprBuilder<TQB, T>): plan.FirstAggregation<T> {
+  first<T extends ColumnType<any>>(
+    expr: ExprBuilder<TQB, T>,
+  ): plan.FirstAggregation<T> {
     return new plan.FirstAggregation(expr.expr)
   }
 }
 
-type AggConfig = Record<string, plan.Aggregation<any>>
-type AggregatedRecord<AggT extends AggConfig> = {
-  [Key in keyof AggT]: AggT[Key] extends plan.Aggregation<infer T> ? T
-    : never
+abstract class AggBuilder<A extends plan.Aggregation<any>> {
+  abstract get agg(): A
 }
+
+class ArrayAggBuilder<EB extends ExprBuilder<ITQB, ColumnType>>
+  extends AggBuilder<plan.ArrayAggregation<GetExprBuilderType<EB>>> {
+  constructor(readonly expr: EB) {
+    super()
+  }
+
+  override get agg(): plan.ArrayAggregation<GetExprBuilderType<EB>> {
+    return new plan.ArrayAggregation(this.expr.expr)
+  }
+
+  filter(
+    func: (e: EB) => ExprBuilderWithType<EB, ColumnType<boolean>>,
+  ): plan.ArrayAggregation<GetExprBuilderType<EB>> {
+    return new plan.ArrayAggregation(this.expr.expr, func(this.expr).expr)
+  }
+
+  filterNonNull(
+    this: ArrayAggBuilder<ExprBuilder<ITQB, NullableColumnType<ColumnType>>>,
+  ): plan.NonNullArrayAggregation<NonNullable<GetExprBuilderType<EB>>> {
+    return new plan.NonNullArrayAggregation(this.expr.expr)
+  }
+}
+
+type AggConfig = Record<string, plan.Aggregation<any>>
 type AggregatedColumns<AggT extends AggConfig> = {
   [K in Extract<keyof AggT, string>]: Column.Stored.Any<
     K,
-    AggregationType<AggT[K]>
+    AggregationType<AggT[K]>,
+    AggregationColType<AggT[K]>
   >
 }
-type AggregatedSchema<Name extends string, AggT extends AggConfig> = ISchema<
-  Name,
-  AggregatedColumns<AggT>
->
 
-class AggregateBuilder<
-  TQB extends ITQB = ITQB,
-  AggT extends AggConfig = AggConfig,
-> implements IPlanBuilder<Record<"$0", AggregatedRecord<AggT>>> {
-  constructor(readonly tqb: TQB, readonly aggregations: AggT) {}
-
-  asTable<NewAlias extends string>(newAlias: NewAlias): TableQueryBuilder<
-    QueryBuilder<
-      IAugmentedDBSchema<
-        TQB["queryBuilder"]["dbSchema"],
-        AggregatedSchema<NewAlias, AggT>
-      >
-    >,
-    Record<NewAlias, AggregatedSchema<NewAlias, AggT>>
-  > {
-    const newSchema = {
-      name: newAlias,
-      columnsByName: Object.fromEntries(
-        Object.entries(this.aggregations).map((
-          [key, value],
-        ) => [key, column(key, value.getType())]),
-      ) as unknown as AggregatedColumns<AggT>,
-    }
-
-    const newDBSchema: IAugmentedDBSchema<
-      TQB["queryBuilder"]["dbSchema"],
-      AggregatedSchema<NewAlias, AggT>
-    > = augmentDbSchema(this.tqb.queryBuilder.dbSchema, newSchema)
-    const newTQB = new TableQueryBuilder(
-      new QueryBuilder(newDBSchema),
-      singleKeyRecord(newAlias, newSchema),
-      newAlias,
-      new plan.Aggregate(
-        this.tqb.plan(),
-        new MultiAggregation(this.aggregations),
-        newAlias,
-      ) as any, // TODO: fix this
-      [],
-    )
-
-    return newTQB
-  }
-
-  plan(): IQueryPlanNode<Record<"$0", AggregatedRecord<AggT>>> {
-    return new plan.Aggregate(
-      this.tqb.plan(),
-      new MultiAggregation(this.aggregations),
-      "$0",
-    ) as any // TODO: fix this
-  }
-}
-
-class GroupByBuilder<
-  TQB extends ITQB = ITQB,
-  GroupKeyT extends SelectConfig = SelectConfig,
-  AggT extends AggConfig = AggConfig,
+export type GroupByBuilderTypes<T> = T extends GroupByBuilder<
+  infer TQB,
+  infer GroupKeyT,
+  infer AggT
+> ? [TQB, GroupKeyT, AggT]
+  : never
+export class GroupByBuilder<
+  TQB extends ITQB,
+  GroupKeyT extends SelectConfig,
+  AggT extends AggConfig,
 > {
   constructor(
     readonly tqb: TQB,
@@ -772,11 +754,11 @@ class GroupByBuilder<
    * const authorStatsQuery: Query<AuthorStats> = dbSchema.query()
    *   .from("posts")
    *   .groupBy({
-   *     authorId: (t) => t.column("posts.authorId"),
+   *     authorId: (t) => t.tables.posts.authorId,
    *   })
    *   .aggregate({
    *     numPosts: (agg) => agg.count(),
-   *     highestRating: (agg, t) => agg.max(t.column("posts.rating")),
+   *     highestRating: (agg, t) => agg.max(t.tables.posts.rating),
    *   })
    * ```
    *
@@ -787,8 +769,8 @@ class GroupByBuilder<
     aggregations: {
       [K in keyof AggregateT]: (
         aggFuncs: AggregationFuncs<TQB>,
-        exprFuncs: ExprBuilder<TQB, never>,
-      ) => AggregateT[K]
+        exprFuncs: EmptyExprBuilder<TQB>,
+      ) => AggregateT[K] | AggBuilder<AggregateT[K]>
     },
   ): GroupByBuilder<TQB, GroupKeyT, AggT & AggregateT> {
     return new GroupByBuilder(
@@ -799,13 +781,13 @@ class GroupByBuilder<
         ...Object.fromEntries(
           Object.entries(aggregations).map((
             [key, func],
-          ) => [
-            key,
-            func(
+          ) => {
+            const agg = func(
               new AggregationFuncs(this.tqb),
-              new ExprBuilder(this.tqb, new NeverExpr()),
-            ),
-          ]),
+              new EmptyExprBuilder(this.tqb),
+            )
+            return [key, agg instanceof AggBuilder ? agg.agg : agg]
+          }),
         ) as AggregateT,
       },
     )
@@ -857,35 +839,45 @@ class GroupByBuilder<
       new QueryBuilder(newDBSchema),
       singleKeyRecord(newAlias, newSchema),
       newAlias,
-      new plan.GroupBy(
-        this.tqb.plan(),
-        Object.fromEntries(
-          Object.entries(this.groupKey).map((
-            [key, valueExpr],
-          ) => [key, valueExpr.expr]),
-        ),
-        new MultiAggregation(this.aggregations),
-        newAlias,
-      ) as any,
+      this._plan(newAlias) as any,
       [],
     )
 
     return newTQB
   }
 
-  plan(): IQueryPlanNode<
+  private _plan<NewAlias extends string>(newAlias: NewAlias): IQueryPlanNode<
     Record<
-      "$0",
+      NewAlias,
       & {
         [Property in keyof GroupKeyT]: GroupKeyT[Property] extends
-          ExprBuilder<infer TQB, infer T> ? T : never
+          ExprBuilder<infer TQB, ColumnType<infer T>> ? T : never
       }
       & {
-        [Key in keyof AggT]: AggT[Key] extends plan.Aggregation<infer T> ? T
+        [Key in keyof AggT]: AggT[Key] extends
+          plan.Aggregation<infer Acc, ColumnType<infer T>> ? T
           : never
       }
     >
   > {
+    if (Object.keys(this.aggregations).length === 0) {
+      return new plan.Select(
+        this.tqb.plan(),
+        newAlias,
+        Object.fromEntries(
+          Object.entries(this.groupKey).map((
+            [key, valueExpr],
+          ) => [key, valueExpr.expr]),
+        ),
+      )
+    }
+    if (Object.keys(this.groupKey).length === 0) {
+      return new plan.Aggregate(
+        this.tqb.plan(),
+        new MultiAggregation(this.aggregations),
+        newAlias,
+      ) as any
+    }
     return new plan.GroupBy(
       this.tqb.plan(),
       Object.fromEntries(
@@ -894,8 +886,25 @@ class GroupByBuilder<
         ) => [key, valueExpr.expr]),
       ),
       new MultiAggregation(this.aggregations),
-      "$0",
+      newAlias,
     ) as any // TODO: fix this
+  }
+
+  plan(): IQueryPlanNode<
+    Record<
+      "$0",
+      & {
+        [Property in keyof GroupKeyT]: GroupKeyT[Property] extends
+          ExprBuilder<infer TQB, ColumnType<infer T>> ? T : never
+      }
+      & {
+        [Key in keyof AggT]: AggT[Key] extends
+          plan.Aggregation<infer Acc, ColumnType<infer T>> ? T
+          : never
+      }
+    >
+  > {
+    return this._plan("$0")
   }
 }
 
@@ -917,35 +926,52 @@ export type ColumnWithName<
 > = SchemasForTQB<TQB>[SchemaName]["columnsByName"][CName]
 
 type AggregationType<T extends Aggregation<any>> = T extends
-  Aggregation<infer T> ? T : never
+  Aggregation<infer Acc, ColumnType<infer T>> ? T : never
+type AggregationColType<T extends Aggregation<any>> = T extends
+  Aggregation<infer Acc, infer ColT> ? ColT : never
 
-type ExprType<T extends ExprBuilder> = T extends ExprBuilder<infer TQB, infer T>
-  ? T
+type ExprBuilderWithType<EB extends ExprBuilder, ColT extends ColumnType<any>> =
+  EB extends ExprBuilder<infer TQB, any> ? ExprBuilder<TQB, ColT> : never
+
+export type ExprBuilderTypes<EB extends ExprBuilder> = EB extends ExprBuilder<
+  infer TQB,
+  infer ColT
+> ? { tqb: TQB; colT: ColT }
+  : never
+export type GetExprBuilderType<T extends ExprBuilder> = T extends
+  ExprBuilder<infer TQB, ColumnType<infer T>> ? T
   : never
 
-class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
-  constructor(readonly tqb: TQB, readonly expr: Expr<T>) {}
+/**
+ * @ignore
+ * @internal
+ */
+export class ExprBuilder<
+  TQB extends ITQB = ITQB,
+  ColT extends ColumnType<any> = ColumnType<any>,
+> {
+  constructor(readonly tqb: TQB, readonly expr: Expr<ColT>) {}
 
   column<
     TName extends TQBTableNames<TQB>,
     CName extends ColumnNames<TQB, TName>,
   >(
     column: `${TName}.${CName}`,
-  ): ExprBuilder<TQB, Column.GetOutput<ColumnWithName<TQB, TName, CName>>>
+  ): ExprBuilder<TQB, ColumnWithName<TQB, TName, CName>["type"]>
   column<
     TName extends TQBTableNames<TQB>,
     CName extends ColumnNames<TQB, TName>,
   >(
     table: TName,
     column: CName,
-  ): ExprBuilder<TQB, Column.GetOutput<ColumnWithName<TQB, TName, CName>>>
+  ): ExprBuilder<TQB, ColumnWithName<TQB, TName, CName>["type"]>
   column<
     TName extends TQBTableNames<TQB>,
     CName extends ColumnNames<TQB, TName>,
   >(
     tableOrColumn: string,
     column?: string,
-  ): ExprBuilder<TQB, Column.GetOutput<ColumnWithName<TQB, TName, CName>>> {
+  ): ExprBuilder<TQB, ColumnWithName<TQB, TName, CName>["type"]> {
     let table: string
     if (column == null) {
       const parts = tableOrColumn.split(".")
@@ -955,6 +981,9 @@ class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
       table = tableOrColumn
     }
     const schema = this.tqb.tableSchemas[table]
+    if (schema == null) {
+      throw new Error(`Table ${table} not found in schema`)
+    }
     const columnSchema = schema.columnsByName[column]
     if (columnSchema == null) {
       throw new Error(`Column ${column} not found in table ${table}`)
@@ -964,118 +993,255 @@ class ExprBuilder<TQB extends ITQB = ITQB, T = any> {
   }
 
   in(
-    ...values: NonEmptyTuple<ExprBuilder<TQB, T>> | NonEmptyTuple<T>
-  ): ExprBuilder<TQB, boolean> {
-    if (values[0] instanceof ExprBuilder) {
-      const expr = new In(
-        this.expr,
-        (values as NonEmptyTuple<ExprBuilder<TQB, T>>).map((v) => v.expr),
-      )
-      return new ExprBuilder(this.tqb, expr)
-    } else {
-      const expr = new In(
-        this.expr,
-        (values as NonEmptyTuple<T>).map((v) =>
-          new LiteralValueExpr(v, this.expr.getType())
-        ),
-      )
-      return new ExprBuilder(this.tqb, expr)
-    }
+    ...values: Array<ExprBuilder<TQB, ColT> | ColValueOf<ColT>>
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
+    const expr = new In(
+      this.expr,
+      values.map((v) =>
+        v instanceof ExprBuilder
+          ? v.expr
+          : new LiteralValueExpr(v, this.expr.getType())
+      ),
+    )
+    return new ExprBuilder(this.tqb, expr)
   }
 
   private compare(
     operator: CompareOperator,
-    value: ExprBuilder<TQB, T> | ExprBuilder<TQB, T | null> | T,
-  ): ExprBuilder<TQB, boolean> {
+    value:
+      | ExprBuilder<TQB, ColT>
+      | ExprBuilder<TQB, MakeNullableType<ColT>>
+      | ColValueOf<ColT>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     const expr = new Compare(
-      this.expr as Expr<T | null>,
+      this.expr,
       operator,
-      (value instanceof ExprBuilder
+      value instanceof ExprBuilder
         ? value.expr
-        : new LiteralValueExpr(value, this.expr.getType())) as Expr<T | null>,
+        : new LiteralValueExpr(value, this.expr.getType()),
     )
     return new ExprBuilder(this.tqb, expr)
   }
 
   eq(
-    value: ExprBuilder<TQB, T> | ExprBuilder<TQB, T | null> | T,
-  ): ExprBuilder<TQB, boolean> {
+    value:
+      | ExprBuilder<TQB, ColT>
+      | ExprBuilder<TQB, MakeNullableType<ColT>>
+      | ColValueOf<ColT>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     return this.compare("=", value)
   }
-  gt(value: ExprBuilder<TQB, T> | T): ExprBuilder<TQB, boolean> {
+  gt(
+    value:
+      | ExprBuilder<TQB, ColT>
+      | ExprBuilder<TQB, MakeNullableType<ColT>>
+      | ColValueOf<ColT>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     return this.compare(">", value)
   }
-  gte(value: ExprBuilder<TQB, T> | T): ExprBuilder<TQB, boolean> {
+  gte(
+    value:
+      | ExprBuilder<TQB, ColT>
+      | ExprBuilder<TQB, MakeNullableType<ColT>>
+      | ColValueOf<ColT>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     return this.compare(">=", value)
   }
-  lt(value: ExprBuilder<TQB, T> | T): ExprBuilder<TQB, boolean> {
+  lt(
+    value:
+      | ExprBuilder<TQB, ColT>
+      | ExprBuilder<TQB, MakeNullableType<ColT>>
+      | ColValueOf<ColT>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     return this.compare("<", value)
   }
-  lte(value: ExprBuilder<TQB, T> | T): ExprBuilder<TQB, boolean> {
+  lte(
+    value:
+      | ExprBuilder<TQB, ColT>
+      | ExprBuilder<TQB, MakeNullableType<ColT>>
+      | ColValueOf<ColT>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     return this.compare("<=", value)
   }
-  neq(value: ExprBuilder<TQB, T> | T): ExprBuilder<TQB, boolean> {
+  neq(
+    value:
+      | ExprBuilder<TQB, ColT>
+      | ExprBuilder<TQB, MakeNullableType<ColT>>
+      | ColValueOf<ColT>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     return this.compare("!=", value)
   }
 
-  not(this: ExprBuilder<TQB, boolean>): ExprBuilder<TQB, boolean>
   not(
-    this: ExprBuilder<TQB, never>,
-    value: ExprBuilder<TQB, boolean>,
-  ): ExprBuilder<TQB, boolean>
-  not(value?: ExprBuilder<TQB, boolean>): ExprBuilder<TQB, boolean> {
-    if (value == null) {
-      if (this.expr.getType().name !== "boolean") {
-        throw new Error(
-          `Expected boolean, got ${this.expr.getType().name} for expression ${this.expr.describe()}`,
-        )
-      }
-      return new ExprBuilder(
-        this.tqb,
-        new NotExpr(this.expr as unknown as Expr<boolean>),
+    this: ExprBuilder<TQB, ColumnType<boolean>>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
+    if (this.expr.getType().name !== "boolean") {
+      throw new Error(
+        `Expected boolean, got ${this.expr.getType().name} for expression ${this.expr.describe()}`,
       )
     }
-    return new ExprBuilder(this.tqb, new NotExpr(value.expr))
+    return new ExprBuilder(
+      this.tqb,
+      new NotExpr(this.expr as unknown as Expr<ColumnType<boolean>>),
+    )
   }
 
   private andOr(
     operator: "AND" | "OR",
-    value: ExprBuilder<TQB, boolean>,
-  ): ExprBuilder<TQB, boolean> {
+    value: ExprBuilder<TQB, ColumnType<boolean>>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     if (this.expr.getType().name !== "boolean") {
       throw new Error(
         `Expected boolean, got ${this.expr.getType().name} for expression ${this.expr.describe()}`,
       )
     }
     const expr = new AndOrExpr(
-      this.expr as unknown as Expr<boolean>,
+      this.expr as unknown as Expr<ColumnType<boolean>>,
       operator,
       value.expr,
     )
     return new ExprBuilder(this.tqb, expr)
   }
 
-  and(value: ExprBuilder<TQB, boolean>): ExprBuilder<TQB, boolean> {
+  and(
+    value: ExprBuilder<TQB, ColumnType<boolean>>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     return this.andOr("AND", value)
   }
-  or(value: ExprBuilder<TQB, boolean>): ExprBuilder<TQB, boolean> {
+  or(
+    value: ExprBuilder<TQB, ColumnType<boolean>>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
     return this.andOr("OR", value)
   }
 
-  literal<T>(value: T, type: ColumnType<T>): ExprBuilder<TQB, T> {
+  literal(value: boolean): ExprBuilder<TQB, ColumnType<boolean>>
+  literal(value: string): ExprBuilder<TQB, ColumnType<string>>
+  literal(value: number): ExprBuilder<TQB, ColumnType<number>>
+  literal<ColT extends ColumnType<any>>(
+    value: ColValueOf<ColT>,
+    type: ColT,
+  ): ExprBuilder<TQB, ColT>
+  literal<ColT extends ColumnType<any>>(
+    value: ColValueOf<ColT>,
+    type?: ColT,
+  ): ExprBuilder<TQB, ColT> {
+    if (type == null) {
+      if (typeof value === "boolean") {
+        type = ColumnTypes.boolean() as unknown as ColT
+      } else if (typeof value === "string") {
+        type = ColumnTypes.string() as unknown as ColT
+      } else if (typeof value === "number") {
+        if (Number.isInteger(value)) {
+          type = ColumnTypes.int32() as unknown as ColT
+        } else {
+          type = ColumnTypes.float() as unknown as ColT
+        }
+      }
+    }
+    if (type == null) {
+      throw new Error(
+        `Type must be provided for literal ${JSON.stringify(value)}`,
+      )
+    }
+    if (!type.isValid(value)) {
+      throw new Error(`Value ${value} is not valid for type ${type.name}`)
+    }
     const expr = new LiteralValueExpr(value, type)
-    return new ExprBuilder(this.tqb, expr)
+    return new ExprBuilder(this.tqb, expr) as ExprBuilder<TQB, ColT>
   }
 
-  subquery<T>(
+  subquery<T extends ColumnType<any>>(
     func: (
       qb: SubQueryBuilder<TQB["queryBuilder"], TQB["tableSchemas"], TQB>,
-    ) => IPlanBuilder<{ "$0": Record<string, T> }>,
+    ) => IPlanBuilder<{ "$0": Record<string, ColValueOf<T>> }>,
   ): ExprBuilder<TQB, T> {
     return new ExprBuilder(
       this.tqb,
       new plan.SubqueryExpr(func(new SubQueryBuilder(this.tqb)).plan()),
     )
+  }
+
+  overlaps<V>(
+    this: ExprBuilder<TQB, ArrayColumnType<V>>,
+    value: ExprBuilder<TQB, ArrayColumnType<V>>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
+    const expr = new OverlapsExpr(this.expr, value.expr)
+    return new ExprBuilder(this.tqb, expr)
+  }
+
+  coalesce<QColT extends MakeNonNullableType<ColT> | ColT>(
+    ...rest: [
+      ...ExprBuilder<TQB, ColT | MakeNullableType<ColT>>[],
+      ExprBuilder<TQB, QColT>,
+    ]
+  ): ExprBuilder<TQB, QColT> {
+    const last = rest.pop() as ExprBuilder<TQB, QColT>
+    const expr = new Coalesce(
+      [
+        this.expr,
+        ...rest.map((e) => e.expr),
+      ] as any[], // fix ths any
+      last.expr,
+    )
+    return new ExprBuilder(this.tqb, expr)
+  }
+}
+
+/**
+ * @ignore
+ */
+export class EmptyExprBuilder<TQB extends ITQB = ITQB>
+  extends ExprBuilder<TQB, ColumnType<void>> {
+  readonly tables: {
+    [TName in keyof TQB["tableSchemas"]]: {
+      [CName in ColumnNames<TQB, TName>]: ExprBuilder<
+        TQB,
+        ColumnWithName<TQB, TName, CName>["type"]
+      >
+    }
+  }
+
+  constructor(tqb: TQB) {
+    super(tqb, new _NeverExpr())
+    this.tables = Object.fromEntries(
+      Object.entries(tqb.tableSchemas).map(([schemaName, schema]) => [
+        schemaName,
+        Object.fromEntries(
+          Object.entries(schema.columnsByName).map(([colName, col]) => [
+            colName,
+            this.column(
+              schemaName as Extract<keyof TQB["tableSchemas"], string>,
+              colName as Exclude<
+                keyof SchemasForTQB<
+                  TQB
+                >[Extract<keyof TQB["tableSchemas"], string>]["columnsByName"],
+                symbol
+              >,
+            ),
+          ]),
+        ),
+      ]),
+    ) as {
+      [TName in keyof TQB["tableSchemas"]]: {
+        [CName in ColumnNames<TQB, TName>]: ExprBuilder<
+          TQB,
+          Column.GetOutput<ColumnWithName<TQB, TName, CName>>
+        >
+      }
+    }
+  }
+
+  override not(): never
+  override not(
+    value: ExprBuilder<TQB, ColumnType<boolean>>,
+  ): ExprBuilder<TQB, ColumnType<boolean>>
+  override not(
+    value?: ExprBuilder<TQB, ColumnType<boolean>>,
+  ): ExprBuilder<TQB, ColumnType<boolean>> {
+    if (value == null) {
+      throw new Error("Cannot call not() without a value")
+    }
+    return value.not()
   }
 }
 

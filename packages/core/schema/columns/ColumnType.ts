@@ -29,10 +29,11 @@ export function getColumnTypeFromString(
   }
 
   if (t in ColumnTypes) {
-    return (ColumnTypes as Record<string, () => ColumnType<unknown>>)[t]()
+    return (ColumnTypes as unknown as Record<string, () => ColumnType<unknown>>)
+      [t]()
   }
   if (t === "serial") {
-    return new SerialUInt32ColumnType() as ColumnType<unknown>
+    return new SerialUInt32ColumnType() as unknown as ColumnType<unknown>
   }
   throw new Error(`Unknown type: ${type}`)
 }
@@ -40,7 +41,7 @@ export function getColumnTypeFromString(
 /**
  * Represents a column type in a database table
  */
-export class ColumnType<T = unknown> {
+export class ColumnType<T = any> {
   /**
    * The name of the column type
    */
@@ -103,39 +104,62 @@ export class ColumnType<T = unknown> {
   /**
    * Takes a ColumnType and returns a new ColumnType that allows arrays of values
    */
-  array(): ColumnType<T[]> {
-    return new ColumnType<T[]>({
-      name: this.name + "[]",
-      isValid: (value) => Array.isArray(value) && value.every(this.isValid),
-      equals: (a, b) =>
-        a.length === b.length && a.every((v, i) => this.isEqual(v, b[i])),
-      compare: (a, b) => {
-        for (let i = 0; i < Math.min(a.length, b.length); i++) {
-          const cmp = this.compare(a[i], b[i])
-          if (cmp !== 0) return cmp
-        }
-        return a.length - b.length
-      },
-      serializer: this.serializer?.array(),
-    })
+  array(): ArrayColumnType<T> {
+    return new ArrayColumnType<T>(this)
   }
 
   /**
    * Takes a ColumnType and returns a new ColumnType that allows null values
    */
-  nullable(): ColumnType<T | null> {
-    return new ColumnType<T | null>({
-      name: this.name + "?",
-      isValid: (value) => value === null || this.isValid(value),
+  nullable(): NullableColumnType<this> {
+    if (this instanceof NullableColumnType) {
+      return this as NullableColumnType<this>
+    }
+    return new NullableColumnType(this)
+  }
+
+  nonNullable(): ColumnType<NonNullable<T>> {
+    if (this instanceof NullableColumnType) {
+      return this.type as ColumnType<NonNullable<T>>
+    }
+    return this as ColumnType<NonNullable<T>>
+  }
+}
+
+export class NullableColumnType<T extends ColumnType>
+  extends ColumnType<ColValueOf<T> | null> {
+  constructor(readonly type: T) {
+    super({
+      name: type.name + "?",
+      isValid: (value) => value === null || type.isValid(value),
       equals: (a, b) =>
-        a === b || (a !== null && b !== null && this.isEqual(a, b)),
+        a === b || (a !== null && b !== null && type.isEqual(a, b)),
       compare: (a, b) => {
         if (a === b) return 0
         if (a === null) return -1
         if (b === null) return 1
-        return this.compare(a, b)
+        return type.compare(a, b)
       },
-      serializer: this.serializer?.nullable(),
+      serializer: type.serializer?.nullable(),
+    })
+  }
+}
+
+export class ArrayColumnType<T> extends ColumnType<T[]> {
+  constructor(readonly type: ColumnType<T>) {
+    super({
+      name: type.name + "[]",
+      isValid: (value) => Array.isArray(value) && value.every(type.isValid),
+      equals: (a, b) =>
+        a.length === b.length && a.every((v, i) => type.isEqual(v, b[i])),
+      compare: (a, b) => {
+        for (let i = 0; i < Math.min(a.length, b.length); i++) {
+          const cmp = type.compare(a[i], b[i])
+          if (cmp !== 0) return cmp
+        }
+        return a.length - b.length
+      },
+      serializer: type.serializer?.array(),
     })
   }
 }
@@ -149,3 +173,13 @@ export class SerialUInt32ColumnType extends ColumnType<number> {
     })
   }
 }
+
+export type ColValueOf<T extends ColumnType<any>> = T extends
+  ColumnType<infer V> ? V
+  : never
+
+export type MakeNullableType<T extends ColumnType<any>> = NullableColumnType<T>
+
+export type MakeNonNullableType<T extends ColumnType<any>> = T extends
+  ColumnType<infer V> ? ColumnType<NonNullable<V>>
+  : never

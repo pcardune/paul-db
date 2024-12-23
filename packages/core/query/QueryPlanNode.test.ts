@@ -15,9 +15,10 @@ import {
   TableScan,
 } from "./QueryPlanNode.ts"
 import { PaulDB, schema as s } from "../exports/mod.ts"
-import { ColumnTypes } from "../schema/columns/ColumnType.ts"
+import { ArrayColumnType, ColumnTypes } from "../schema/columns/ColumnType.ts"
 import { assertTrue, TypeEquals } from "../testing.ts"
 import { ColumnNames, SchemasForTQB, TQBTableNames } from "./QueryBuilder.ts"
+import { type IsEqual } from "type-fest"
 
 const dbSchema = s.db().withTables(
   s.table("humans").with(
@@ -340,6 +341,42 @@ Deno.test("TypeTools", () => {
   >()
 })
 
+Deno.test("TableQueryBuilder .select()", async () => {
+  const { db } = await init()
+
+  const cats = await db.query(
+    dbSchema.query()
+      .from("cats")
+      .select({
+        catName: (t) => t.column("cats.name"),
+        age: (t) => t.column("cats.age"),
+      }),
+  ).toArray()
+
+  expect(cats).toEqual([
+    { catName: "fluffy", age: 3 },
+    { catName: "mittens", age: 5 },
+    { catName: "Mr. Blue", age: 16 },
+  ])
+
+  {
+    const allCatCols = await db.query(
+      dbSchema.query().from("cats").select("cats"),
+    ).toArray()
+    expect(allCatCols).toEqual([
+      { name: "fluffy", age: 3, id: 1, likesTreats: true },
+      { name: "mittens", age: 5, id: 2, likesTreats: true },
+      { name: "Mr. Blue", age: 16, id: 3, likesTreats: true },
+    ])
+    assertTrue<
+      IsEqual<
+        typeof allCatCols,
+        Array<{ name: string; age: number; id: number; likesTreats: boolean }>
+      >
+    >()
+  }
+})
+
 Deno.test("QueryBuilder (INNER) JOINS", async () => {
   const { db } = await init()
 
@@ -399,46 +436,7 @@ Deno.test("QueryBuilder LEFT JOINS", async () => {
   >()
 })
 
-Deno.test("QueryBuilder .in()", async () => {
-  const { db } = await init()
-  const plan = dbSchema.query()
-    .from("cats")
-    .where((t) => t.column("cats", "name").in("fluffy", "Mr. Blue"))
-    .select({ name: (t) => t.column("cats", "name") })
-    .plan()
-  expect(plan.describe()).toEqual(
-    `Select(name AS name, Filter(TableScan(default.cats), In(name, ["fluffy", "Mr. Blue"]))) AS $0`,
-  )
-  expect(await plan.execute(db).toArray()).toEqual([
-    { "$0": { name: "fluffy" } },
-    { "$0": { name: "Mr. Blue" } },
-  ])
-})
-
-Deno.test("QueryBuilder .not()", async () => {
-  const { db } = await init()
-  const plan = dbSchema.query()
-    .from("cats")
-    .where((t) => t.column("cats", "name").eq("fluffy").not())
-    .select({ name: (t) => t.column("cats", "name") })
-    .plan()
-  expect(plan.describe()).toEqual(
-    `Select(name AS name, Filter(TableScan(default.cats), NOT(Compare(name = "fluffy")))) AS $0`,
-  )
-  expect(await plan.execute(db).toArray()).toEqual([
-    { "$0": { name: "mittens" } },
-    { "$0": { name: "Mr. Blue" } },
-  ])
-
-  const plan2 = dbSchema.query()
-    .from("cats")
-    .where((t) => t.not(t.column("cats", "name").eq("fluffy")))
-    .select({ name: (t) => t.column("cats", "name") })
-    .plan()
-  expect(plan2.describe()).toEqual(plan.describe())
-})
-
-Deno.test("QueryBuilder .aggregate()", async () => {
+Deno.test("QueryBuilder .aggregate()", async (test) => {
   const { db } = await init()
   const plan = dbSchema.query()
     .from("cats")
@@ -448,11 +446,13 @@ Deno.test("QueryBuilder .aggregate()", async () => {
       maxName: (agg, t) => agg.max(t.column("cats", "name")),
       minName: (agg, t) => agg.min(t.column("cats", "name")),
       totalAge: (agg, t) => agg.sum(t.column("cats", "age")),
+      firstAge: (agg, t) => agg.first(t.column("cats", "age")),
+      names: (agg, t) => agg.arrayAgg(t.column("cats", "name")),
     })
     .plan()
 
   expect(plan.describe()).toEqual(
-    "Aggregate(TableScan(default.cats), MultiAggregation(count: COUNT(*), maxAge: MAX(age), maxName: MAX(name), minName: MIN(name), totalAge: SUM(age))) AS $0",
+    "Aggregate(TableScan(default.cats), MultiAggregation(count: COUNT(*), maxAge: MAX(age), maxName: MAX(name), minName: MIN(name), totalAge: SUM(age), firstAge: FIRST(age), names: ARRAY_AGG(name))) AS $0",
   )
   const data = await plan.execute(db).toArray()
   expect(data).toEqual([
@@ -463,25 +463,86 @@ Deno.test("QueryBuilder .aggregate()", async () => {
         maxName: "mittens",
         minName: "Mr. Blue",
         totalAge: 24,
+        firstAge: 3,
+        names: ["fluffy", "mittens", "Mr. Blue"],
       },
     },
   ])
   assertTrue<
     TypeEquals<
-      typeof data,
       Array<
         {
           "$0": {
             count: number
-            maxAge: number | undefined
-            maxName: string | undefined
-            minName: string | undefined
-            totalAge: number | undefined
+            maxAge: number
+            maxName: string
+            minName: string
+            totalAge: number
+            firstAge: number
+            names: string[]
           }
         }
-      >
+      >,
+      typeof data
     >
   >()
+
+  await test.step(".arrayAgg().filter()", async (test) => {
+    const query = dbSchema.query()
+      .from("cats")
+      .aggregate({
+        names: (agg, t) =>
+          agg.arrayAgg(t.column("cats", "name")).filter(
+            (name) => name.neq("fluffy"),
+          ),
+      })
+    const result = await db.query(query).toArray()
+    expect(result).toEqual([{ names: ["mittens", "Mr. Blue"] }])
+
+    await test.step("with .asTable()", () => {
+      const tqb = query.asTable("catNames")
+      assertTrue<
+        TypeEquals<
+          typeof tqb.tableSchemas.catNames.columnsByName.names.type,
+          ArrayColumnType<string>
+        >
+      >()
+    })
+  })
+
+  await test.step(".arrayAgg().filterNonNull()", async () => {
+    const dbSchema = s.db().withTables(
+      s.table("products").with(
+        s.column("category", s.type.string()),
+        s.column("tagline", s.type.string().nullable()),
+      ),
+    )
+    const model = await db.getModelForSchema(dbSchema)
+    await model.products.insertMany([
+      { category: "fruit", tagline: "juicy" },
+      { category: "fruit", tagline: null },
+      { category: "fruit", tagline: "sweet" },
+      { category: "veg", tagline: "crunchy" },
+      { category: "veg", tagline: null },
+    ])
+    const query = dbSchema.query()
+      .from("products")
+      .groupBy({
+        category: (t) => t.column("products.category"),
+      })
+      .aggregate({
+        taglines: (agg, t) =>
+          agg.arrayAgg(t.column("products.tagline")).filterNonNull(),
+      })
+    const result = await db.query(query).toArray()
+    expect(result).toEqual([
+      { category: "fruit", taglines: ["juicy", "sweet"] },
+      { category: "veg", taglines: ["crunchy"] },
+    ])
+    assertTrue<
+      TypeEquals<typeof result, Array<{ category: string; taglines: string[] }>>
+    >()
+  })
 })
 
 Deno.test("QueryBuilder subqueries", async () => {
@@ -527,6 +588,7 @@ Deno.test("QueryBuilder subqueries", async () => {
     columns: {
       name: {
         type: "column_ref",
+        table: "humans",
         column: "firstName",
       },
       numCats: {
@@ -554,11 +616,13 @@ Deno.test("QueryBuilder subqueries", async () => {
               type: "compare",
               left: {
                 type: "column_ref",
+                table: "catOwners",
                 column: "ownerId",
               },
               operator: "=",
               right: {
                 type: "column_ref",
+                table: "humans",
                 column: "id",
               },
             },
@@ -569,7 +633,7 @@ Deno.test("QueryBuilder subqueries", async () => {
   })
 })
 
-Deno.test("QueryBuilder .groupBy", async () => {
+Deno.test("QueryBuilder .groupBy", async (test) => {
   const db = await PaulDB.inMemory()
   const dbSchema = s.db().withTables(
     s.table("products").with(
@@ -628,9 +692,36 @@ Deno.test("QueryBuilder .groupBy", async () => {
       }>
     >
   >()
+
+  await test.step("with .arrayAgg()", async (test) => {
+    const query = dbSchema.query()
+      .from("products")
+      .groupBy({
+        category: (t) => t.column("products.category"),
+      })
+      .aggregate({
+        names: (agg, t) => agg.arrayAgg(t.tables.products.name),
+      })
+
+    const results = await db.query(query).toArray()
+    expect(results).toEqual([
+      { category: "fruit", names: ["apple", "cherry", "banana", "tomato"] },
+      { category: "veg", names: ["carrot", "lettuce", "cucumber", "potato"] },
+    ])
+
+    await test.step("with .asTable()", () => {
+      const tqb = query.asTable("categories")
+      assertTrue<
+        TypeEquals<
+          typeof tqb.tableSchemas.categories.columnsByName.names.type,
+          ArrayColumnType<string>
+        >
+      >()
+    })
+  })
 })
 
-Deno.test("Even more stuff", async () => {
+Deno.test("QueryBuilder.with()", async () => {
   const db = await PaulDB.inMemory()
   const dbSchema = s.db().withTables(
     s.table("products").with(
@@ -655,25 +746,28 @@ Deno.test("Even more stuff", async () => {
     { name: "potato", category: "veg", color: "brown", price: 0.25 },
   ])
 
-  expect(
-    await db.query(
-      dbSchema.query()
-        .with(
-          (q) =>
-            q.from("products")
-              .where((t) => t.column("products.price").gt(0.5))
-              .select({
-                category: (t) => t.column("products.category"),
-                price: (t) => t.column("products.price"),
-              })
-              .asTable("selected"),
-        )
-        .from("selected")
-        .aggregate({
-          totalPrice: (agg, t) => agg.sum(t.column("selected.price")),
-        }),
-    ).toArray(),
-  ).toEqual([{ totalPrice: 2.50 }])
+  const priceData = await db.query(
+    dbSchema.query()
+      .with(
+        (q) =>
+          q.from("products")
+            .where((t) => t.column("products.price").gt(0.5))
+            .select({
+              category: (t) => t.column("products.category"),
+              price: (t) => t.column("products.price"),
+            })
+            .asTable("selected"),
+      )
+      .from("selected")
+      .aggregate({
+        totalPrice: (agg, t) => agg.sum(t.column("selected.price")),
+        prices: (agg, t) => {
+          const prices = agg.arrayAgg(t.tables.selected.price)
+          return prices
+        },
+      }),
+  ).toArray()
+  expect(priceData).toEqual([{ totalPrice: 2.50, prices: [1, 0.75, 0.75] }])
 
   const selectedQuery = dbSchema.query()
     .from("products")

@@ -7,6 +7,7 @@ import type { MultiAggregation } from "./Aggregation.ts"
 import { PaulDB } from "../PaulDB.ts"
 import { Expr } from "./Expr.ts"
 import { BTree } from "../indexes/BTree.ts"
+import { ColumnType } from "../schema/columns/ColumnType.ts"
 
 export * from "./Aggregation.ts"
 export * from "./Expr.ts"
@@ -233,7 +234,7 @@ export class Filter<T extends RowData = RowData> extends AbstractQueryPlan<T> {
    */
   constructor(
     readonly child: IQueryPlanNode<T>,
-    readonly predicate: Expr<boolean>,
+    readonly predicate: Expr<ColumnType<boolean>>,
   ) {
     super()
   }
@@ -274,7 +275,9 @@ export class GroupBy<
 > {
   constructor(
     readonly child: IQueryPlanNode<RowDataT>,
-    readonly groupByExpr: { [Key in keyof GroupKey]: Expr<GroupKey[Key]> },
+    readonly groupByExpr: {
+      [Key in keyof GroupKey]: Expr<ColumnType<GroupKey[Key]>>
+    },
     readonly aggregation: MultiAggregation<AggregateT>,
     readonly alias: AliasT,
   ) {
@@ -408,7 +411,7 @@ export class Select<Alias extends string, T extends UnknownRecord>
    */
   addColumn<CName extends string, ValueT>(
     name: string,
-    expr: Expr<T>,
+    expr: Expr<ColumnType<T>>,
   ): Select<Alias, T & { [name in CName]: ValueT }> {
     return new Select(this.child, this.alias, { ...this.columns, [name]: expr })
   }
@@ -486,7 +489,7 @@ export class Join<
   constructor(
     readonly left: IQueryPlanNode<LeftT>,
     readonly right: IQueryPlanNode<RightT>,
-    readonly predicate: Expr<boolean>,
+    readonly predicate: Expr<ColumnType<boolean>>,
   ) {
     super()
   }
@@ -546,7 +549,7 @@ export class LeftJoin<
   constructor(
     readonly left: IQueryPlanNode<LeftT>,
     readonly right: IQueryPlanNode<RightT>,
-    readonly predicate: Expr<boolean>,
+    readonly predicate: Expr<ColumnType<boolean>>,
   ) {
     super()
   }

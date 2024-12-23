@@ -82,7 +82,7 @@ export class DBSchema<
    * const numRecentlyLoggedInUsersQuery = dbSchema.query()
    *   .from("users")
    *   .where(
-   *     (t) => t.column("users.lastLogin")
+   *     (t) => t.tables.users.lastLogin
    *       .gt(new Date(Date.now() - 1000 * 60 * 60 * 24))
    *   )
    *   .aggregate({ count: (agg) => agg.count() })

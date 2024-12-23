@@ -1,5 +1,5 @@
 import { column } from "../schema/columns/ColumnBuilder.ts"
-import { ColumnTypes } from "../schema/columns/ColumnType.ts"
+import { ColumnType, ColumnTypes } from "../schema/columns/ColumnType.ts"
 import { ulid } from "@std/ulid"
 import {
   type Column,
@@ -11,6 +11,7 @@ import type { EmptyObject } from "type-fest"
 type ULIDColumn = Column.Stored.Any<
   "id",
   string,
+  ColumnType<string>,
   true,
   Column.Index.ShouldIndex,
   () => string
@@ -27,6 +28,7 @@ export const dbPageIds: TableSchema<
     pageType: Column.Stored.Any<
       "pageType",
       string,
+      ColumnType<string>,
       true,
       Column.Index.Config,
       undefined
@@ -117,6 +119,7 @@ export const dbSchemas: TableSchema<
     id: Column.Stored.Any<
       "id",
       number,
+      ColumnType<number>,
       true,
       Column.Index.ShouldIndex,
       undefined
@@ -154,6 +157,7 @@ export const dbTableColumns: TableSchema<
     schemaId: Column.Stored.Any<
       "schemaId",
       number,
+      ColumnType<number>,
       false,
       Column.Index.ShouldIndex,
       undefined
@@ -165,6 +169,7 @@ export const dbTableColumns: TableSchema<
     indexInMemory: Column.Stored.Any<
       "indexInMemory",
       boolean,
+      ColumnType<boolean>,
       false,
       Column.Index.ShouldNotIndex,
       () => boolean

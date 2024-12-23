@@ -1,4 +1,10 @@
-import { ColumnType, ColumnTypes } from "../schema/columns/ColumnType.ts"
+import {
+  ArrayColumnType,
+  ColumnType,
+  ColumnTypes,
+  ColValueOf,
+  NullableColumnType,
+} from "../schema/columns/ColumnType.ts"
 import { Json } from "../types.ts"
 import type { ExecutionContext, Expr } from "./QueryPlanNode.ts"
 import type { Promisable, UnknownRecord } from "type-fest"
@@ -7,8 +13,11 @@ import type { Promisable, UnknownRecord } from "type-fest"
  * An aggregation is a computation that summarizes a set of rows into a single
  * value.
  */
-export interface Aggregation<AccT, Result = AccT> {
-  result(accumulator: AccT | undefined): Result
+export interface Aggregation<
+  AccT,
+  Result extends ColumnType = ColumnType<AccT>,
+> {
+  result(accumulator: AccT | undefined): ColValueOf<Result>
   /**
    * Updates the accumulator with the values from the context.
    */
@@ -25,10 +34,13 @@ export interface Aggregation<AccT, Result = AccT> {
   /**
    * Get the column type of the aggregation.
    */
-  getType(): ColumnType<AccT>
+  getType(): Result
 }
 
-abstract class ExprAggregation<AccT> implements Aggregation<AccT> {
+abstract class ExprAggregation<
+  AccT,
+  Result extends ColumnType = ColumnType<AccT>,
+> implements Aggregation<AccT, Result> {
   /**
    * Updates the accumulator with the values from the context.
    */
@@ -41,7 +53,7 @@ abstract class ExprAggregation<AccT> implements Aggregation<AccT> {
    * Creates a new ExprAggregation with the given expression.
    * @ignore
    */
-  constructor(readonly type: string, readonly expr: Expr<AccT>, {
+  constructor(readonly type: string, readonly expr: Expr<Result>, {
     update,
   }: {
     update: (
@@ -66,12 +78,12 @@ abstract class ExprAggregation<AccT> implements Aggregation<AccT> {
     return { type: this.type, expr: this.expr.toJSON() }
   }
 
-  getType(): ColumnType<AccT> {
+  getType(): Result {
     return this.expr.getType()
   }
 
-  result(accumulator: AccT): AccT {
-    return accumulator
+  result(accumulator: AccT): ColValueOf<Result> {
+    return accumulator as ColValueOf<Result>
   }
 }
 
@@ -117,11 +129,12 @@ export class CountAggregation implements Aggregation<number> {
 /**
  * An aggregation that computes the maximum value of an expression.
  */
-export class MaxAggregation<T> extends ExprAggregation<T> {
+export class MaxAggregation<ColT extends ColumnType>
+  extends ExprAggregation<ColValueOf<ColT>, ColT> {
   /**
    * Creates a new MaxAggregation with the given expression.
    */
-  constructor(expr: Expr<T>) {
+  constructor(expr: Expr<ColT>) {
     super("MAX", expr, {
       update: async (accumulator, ctx) => {
         if (accumulator === undefined) {
@@ -139,11 +152,12 @@ export class MaxAggregation<T> extends ExprAggregation<T> {
 /**
  * An aggregation that computes the minimum value of an expression.
  */
-export class MinAggregation<T> extends ExprAggregation<T> {
+export class MinAggregation<ColT extends ColumnType>
+  extends ExprAggregation<ColValueOf<ColT>, ColT> {
   /**
    * Creates a new MinAggregation with the given expression.
    */
-  constructor(expr: Expr<T>) {
+  constructor(expr: Expr<ColT>) {
     super("MIN", expr, {
       update: async (accumulator, ctx) => {
         if (accumulator === undefined) {
@@ -162,7 +176,7 @@ export class SumAggregation extends ExprAggregation<number> {
   /**
    * Creates a new SumAggregation with the given expression.
    */
-  constructor(expr: Expr<number>) {
+  constructor(expr: Expr<ColumnType<number>>) {
     super("SUM", expr, {
       update: async (accumulator, ctx) => {
         if (accumulator === undefined) {
@@ -177,11 +191,15 @@ export class SumAggregation extends ExprAggregation<number> {
 /**
  * An ArrayAggregation is an aggregation that collects all values into an array.
  */
-export class ArrayAggregation<T> implements Aggregation<T[]> {
+export class ArrayAggregation<T>
+  implements Aggregation<T[], ArrayColumnType<T>> {
   /**
    * Creates a new ArrayAggregation with the given expression.
    */
-  constructor(readonly expr: Expr<T>) {}
+  constructor(
+    readonly expr: Expr<ColumnType<T>>,
+    readonly filter?: Expr<ColumnType<boolean>>,
+  ) {}
 
   /**
    * Updates the accumulator with the values from the context.
@@ -190,6 +208,12 @@ export class ArrayAggregation<T> implements Aggregation<T[]> {
     accumulator: T[] | undefined,
     ctx: ExecutionContext,
   ): Promise<T[]> {
+    if (this.filter != null) {
+      const filterValue = await this.filter.resolve(ctx)
+      if (!filterValue) {
+        return accumulator ?? []
+      }
+    }
     if (accumulator === undefined) {
       return [await this.expr.resolve(ctx)]
     }
@@ -218,8 +242,71 @@ export class ArrayAggregation<T> implements Aggregation<T[]> {
     return { type: "array_agg", expr: this.expr.toJSON() }
   }
 
-  getType(): ColumnType<T[]> {
+  getType(): ArrayColumnType<T> {
     return this.expr.getType().array()
+  }
+}
+
+/**
+ * An ArrayAggregation is an aggregation that collects all values into an array.
+ */
+export class NonNullArrayAggregation<T>
+  implements Aggregation<T[], ArrayColumnType<T>> {
+  /**
+   * Creates a new ArrayAggregation with the given expression.
+   */
+  constructor(
+    readonly expr: Expr<NullableColumnType<ColumnType<T>>>,
+    readonly filter?: Expr<ColumnType<boolean>>,
+  ) {}
+
+  /**
+   * Updates the accumulator with the values from the context.
+   */
+  async update(
+    accumulator: NonNullable<T>[] | undefined,
+    ctx: ExecutionContext,
+  ): Promise<T[]> {
+    if (this.filter != null) {
+      const filterValue = await this.filter.resolve(ctx)
+      if (!filterValue) {
+        return accumulator ?? []
+      }
+    }
+    const value = await this.expr.resolve(ctx)
+    if (value == null) {
+      return accumulator ?? []
+    }
+    if (accumulator === undefined) {
+      return [value]
+    }
+    accumulator.push(value)
+    return accumulator
+  }
+
+  result(accumulator: NonNullable<T>[] | undefined): NonNullable<T>[] {
+    if (accumulator === undefined) {
+      return []
+    }
+    return accumulator
+  }
+
+  /**
+   * Generates a human-readable description of the aggregation.
+   */
+  describe(): string {
+    return `NON_NULL_ARRAY_AGG(${this.expr.describe()})`
+  }
+
+  /**
+   * Generates a json representation of the aggregation.
+   */
+  toJSON(): Json {
+    return { type: "non_null_array_agg", expr: this.expr.toJSON() }
+  }
+
+  getType(): ArrayColumnType<T> {
+    return this.expr.getType().nonNullable().array() as ArrayColumnType<T>
   }
 }
 
@@ -227,11 +314,12 @@ export class ArrayAggregation<T> implements Aggregation<T[]> {
  * A FirstAggregation is an aggregation that returns the first value of an
  * expression.
  */
-export class FirstAggregation<T> extends ExprAggregation<T> {
+export class FirstAggregation<ColT extends ColumnType>
+  extends ExprAggregation<ColValueOf<ColT>, ColT> {
   /**
    * Creates a new FirstAggregation with the given expression.
    */
-  constructor(expr: Expr<T>) {
+  constructor(expr: Expr<ColT>) {
     super("FIRST", expr, {
       update: (accumulator, ctx) => {
         if (accumulator === undefined) {
