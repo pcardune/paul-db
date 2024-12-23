@@ -34,7 +34,7 @@ import {
   MakeNullableType,
   NullableColumnType,
 } from "../schema/columns/ColumnType.ts"
-import { Flattened, Json } from "../types.ts"
+import { Json } from "../types.ts"
 import { column } from "../schema/columns/ColumnBuilder.ts"
 import { Aggregation } from "./Aggregation.ts"
 import { pick } from "@std/collections/pick"
@@ -59,7 +59,7 @@ type MergeQBSchemaNullable<
   SName extends keyof QB["dbSchema"]["schemas"],
 > = Merge<FromSchemasT, NullableSchemas<Pick<QB["dbSchema"]["schemas"], SName>>>
 
-type SchemaTableExprBuilders<
+export type SchemaTableExprBuilders<
   QB extends IQB,
   SchemasT extends Record<string, ISchema>,
 > = {
@@ -410,30 +410,6 @@ export class TableQueryBuilder<
   }
 
   /**
-   * Select all columns from the table. This is roughly equivalent to the
-   * `SELECT *` clause in SQL.
-   *
-   * Column names are prefixed with the table name, separated by an underscore.
-   * This is to avoid ambiguity when joining tables with columns of the same name.
-   */
-  selectAll(): GroupByBuilder<
-    ITQB<QB, SchemasT>,
-    // @ts-ignore This really does work, not sure why ts is complaining
-    Flattened<SchemaTableExprBuilders<QB, SchemasT>>,
-    EmptyObject
-  > {
-    const mapped = Object.fromEntries(
-      Object.entries(this.tableSchemas).flatMap(([tableName, schema]) =>
-        Object.keys(schema.columnsByName).map((columnName) => [
-          `${tableName}_${columnName}`,
-          new EmptyExprBuilder(this).tables[tableName][columnName],
-        ])
-      ),
-    )
-    return new GroupByBuilder(this, mapped as any, {}) as any
-  }
-
-  /**
    * Select columns from the table. This is roughly equivalent to the
    * `SELECT` clause in SQL.
    *
@@ -462,9 +438,7 @@ export class TableQueryBuilder<
     },
     EmptyObject
   >
-  select<
-    SelectT extends Record<string, ExprBuilder<ITQB<QB, SchemasT>, any>>,
-  >(
+  select<SelectT extends Record<string, ExprBuilder<ITQB<IQB, SchemasT>, any>>>(
     selection: {
       [Property in keyof SelectT]: (
         tqb: EmptyExprBuilder<ITQB<QB, SchemasT>>,
@@ -473,7 +447,7 @@ export class TableQueryBuilder<
   ): GroupByBuilder<ITQB<QB, SchemasT>, SelectT, EmptyObject>
   select<
     TableName extends keyof SchemasT,
-    SelectT extends Record<string, ExprBuilder<ITQB<QB, SchemasT>, any>>,
+    SelectT extends Record<string, ExprBuilder<ITQB<IQB, SchemasT>, any>>,
   >(
     selection:
       | TableName
@@ -529,7 +503,7 @@ export class TableQueryBuilder<
    * Unlike in SQL, the group by keys are automatically included in the output.
    */
   groupBy<
-    GroupKeyT extends Record<string, ExprBuilder<ITQB<QB, SchemasT>, any>>,
+    GroupKeyT extends Record<string, ExprBuilder<ITQB<IQB, SchemasT>, any>>,
   >(
     key: {
       [Property in keyof GroupKeyT]: (
@@ -744,10 +718,16 @@ type AggregatedColumns<AggT extends AggConfig> = {
   >
 }
 
-class GroupByBuilder<
-  TQB extends ITQB = ITQB,
-  GroupKeyT extends SelectConfig = SelectConfig,
-  AggT extends AggConfig = AggConfig,
+export type GroupByBuilderTypes<T> = T extends GroupByBuilder<
+  infer TQB,
+  infer GroupKeyT,
+  infer AggT
+> ? [TQB, GroupKeyT, AggT]
+  : never
+export class GroupByBuilder<
+  TQB extends ITQB,
+  GroupKeyT extends SelectConfig,
+  AggT extends AggConfig,
 > {
   constructor(
     readonly tqb: TQB,

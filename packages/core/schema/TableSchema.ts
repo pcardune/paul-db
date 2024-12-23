@@ -22,8 +22,7 @@ type UnwrapColumnBuilder<T extends Column.Stored.Any> = T extends ColumnBuilder<
   infer UniqueT,
   infer IndexedT,
   infer DefaultValueFactoryT
->
-  ? Column.Stored.Any<
+> ? Column.Stored.Any<
     Name,
     ColValueOf<ColT>,
     ColT,

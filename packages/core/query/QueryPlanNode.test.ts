@@ -375,54 +375,6 @@ Deno.test("TableQueryBuilder .select()", async () => {
       >
     >()
   }
-
-  {
-    const allCatCols = await db.query(
-      dbSchema.query().from("cats").join(
-        "catOwners",
-        (t) => t.tables.catOwners.petId.eq(t.tables.cats.id),
-      ).selectAll(),
-    ).toArray()
-    expect(allCatCols).toEqual([
-      {
-        catOwners_ownerId: 1,
-        catOwners_petId: 1,
-        cats_age: 3,
-        cats_id: 1,
-        cats_likesTreats: true,
-        cats_name: "fluffy",
-      },
-      {
-        catOwners_ownerId: 2,
-        catOwners_petId: 1,
-        cats_age: 3,
-        cats_id: 1,
-        cats_likesTreats: true,
-        cats_name: "fluffy",
-      },
-      {
-        catOwners_ownerId: 2,
-        catOwners_petId: 2,
-        cats_age: 5,
-        cats_id: 2,
-        cats_likesTreats: true,
-        cats_name: "mittens",
-      },
-    ])
-    assertTrue<
-      IsEqual<
-        typeof allCatCols,
-        {
-          cats_name: string
-          cats_id: number
-          cats_age: number
-          cats_likesTreats: boolean
-          catOwners_petId: number
-          catOwners_ownerId: number
-        }[]
-      >
-    >()
-  }
 })
 
 Deno.test("QueryBuilder (INNER) JOINS", async () => {
@@ -558,7 +510,7 @@ Deno.test("QueryBuilder .aggregate()", async (test) => {
     })
   })
 
-  await test.step(".arrayAgg().filterNonNull()", async (test) => {
+  await test.step(".arrayAgg().filterNonNull()", async () => {
     const dbSchema = s.db().withTables(
       s.table("products").with(
         s.column("category", s.type.string()),
