@@ -1,11 +1,7 @@
 import { PaulDB, schema as s } from "@paul-db/core"
 import SQLParser from "node-sql-parser"
 import { Create } from "node-sql-parser/types"
-import {
-  NotImplementedError,
-  SQLParseError,
-  TableNotFoundError,
-} from "./errors.ts"
+import { NotImplementedError, SQLParseError } from "./errors.ts"
 import { Insert_Replace, isColumnRefItem, isInsertReplace } from "./parser.ts"
 import { parseSelect } from "./select.ts"
 import { getColumnTypeFromSQLType } from "./sqlColumnTypes.ts"
@@ -128,13 +124,9 @@ export class SQLExecutor {
     const db = astTable.db ? astTable.db : "default"
     const tableName = astTable.table
 
-    const schemas = await this.db.dbFile.getSchemasOrThrow(db, tableName)
-    if (schemas.length === 0) {
-      throw new TableNotFoundError(`Table ${db}.${tableName} not found`)
-    }
     // TODO: support correct schema version
     const tableInstance = await this.db.dbFile.getOrCreateTable(
-      schemas[0].schema,
+      await this.db.getSchema(db, tableName),
       { db },
     )
 

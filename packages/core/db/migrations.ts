@@ -3,7 +3,7 @@ import type {
   SomeTableSchema,
   StoredRecordForTableSchema,
 } from "../schema/TableSchema.ts"
-import type { DbFile } from "./DbFile.ts"
+import type { IDbFile } from "./DbFile.ts"
 
 export function tableSchemaMigration<
   OldSchemaT extends SomeTableSchema,
@@ -25,7 +25,7 @@ export function tableSchemaMigration<
     db,
     name,
     newSchema,
-    migrate: async (dbFile: DbFile) => {
+    migrate: async (dbFile: IDbFile) => {
       const oldTable = await dbFile.getOrCreateTable(oldSchema, { db })
       if (newSchema.name === oldSchema.name) {
         // rename the old table so the new table can use its name

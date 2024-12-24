@@ -8,7 +8,7 @@ import { handleLimit } from "./limit.ts"
 import { isColumnRefItem, Select } from "./parser.ts"
 import { handleWhere } from "./where.ts"
 
-export async function parseSelect(ast: Select, { dbFile }: PaulDB) {
+export async function parseSelect(ast: Select, db: PaulDB) {
   if (ast.groupby != null) {
     throw new NotImplementedError(`GROUP BY clause not supported yet`)
   }
@@ -42,13 +42,11 @@ export async function parseSelect(ast: Select, { dbFile }: PaulDB) {
       `Only table names are supported in FROM lists`,
     )
   }
-  const tableScan = new plan.TableScan(
-    astFrom.db ? astFrom.db : "default",
-    astFrom.table,
-  )
+  const dbName = astFrom.db ? astFrom.db : "default"
+  const tableScan = new plan.TableScan(dbName, astFrom.table)
   let rootPlan: plan.IQueryPlanNode = tableScan
   const schemas: Record<string, schema.SomeTableSchema> = {}
-  schemas[astFrom.table] = await tableScan.getSchema(dbFile)
+  schemas[astFrom.table] = await db.getSchema(dbName, astFrom.table)
   if (ast.from.length > 1) {
     // we're doing joins!
     for (let i = 1; i < ast.from.length; i++) {
@@ -64,11 +62,9 @@ export async function parseSelect(ast: Select, { dbFile }: PaulDB) {
             `JOIN without ON clause not supported`,
           )
         }
-        const joinTableScan = new plan.TableScan(
-          joinAst.db ? joinAst.db : "default",
-          joinAst.table,
-        )
-        schemas[joinAst.table] = await joinTableScan.getSchema(dbFile)
+        const dbName = joinAst.db ? joinAst.db : "default"
+        const joinTableScan = new plan.TableScan(dbName, joinAst.table)
+        schemas[joinAst.table] = await db.getSchema(dbName, joinAst.table)
         rootPlan = new plan.Join(
           rootPlan,
           joinTableScan,

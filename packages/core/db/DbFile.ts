@@ -33,7 +33,19 @@ const headerStruct = Struct.record({
   headerPageId: [1, Struct.bigUint64],
 })
 
-export class DbFile {
+export interface IDbFile {
+  getOrCreateTable<SchemaT extends SomeTableSchema>(
+    schema: SchemaT,
+    options?: { db?: string },
+  ): Promise<HeapFileTableInfer<SchemaT>>
+  renameTable(
+    oldTableName: string,
+    newTableName: string,
+    options?: { db?: string },
+  ): Promise<void>
+}
+
+export class DbFile implements IDbFile {
   private constructor(
     readonly bufferPool: IBufferPool,
     readonly dbPageIdsTable: HeapFileTableInfer<typeof schemas.dbPageIds>,
@@ -372,7 +384,7 @@ export class DbFile {
 type Migration = {
   db: string
   name: string
-  migrate: (db: DbFile) => Promise<void>
+  migrate: (db: IDbFile) => Promise<void>
 }
 
 /**

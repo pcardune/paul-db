@@ -1,13 +1,13 @@
 import { exists } from "@std/fs/exists"
-import { DbFile, DBModel } from "./db/DbFile.ts"
+import { DbFile, DBModel, IDbFile } from "./db/DbFile.ts"
 import type { RowData } from "./query/QueryPlanNode.ts"
 import * as path from "@std/path"
 import { IPlanBuilder, QueryBuilder } from "./query/QueryBuilder.ts"
 import { AsyncIterableWrapper } from "./async.ts"
 import { DBSchema } from "./schema/DBSchema.ts"
 import type { Simplify } from "type-fest"
-
-export { DbFile }
+import { TableNotFoundError } from "./errors.ts"
+import { SomeTableSchema } from "./schema/TableSchema.ts"
 
 /**
  * Remove all symbol keys from an object. These show up when
@@ -25,7 +25,11 @@ type Clean<T> = Simplify<
  * @class PaulDB
  */
 export class PaulDB {
-  private constructor(readonly dbFile: DbFile) {
+  get dbFile(): IDbFile {
+    return this._dbFile
+  }
+
+  private constructor(private _dbFile: DbFile) {
   }
 
   /**
@@ -90,7 +94,18 @@ export class PaulDB {
    * Close the database. This is only necessary for file system databases.
    */
   shutdown() {
-    this.dbFile.close()
+    this._dbFile.close()
+  }
+
+  /**
+   * Get the schema for a table
+   */
+  async getSchema(db: string, table: string): Promise<SomeTableSchema> {
+    const schemas = await this._dbFile.getSchemas(db, table)
+    if (schemas == null || schemas.length === 0) {
+      throw new TableNotFoundError(`Table ${db}.${table} not found`)
+    }
+    return schemas[0].schema
   }
 
   /**
@@ -126,7 +141,7 @@ export class PaulDB {
       ) => AsyncIterableWrapper<Clean<T extends { "$0": infer U } ? U : T>>
     }
   > {
-    const model = await this.dbFile.getDBModel(dbSchema)
+    const model = await this._dbFile.getDBModel(dbSchema)
 
     const result = {
       ...model,

@@ -232,7 +232,7 @@ Deno.test("QueryPlanNode JOINS", async () => {
 
 Deno.test("QueryPlanNode GroupBy", async () => {
   const db = await PaulDB.inMemory()
-  const model = await db.dbFile.getDBModel(
+  const model = await db.getModelForSchema(
     s.db().withTables(
       s.table("products").with(
         s.column("id", "serial"),
