@@ -19,6 +19,12 @@ export const dbPageIds = TableSchema.create("__dbPageIds")
     column("pageId", ColumnTypes.uint64()).finalize(),
   )
 
+export const dbDbs = TableSchema.create("__dbDbs")
+  .with(
+    column("name", ColumnTypes.string()).unique({ inMemory: true }),
+    column("version", ColumnTypes.uint32()),
+  )
+
 export const dbTables = TableSchema.create("__dbTables")
   .with(
     ulidIdColumn,
@@ -90,13 +96,6 @@ export const dbTableColumns = TableSchema.create("__dbTableColumns")
     ],
     (input) => `${input.schemaId}.${input.name}`,
     { inMemory: true },
-  )
-
-export const dbMigrations = TableSchema.create("__dbMigrations")
-  .with(
-    column("name", ColumnTypes.string()).unique(),
-    column("db", ColumnTypes.string()),
-    column("completedAt", ColumnTypes.timestamp()),
   )
 
 export type TableRecord = StoredRecordForTableSchema<typeof dbTables>

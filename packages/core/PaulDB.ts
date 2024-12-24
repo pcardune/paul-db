@@ -8,6 +8,7 @@ import { DBSchema } from "./schema/DBSchema.ts"
 import type { Simplify } from "type-fest"
 import { TableNotFoundError } from "./errors.ts"
 import { SomeTableSchema } from "./schema/TableSchema.ts"
+import { MigrationHelper } from "./db/MigrationHelper.ts"
 
 /**
  * Remove all symbol keys from an object. These show up when
@@ -130,10 +131,13 @@ export class PaulDB {
    */
   async getModelForSchema<DBSchemaT extends DBSchema>(
     dbSchema: DBSchemaT,
+    version: number = 1,
+    onUpgradeNeeded?: (
+      helper: MigrationHelper<DBSchemaT>,
+    ) => Promise<void>,
   ): Promise<
     & DBModel<DBSchemaT>
     & {
-      $schema: DBSchemaT
       $query: <T extends RowData>(
         plan:
           | IPlanBuilder<T>
@@ -141,11 +145,14 @@ export class PaulDB {
       ) => AsyncIterableWrapper<Clean<T extends { "$0": infer U } ? U : T>>
     }
   > {
-    const model = await this._dbFile.getDBModel(dbSchema)
+    const model = await this._dbFile.getDBModel(
+      dbSchema,
+      version,
+      onUpgradeNeeded,
+    )
 
     const result = {
       ...model,
-      $schema: dbSchema,
       $query: <T extends RowData>(
         plan:
           | IPlanBuilder<T>

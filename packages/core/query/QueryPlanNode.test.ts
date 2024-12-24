@@ -508,7 +508,7 @@ Deno.test("QueryBuilder .aggregate()", async (test) => {
   })
 
   await test.step(".arrayAgg().filterNonNull()", async () => {
-    const dbSchema = s.db().withTables(
+    const dbSchema = s.db("productsdb").withTables(
       s.table("products").with(
         s.column("category", s.type.string()),
         s.column("tagline", s.type.string().nullable()),
