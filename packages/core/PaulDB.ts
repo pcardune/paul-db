@@ -2,7 +2,7 @@ import { exists } from "@std/fs/exists"
 import { DbFile, DBModel } from "./db/DbFile.ts"
 import type { RowData } from "./query/QueryPlanNode.ts"
 import * as path from "@std/path"
-import { IPlanBuilder } from "./query/QueryBuilder.ts"
+import { IPlanBuilder, QueryBuilder } from "./query/QueryBuilder.ts"
 import { AsyncIterableWrapper } from "./async.ts"
 import { DBSchema } from "./schema/DBSchema.ts"
 import type { Simplify } from "type-fest"
@@ -97,6 +97,7 @@ export class PaulDB {
    * Query the database
    * @param plan The query to use
    * @returns the query results
+   * @deprecated use getModelForSchema().$query instead
    */
   query<T extends RowData>(
     plan: IPlanBuilder<T>,
@@ -112,9 +113,37 @@ export class PaulDB {
    * @param dbSchema the schema to use
    * @returns a DBModel objects
    */
-  getModelForSchema<DBSchemaT extends DBSchema>(
+  async getModelForSchema<DBSchemaT extends DBSchema>(
     dbSchema: DBSchemaT,
-  ): Promise<DBModel<DBSchemaT>> {
-    return this.dbFile.getDBModel(dbSchema)
+  ): Promise<
+    & DBModel<DBSchemaT>
+    & {
+      $schema: DBSchemaT
+      $query: <T extends RowData>(
+        plan:
+          | IPlanBuilder<T>
+          | ((schema: QueryBuilder<DBSchemaT>) => IPlanBuilder<T>),
+      ) => AsyncIterableWrapper<Clean<T extends { "$0": infer U } ? U : T>>
+    }
+  > {
+    const model = await this.dbFile.getDBModel(dbSchema)
+
+    const result = {
+      ...model,
+      $schema: dbSchema,
+      $query: <T extends RowData>(
+        plan:
+          | IPlanBuilder<T>
+          | ((schema: QueryBuilder<DBSchemaT>) => IPlanBuilder<T>),
+      ): AsyncIterableWrapper<Clean<T extends { "$0": infer U } ? U : T>> => {
+        if (typeof plan === "function") {
+          plan = plan(dbSchema.query())
+        }
+        return plan.plan().execute(this).map((rowData) =>
+          "$0" in rowData ? rowData.$0 : rowData
+        ) as AsyncIterableWrapper<T extends { "$0": infer U } ? U : T>
+      },
+    }
+    return result
   }
 }
