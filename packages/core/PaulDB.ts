@@ -46,6 +46,15 @@ export class PaulDB {
   }
 
   /**
+   * Constructor for a local storage database.
+   * @param prefix all local storage keys will be given this prefix. defaults to "pauldb"
+   * @returns A new local storage database instance.
+   */
+  static async indexedDB(name: string = "pauldb"): Promise<PaulDB> {
+    return new PaulDB(await DbFile.open({ type: "indexeddb", name }))
+  }
+
+  /**
    * Constructor for a file system database.
    * @param dirName directory to store the database files
    * @param options options for opening the database

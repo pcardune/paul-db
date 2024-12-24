@@ -25,6 +25,8 @@ import { getTableConfig, TableManager } from "./TableManager.ts"
 import { DBSchema, IDBSchema } from "../schema/DBSchema.ts"
 import type { Simplify } from "type-fest"
 import { Json } from "../types.ts"
+import { IndexedDBBackedBufferPool } from "../pages/IndexedDBBackedBufferPool.ts"
+import { IndexedDBWrapper } from "../pages/IndexedDbWrapper.ts"
 
 const headerStruct = Struct.record({
   pageSize: [0, Struct.uint32],
@@ -151,6 +153,26 @@ export class DbFile {
         storageLayer = {
           bufferPool,
           headerPageId: BigInt(header),
+          needsCreation: false,
+        }
+      }
+    } else if (config.type === "indexeddb") {
+      const prefix = config.name
+      const wrapper = await IndexedDBWrapper.open(prefix, config.indexedDB)
+      const bufferPool = await IndexedDBBackedBufferPool.create(wrapper)
+      const header = await wrapper.getKeyVal<bigint>("header")
+      if (header == null) {
+        const headerPageId = bufferPool.allocatePage()
+        await wrapper.setKeyVal("header", headerPageId)
+        storageLayer = {
+          bufferPool,
+          headerPageId,
+          needsCreation: true,
+        }
+      } else {
+        storageLayer = {
+          bufferPool,
+          headerPageId: header,
           needsCreation: false,
         }
       }
@@ -374,6 +396,10 @@ export type StorageConfig = {
 } | {
   type: "localstorage"
   prefix?: string
+} | {
+  type: "indexeddb"
+  name: string
+  indexedDB?: IDBFactory
 }
 
 async function openFile(

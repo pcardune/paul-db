@@ -40,12 +40,13 @@ bunx jsr add @paul-db/core
 ## Feature Overview
 
 A database "connection" can be established with a variety of storage backends
-including in-memory, local storage, and file storage.
+including in-memory, local storage, indexedDB, and file storage.
 
 ```typescript
 import { PaulDB } from "@paul-db/core"
 const db = await PaulDB.inMemory()
 // const db = await PaulDB.localStorage();
+// const db = await PaulDB.indexedDB();
 // const db = await PaulDB.open("/tmp/db", { create: true });
 ```
 

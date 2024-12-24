@@ -326,3 +326,44 @@ Deno.test("local storage buffer pool", async () => {
     ])
   }
 })
+
+import { indexedDB } from "npm:fake-indexeddb"
+
+Deno.test("IndexedDB buffer pool", async () => {
+  const dbName = "test" + Math.random()
+  const req = indexedDB.deleteDatabase(dbName)
+  await new Promise((resolve, reject) => {
+    req.onsuccess = resolve
+    req.onerror = reject
+  })
+  const dbSchema = s.db().withTables(
+    s.table("users").with(
+      s.column("id", s.type.uint32()).unique(),
+      s.column("name", s.type.string()),
+    ),
+  )
+  using db = await DbFile.open({
+    type: "indexeddb",
+    name: dbName,
+    indexedDB,
+  })
+  {
+    const model = await db.getDBModel(dbSchema)
+    await model.users.insert({ id: 1, name: "Alice" })
+    expect(await model.users.iterate().toArray()).toEqual([
+      { id: 1, name: "Alice" },
+    ])
+  }
+
+  using db2 = await DbFile.open({ type: "indexeddb", name: dbName, indexedDB })
+  {
+    const model = await db2.getDBModel(dbSchema)
+    expect(await model.users.iterate().toArray()).toEqual([
+      { id: 1, name: "Alice" },
+    ])
+  }
+
+  // This seems to be necessary due to timers that are not cleared in
+  // the fake indexedDB implementation
+  await new Promise((resolve) => setTimeout(resolve, 10))
+})
