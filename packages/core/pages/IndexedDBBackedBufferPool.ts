@@ -1,7 +1,7 @@
 import type { Promisable } from "type-fest"
 import { IBufferPool, PageId, WriteablePage } from "./BufferPool.ts"
 import { ReadonlyDataView } from "../binary/dataview.ts"
-import { IndexedDBWrapper } from "./IndexedDbWrapper.ts"
+import { IndexedDBWrapper } from "./indexedDBHelpers.ts"
 
 export class IndexedDBBackedBufferPool implements IBufferPool {
   private __lastWrittenFreePageId: PageId = -1n

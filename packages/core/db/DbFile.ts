@@ -26,7 +26,7 @@ import { DBSchema, IDBSchema } from "../schema/DBSchema.ts"
 import type { Simplify } from "type-fest"
 import { Json } from "../types.ts"
 import { IndexedDBBackedBufferPool } from "../pages/IndexedDBBackedBufferPool.ts"
-import { IndexedDBWrapper } from "../pages/IndexedDbWrapper.ts"
+import { IndexedDBWrapper } from "../pages/indexedDBHelpers.ts"
 
 const headerStruct = Struct.record({
   pageSize: [0, Struct.uint32],
