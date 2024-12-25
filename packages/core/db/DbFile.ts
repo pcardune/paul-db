@@ -21,7 +21,7 @@ import { SYSTEM_DB } from "./metadataSchemas.ts"
 import * as schemas from "./metadataSchemas.ts"
 
 import { IndexManager } from "./IndexManager.ts"
-import { getTableConfig, TableManager } from "./TableManager.ts"
+import { getHeapFileTableConfig, TableManager } from "./TableManager.ts"
 import { DBSchema, IDBSchema } from "../schema/DBSchema.ts"
 import type { Simplify } from "type-fest"
 import { Json } from "../types.ts"
@@ -212,9 +212,8 @@ export class DbFile implements IDbFile {
     const { bufferPool, headerPageId, needsCreation } = storageLayer
 
     const dbPageIdsTable = new Table(
-      getTableConfig(
+      getHeapFileTableConfig(
         bufferPool,
-        SYSTEM_DB,
         schemas.dbPageIds,
         { heapPageId: headerPageId, id: "$dbPageIds" },
       ),
@@ -230,9 +229,8 @@ export class DbFile implements IDbFile {
       return pageId
     }
     const dbIndexesTable = new Table(
-      getTableConfig(
+      getHeapFileTableConfig(
         bufferPool,
-        SYSTEM_DB,
         schemas.dbIndexes,
         {
           heapPageId: await getOrCreatePageIdForPageType("indexesTable"),
@@ -241,9 +239,8 @@ export class DbFile implements IDbFile {
       ),
     )
     const dbDbsTable = new Table(
-      getTableConfig(
+      getHeapFileTableConfig(
         bufferPool,
-        SYSTEM_DB,
         schemas.dbDbs,
         {
           heapPageId: await getOrCreatePageIdForPageType("dbsTable"),
@@ -253,9 +250,8 @@ export class DbFile implements IDbFile {
     )
 
     const dbTablesTable = new Table(
-      getTableConfig(
+      getHeapFileTableConfig(
         bufferPool,
-        SYSTEM_DB,
         schemas.dbTables,
         {
           heapPageId: await getOrCreatePageIdForPageType("tablesTable"),
