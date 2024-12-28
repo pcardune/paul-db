@@ -5,10 +5,21 @@ import { DBSchema } from "../schema/DBSchema.ts"
 import { TableNotFoundError } from "../errors.ts"
 import type { DbFile, DBModel } from "./DbFile.ts"
 
+export interface IMigrationHelper<DBSchemaT extends DBSchema> {
+  readonly currentVersion: number
+  addMissingTables(): Promise<void>
+  addMissingColumn<TName extends keyof DBSchemaT["schemas"]>(
+    tableName: TName,
+    columnName: keyof DBSchemaT["schemas"][TName]["columnsByName"],
+  ): Promise<void>
+  addMissingColumns(): Promise<void>
+}
+
 /**
  * A helper class for running migrations on a database.
  */
-export class MigrationHelper<DBSchemaT extends DBSchema> {
+export class MigrationHelper<DBSchemaT extends DBSchema>
+  implements IMigrationHelper<DBSchemaT> {
   constructor(
     private dbFile: DbFile,
     readonly currentVersion: number,

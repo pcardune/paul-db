@@ -8,7 +8,7 @@ import { DBSchema } from "./schema/DBSchema.ts"
 import type { Simplify } from "type-fest"
 import { TableNotFoundError } from "./errors.ts"
 import { SomeTableSchema } from "./schema/TableSchema.ts"
-import { MigrationHelper } from "./db/MigrationHelper.ts"
+import { IMigrationHelper } from "./db/MigrationHelper.ts"
 
 /**
  * Remove all symbol keys from an object. These show up when
@@ -133,7 +133,7 @@ export class PaulDB {
     dbSchema: DBSchemaT,
     version: number = 1,
     onUpgradeNeeded?: (
-      helper: MigrationHelper<DBSchemaT>,
+      helper: IMigrationHelper<DBSchemaT>,
     ) => Promise<void>,
   ): Promise<
     & DBModel<DBSchemaT>

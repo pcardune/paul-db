@@ -28,7 +28,7 @@ import { Json } from "../types.ts"
 import { IndexedDBBackedBufferPool } from "../pages/IndexedDBBackedBufferPool.ts"
 import { IndexedDBWrapper } from "../pages/indexedDBHelpers.ts"
 import type { Promisable } from "type-fest"
-import { MigrationHelper } from "./MigrationHelper.ts"
+import { IMigrationHelper, MigrationHelper } from "./MigrationHelper.ts"
 
 const headerStruct = Struct.record({
   pageSize: [0, Struct.uint32],
@@ -301,7 +301,7 @@ export class DbFile implements IDbFile {
     dbSchema: DBSchemaT,
     version: number = 1,
     onUpgradeNeeded?: (
-      helper: MigrationHelper<DBSchemaT>,
+      helper: IMigrationHelper<DBSchemaT>,
     ) => Promisable<void>,
   ): Promise<DBModel<DBSchemaT>> {
     const dbRecord = await this.dbManager.getOrCreateDB(dbSchema.name)

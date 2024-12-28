@@ -340,7 +340,7 @@ Deno.test("local storage buffer pool", async () => {
   }
 })
 
-import { indexedDB } from "npm:fake-indexeddb"
+import indexedDB from "npm:fake-indexeddb"
 
 Deno.test("IndexedDB buffer pool", async () => {
   const dbName = "test" + Math.random()
