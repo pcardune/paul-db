@@ -1,8 +1,6 @@
 import type { Promisable, UnknownRecord } from "type-fest"
 import { AsyncIterableWrapper } from "../async.ts"
-import { SomeTableSchema } from "../schema/TableSchema.ts"
 import { Json } from "../types.ts"
-import { DbFile } from "../db/DbFile.ts"
 import type { MultiAggregation } from "./Aggregation.ts"
 import { PaulDB } from "../PaulDB.ts"
 import { Expr } from "./Expr.ts"
@@ -11,11 +9,6 @@ import { ColumnType } from "../schema/columns/ColumnType.ts"
 
 export * from "./Aggregation.ts"
 export * from "./Expr.ts"
-
-/**
- * An error that is thrown when a table is not found.
- */
-export class TableNotFoundError extends Error {}
 
 export { QueryBuilder } from "./QueryBuilder.ts"
 
@@ -127,20 +120,10 @@ export class TableScan<T extends RowData> extends AbstractQueryPlan<T> {
   /**
    * @ignore
    */
-  async getSchema(dbFile: DbFile): Promise<SomeTableSchema> {
-    const schemas = await dbFile.getSchemas(this.db, this.table)
-    if (schemas == null || schemas.length === 0) {
-      throw new TableNotFoundError(`Table ${this.db}.${this.table} not found`)
-    }
-    return schemas[0].schema
-  }
-  /**
-   * @ignore
-   */
   override async getIter(
     ctx: ExecutionContext,
   ): Promise<AsyncIterableWrapper<T>> {
-    const schema = await this.getSchema(ctx.db.dbFile)
+    const schema = await ctx.db.getSchema(this.db, this.table)
     const tableInstance = await ctx.db.dbFile.getOrCreateTable(schema, {
       db: this.db,
     })

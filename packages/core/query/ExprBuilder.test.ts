@@ -78,7 +78,7 @@ Deno.test("ExprBuilder .in()", async () => {
     ),
   )
   const db = await PaulDB.inMemory()
-  const model = await db.dbFile.getDBModel(dbSchema)
+  const model = await db.getModelForSchema(dbSchema)
   await model.cats.insertMany([
     { name: "fluffy" },
     { name: "mittens" },
@@ -105,7 +105,7 @@ Deno.test("ExprBuilder .in() with expressions", async () => {
     ),
   )
   const db = await PaulDB.inMemory()
-  const model = await db.dbFile.getDBModel(dbSchema)
+  const model = await db.getModelForSchema(dbSchema)
   await model.names.insertMany([
     { name: "Alice", nickname: "Ali" },
     { name: "Bob", nickname: "Bob" },
@@ -139,7 +139,7 @@ Deno.test("ExprBuilder .not()", async (test) => {
     ),
   )
   const db = await PaulDB.inMemory()
-  const model = await db.dbFile.getDBModel(dbSchema)
+  const model = await db.getModelForSchema(dbSchema)
   await model.cats.insertMany([
     { name: "fluffy" },
     { name: "mittens" },
@@ -188,7 +188,7 @@ Deno.test("ExprBuilder .literal()", async (test) => {
     ),
   )
   const db = await PaulDB.inMemory()
-  const model = await db.dbFile.getDBModel(dbSchema)
+  const model = await db.getModelForSchema(dbSchema)
   await model.cats.insertMany([{ name: "fluffy" }])
 
   await test.step("When column types are not passed", async () => {
@@ -270,7 +270,7 @@ Deno.test("ExprBuilder .overlaps()", async (test) => {
     ),
   )
   const db = await PaulDB.inMemory()
-  const model = await db.dbFile.getDBModel(dbSchema)
+  const model = await db.getModelForSchema(dbSchema)
   await model.posts.insertMany([
     { title: "Post 1", tags: ["tag1", "tag2"] },
     { title: "Post 2", tags: ["tag2", "tag3"] },
@@ -322,7 +322,7 @@ Deno.test("ExprBuilder .coalesce()", async (test) => {
     ),
   )
   const db = await PaulDB.inMemory()
-  const model = await db.dbFile.getDBModel(dbSchema)
+  const model = await db.getModelForSchema(dbSchema)
   await model.users.insertMany([
     { displayName: "Alice", username: "@alice415" },
     { displayName: null, username: "@alex712" },

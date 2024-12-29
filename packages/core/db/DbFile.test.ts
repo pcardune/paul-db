@@ -7,7 +7,6 @@ import {
   generateTestFilePath,
   TypeEquals,
 } from "../testing.ts"
-import { tableSchemaMigration } from "./migrations.ts"
 import { HeapFileTableInfer } from "../tables/TableStorage.ts"
 import { AsyncIterableWrapper } from "../async.ts"
 import { Json } from "../types.ts"
@@ -49,6 +48,10 @@ Deno.test("DbFile initialization", async (t) => {
         },
         {
           pageId: 12308n,
+          pageType: "dbsTable",
+        },
+        {
+          pageId: 16404n,
           pageType: "tablesTable",
         },
       ],
@@ -61,12 +64,12 @@ Deno.test("DbFile initialization", async (t) => {
       },
       {
         db: "system",
-        heapPageId: 20500n,
+        heapPageId: 24596n,
         name: "__dbSchemas",
       },
       {
         db: "system",
-        heapPageId: 24596n,
+        heapPageId: 28692n,
         name: "__dbTableColumns",
       },
     ])
@@ -133,6 +136,7 @@ Deno.test("DbFile.createTable() and schema changes", async (t) => {
   const usersSchema = s.table("users")
     .with(s.column("id", s.type.uint32()).unique())
     .with(s.column("name", s.type.string()))
+  const dbSchema = s.db().withTables(usersSchema)
 
   async function init() {
     const db = await DbFile.open({
@@ -141,15 +145,34 @@ Deno.test("DbFile.createTable() and schema changes", async (t) => {
       create: true,
       truncate: true,
     })
-
-    const users = await db.getOrCreateTable(usersSchema)
-    await users.insert({ id: 1, name: "Mr. Blue" })
+    const model = await db.getDBModel(dbSchema)
+    await model.users.insert({ id: 1, name: "Mr. Blue" })
     return {
       db,
-      users,
+      users: model.users,
+      model,
       [Symbol.dispose]: db[Symbol.dispose].bind(db),
     }
   }
+
+  await t.step("Adding a table", async () => {
+    using t = await init()
+    const schema2 = t.model.$schema.withTables(
+      s.table("todos").with(
+        s.column("id", s.type.uint32()).unique(),
+        s.column("text", s.type.string()),
+      ),
+    )
+    await expect(t.db.getDBModel(schema2)).rejects.toThrow(
+      "Table default.todos not found in db. Did you forget to run a migration?",
+    )
+
+    const model = await t.db.getDBModel(schema2, 2, async (helper) => {
+      expect(helper.currentVersion).toBe(1)
+      await helper.addMissingTables()
+    })
+    await model.todos.insert({ id: 1, text: "Buy milk" })
+  })
 
   await t.step("Adding a column", async () => {
     using t = await init()
@@ -158,35 +181,25 @@ Deno.test("DbFile.createTable() and schema changes", async (t) => {
       name: "Mr. Blue",
     })
 
-    expect(
-      await t.db.tableManager.tablesTable.scanIter("db", "default").map((t) =>
-        t.name
-      ).toArray(),
-    ).toEqual(["users"])
-
-    const { newSchema } = await t.db.migrate(tableSchemaMigration(
-      "add-age-column",
-      t.users.schema,
-      (oldSchema) => oldSchema.with(s.column("age", s.type.uint16())),
-      (row) => ({ ...row, age: 42 }),
-    ))
-
-    const newTable = await t.db.getOrCreateTable(newSchema)
-    expect(await newTable.lookupUniqueOrThrow("id", 1)).toEqual({
-      id: 1,
-      name: "Mr. Blue",
-      age: 42,
-    })
-
-    expect(t.users.lookupUnique("id", 1)).rejects.toThrow(
-      "Table has been dropped",
+    const schema2 = s.db().withTables(
+      t.model.$schema.schemas.users.with(
+        s.column("age", s.type.uint16()).defaultTo(() => 0),
+      ),
+    )
+    await expect(t.db.getDBModel(schema2)).rejects.toThrow(
+      "Column default.users.age not found in db. Did you forget to run a migration?",
     )
 
-    expect(
-      await t.db.tableManager.tablesTable.scanIter("db", "default").map((t) =>
-        t.name
-      ).toArray(),
-    ).toEqual(["users"])
+    const model = await t.db.getDBModel(schema2, 2, async (helper) => {
+      expect(helper.currentVersion).toBe(1)
+      await helper.addMissingColumn("users", "age")
+    })
+
+    expect(await model.users.lookupUniqueOrThrow("id", 1)).toEqual({
+      id: 1,
+      name: "Mr. Blue",
+      age: 0,
+    })
   })
 })
 
@@ -309,7 +322,7 @@ Deno.test("local storage buffer pool", async () => {
     ])
 
     expect(localStorage.getItem("test-header")).toEqual("1")
-    expect(localStorage.getItem("test-root")).toEqual("16")
+    expect(localStorage.getItem("test-root")).toEqual("18")
   }
 
   {
@@ -325,4 +338,45 @@ Deno.test("local storage buffer pool", async () => {
       { id: 1, name: "Alice" },
     ])
   }
+})
+
+import indexedDB from "npm:fake-indexeddb"
+
+Deno.test("IndexedDB buffer pool", async () => {
+  const dbName = "test" + Math.random()
+  const req = indexedDB.deleteDatabase(dbName)
+  await new Promise((resolve, reject) => {
+    req.onsuccess = resolve
+    req.onerror = reject
+  })
+  const dbSchema = s.db().withTables(
+    s.table("users").with(
+      s.column("id", s.type.uint32()).unique(),
+      s.column("name", s.type.string()),
+    ),
+  )
+  using db = await DbFile.open({
+    type: "indexeddb",
+    name: dbName,
+    indexedDB,
+  })
+  {
+    const model = await db.getDBModel(dbSchema)
+    await model.users.insert({ id: 1, name: "Alice" })
+    expect(await model.users.iterate().toArray()).toEqual([
+      { id: 1, name: "Alice" },
+    ])
+  }
+
+  using db2 = await DbFile.open({ type: "indexeddb", name: dbName, indexedDB })
+  {
+    const model = await db2.getDBModel(dbSchema)
+    expect(await model.users.iterate().toArray()).toEqual([
+      { id: 1, name: "Alice" },
+    ])
+  }
+
+  // This seems to be necessary due to timers that are not cleared in
+  // the fake indexedDB implementation
+  await new Promise((resolve) => setTimeout(resolve, 10))
 })

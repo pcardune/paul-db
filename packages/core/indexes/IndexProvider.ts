@@ -72,7 +72,6 @@ export class HeapFileBackedIndexProvider<
   implements IndexProvider<HeapFileRowId> {
   constructor(
     private bufferPool: IBufferPool,
-    private db: string,
     private schema: SchemaT,
     private tableId: string,
     private tableData: HeapFileTableStorage<

@@ -9,7 +9,7 @@ const debugLog = debugLogger(false)
 
 export type PageId = bigint
 
-class WriteablePage extends WriteableDataView {}
+export class WriteablePage extends WriteableDataView {}
 
 export interface IBufferPool {
   get pageSize(): number
@@ -103,7 +103,7 @@ export class LocalStorageBackedBufferPool implements IBufferPool {
     private prefix: string = "bufferpool",
     readonly pageSize: number = 4096,
   ) {
-    if (!localStorage) {
+    if (!globalThis.localStorage) {
       throw new Error("LocalStorage not available")
     }
     const root = localStorage.getItem(`${prefix}-root`)

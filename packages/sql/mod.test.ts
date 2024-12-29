@@ -1,7 +1,6 @@
 import { PaulDB } from "@paul-db/core"
 import { SQLExecutor } from "./mod.ts"
 import { expect } from "jsr:@std/expect"
-import { pick } from "jsr:@std/collections"
 
 async function getExecutor() {
   const db = await PaulDB.inMemory()
@@ -12,32 +11,36 @@ async function getExecutor() {
 Deno.test("CREATE TABLE", async (t) => {
   await t.step("CREATE TABLE test", async () => {
     using e = await getExecutor()
-    await e.sql.execute("CREATE TABLE test")
-    const tables = await e.db.dbFile.tableManager.tablesTable.scan(
-      "name",
-      "test",
+
+    await expect(e.sql.execute("SELECT * FROM test")).rejects.toThrow(
+      "Table default.test not found",
     )
-    expect(tables).toHaveLength(1)
-    expect(tables[0].db).toEqual("default")
+
+    await expect(e.db.getSchema("default", "test")).rejects.toThrow(
+      "Table default.test not found",
+    )
+
+    await e.sql.execute("CREATE TABLE test")
+    expect(await e.sql.execute("SELECT * FROM test")).toEqual([])
+    const schema = await e.db.getSchema("default", "test")
+    expect(schema.name).toEqual("test")
+    expect(schema.columns).toEqual([])
   })
 
   await t.step(
     "CREATE TABLE points (x float, y float, color TEXT)",
     async () => {
       using e = await getExecutor()
+      await expect(e.sql.execute("SELECT * FROM points")).rejects.toThrow(
+        "Table default.points not found",
+      )
       await e.sql.execute("CREATE TABLE points (x float, y float, color TEXT)")
-      const tables = await e.db.dbFile.tableManager.tablesTable.scan(
-        "name",
-        "points",
-      )
-      expect(tables).toHaveLength(1)
-      expect(tables[0].db).toEqual("default")
 
-      const schemas = await e.db.dbFile.getSchemasOrThrow("default", "points")
-      expect(schemas.length).toEqual(1)
-      const colRecs = schemas[0].columnRecords.map((c) =>
-        pick(c, ["name", "type"])
-      )
+      const schema = await e.db.getSchema("default", "points")
+      const colRecs = schema.columns.map((c) => ({
+        name: c.name,
+        type: c.type.name,
+      }))
       expect(colRecs).toContainEqual({ name: "x", type: "float" })
       expect(colRecs).toContainEqual({ name: "y", type: "float" })
     },
@@ -47,8 +50,9 @@ Deno.test("CREATE TABLE", async (t) => {
 async function getPointsTable() {
   const e = await getExecutor()
   await e.sql.execute("CREATE TABLE points (x float, y float, color TEXT)")
-  const schemas = await e.db.dbFile.getSchemasOrThrow("default", "points")
-  const table = await e.db.dbFile.getOrCreateTable(schemas[0].schema)
+  const table = await e.db.dbFile.getOrCreateTable(
+    await e.db.getSchema("default", "points"),
+  )
   return { ...e, table }
 }
 

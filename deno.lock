@@ -9,6 +9,7 @@
     "jsr:@std/assert@1": "1.0.9",
     "jsr:@std/assert@^1.0.9": "1.0.9",
     "jsr:@std/assert@~1.0.6": "1.0.9",
+    "jsr:@std/async@^1.0.9": "1.0.9",
     "jsr:@std/bytes@^1.0.2": "1.0.4",
     "jsr:@std/bytes@^1.0.4": "1.0.4",
     "jsr:@std/collections@*": "1.0.9",
@@ -31,6 +32,7 @@
     "jsr:@std/ulid@1": "1.0.0",
     "jsr:@std/uuid@^1.0.4": "1.0.4",
     "npm:@commander-js/extra-typings@12.1.0": "12.1.0_commander@12.1.0",
+    "npm:fake-indexeddb@*": "6.0.0",
     "npm:node-sql-parser@^5.3.5": "5.3.5",
     "npm:type-fest@*": "4.30.0",
     "npm:type-fest@^4.30.1": "4.30.1"
@@ -66,6 +68,9 @@
       "dependencies": [
         "jsr:@std/internal"
       ]
+    },
+    "@std/async@1.0.9": {
+      "integrity": "c6472fd0623b3f3daae023cdf7ca5535e1b721dfbf376562c0c12b3fb4867f91"
     },
     "@std/bytes@1.0.4": {
       "integrity": "11a0debe522707c95c7b7ef89b478c13fb1583a7cfb9a85674cd2cc2e3a28abc"
@@ -111,6 +116,7 @@
       "integrity": "9192ded2d34065f4c959fdc1921fe836770abb9194410c2cc8a0fff4eff5c893",
       "dependencies": [
         "jsr:@std/assert@^1.0.9",
+        "jsr:@std/async",
         "jsr:@std/data-structures",
         "jsr:@std/fs@^1.0.6",
         "jsr:@std/internal",
@@ -147,6 +153,9 @@
     "commander@12.1.0": {
       "integrity": "sha512-Vw8qHK3bZM9y/P10u3Vib8o/DdkvA2OtPtZvD871QKjy74Wj1WSKFILMPRPSdUSx5RFK1arlJzEtA4PkFgnbuA=="
     },
+    "fake-indexeddb@6.0.0": {
+      "integrity": "sha512-YEboHE5VfopUclOck7LncgIqskAqnv4q0EWbYCaxKKjAvO93c+TJIaBuGy8CBFdbg9nKdpN3AuPRwVBJ4k7NrQ=="
+    },
     "node-sql-parser@5.3.5": {
       "integrity": "sha512-DOR2PAe3gY5/fXmSvpTOpyv8+HkQ5jA9KShAEy7fVLaV8kVbeg8aa7qo0MdfqCDskwqjcakp0lS/Rnmg+iY/XQ==",
       "dependencies": [
@@ -162,6 +171,39 @@
     }
   },
   "remote": {
+    "https://cdn.skypack.dev/-/indexeddbshim@v9.0.0-QVaW8rBIOGlJegwkWTsK/dist=es2020,mode=imports/unoptimized/dist/indexeddbshim-noninvasive.js": "036e9191db93ef296b84a8a59192d4851f231e3b76a638543491cf81fe08b666",
+    "https://cdn.skypack.dev/-/regenerator-runtime@v0.13.9-4Dxus9nU31cBsHxnWq2H/dist=es2020,mode=imports/optimized/regenerator-runtime.js": "9d5c28ca64c45a9e606d5f3b35aec61568ed451495968171c8cc3ef1923cb7fe",
+    "https://cdn.skypack.dev/pin/indexeddbshim@v9.0.0-QVaW8rBIOGlJegwkWTsK/mode=imports/unoptimized/dist/indexeddbshim-noninvasive.js": "978a698ccf50ce19735b1da6cad00277cc8fc790610df183c61c2f9cc1df9c9b",
+    "https://cdn.skypack.dev/pin/regenerator-runtime@v0.13.9-4Dxus9nU31cBsHxnWq2H/mode=imports/optimized/regenerator-runtime.js": "091dd6c5266025b80081cdd5bbadd9f6e03cad950c8a16c7454b58d77b422253",
+    "https://deno.land/std@0.136.0/_util/assert.ts": "e94f2eb37cebd7f199952e242c77654e43333c1ac4c5c700e929ea3aa5489f74",
+    "https://deno.land/std@0.136.0/_util/os.ts": "49b92edea1e82ba295ec946de8ffd956ed123e2948d9bd1d3e901b04e4307617",
+    "https://deno.land/std@0.136.0/path/_constants.ts": "df1db3ffa6dd6d1252cc9617e5d72165cd2483df90e93833e13580687b6083c3",
+    "https://deno.land/std@0.136.0/path/_interface.ts": "ee3b431a336b80cf445441109d089b70d87d5e248f4f90ff906820889ecf8d09",
+    "https://deno.land/std@0.136.0/path/_util.ts": "c1e9686d0164e29f7d880b2158971d805b6e0efc3110d0b3e24e4b8af2190d2b",
+    "https://deno.land/std@0.136.0/path/common.ts": "bee563630abd2d97f99d83c96c2fa0cca7cee103e8cb4e7699ec4d5db7bd2633",
+    "https://deno.land/std@0.136.0/path/glob.ts": "cb5255638de1048973c3e69e420c77dc04f75755524cb3b2e160fe9277d939ee",
+    "https://deno.land/std@0.136.0/path/mod.ts": "4275129bb766f0e475ecc5246aa35689eeade419d72a48355203f31802640be7",
+    "https://deno.land/std@0.136.0/path/posix.ts": "293cdaec3ecccec0a9cc2b534302dfe308adb6f10861fa183275d6695faace44",
+    "https://deno.land/std@0.136.0/path/separator.ts": "fe1816cb765a8068afb3e8f13ad272351c85cbc739af56dacfc7d93d710fe0f9",
+    "https://deno.land/std@0.136.0/path/win32.ts": "31811536855e19ba37a999cd8d1b62078235548d67902ece4aa6b814596dd757",
+    "https://deno.land/x/indexeddb@1.3.5/lib/indexeddb.ts": "6d8eeec0c4074ed2e3ed5ae3c99e3b66703f772c791279d052680fe3b334de2d",
+    "https://deno.land/x/indexeddb@1.3.5/lib/shim.ts": "8b98a9395134220ac9dfe7314c3e27f37feffec0cab37dbf557f06f118b6eaad",
+    "https://deno.land/x/indexeddb@1.3.5/ponyfill_memory.ts": "542c353eb1b938113b1c2111fdfe0e66857230372634f0767df7f4a938f67006",
+    "https://deno.land/x/sqlite@v3.3.0/build/sqlite.js": "0b74712a5db206aa399f9833c40fd08eb24dfaff5dee77749e4bcadb333ec676",
+    "https://deno.land/x/sqlite@v3.3.0/build/vfs.js": "baff72655c0916c906327fe6703c6a47daa1346e55c2eaa2629bcd879a673c8d",
+    "https://deno.land/x/sqlite@v3.3.0/mod.ts": "eb55ff3e103826ee735fa1a8ec2db6e96c8fec826faf198239c66a0fe635c4b6",
+    "https://deno.land/x/sqlite@v3.3.0/src/constants.ts": "b967237b460fafa03ca03aeddb33953bed41c7cbdc309a934e2329a5c84079ac",
+    "https://deno.land/x/sqlite@v3.3.0/src/db.ts": "59b9c4fbe733da0e512dcd6b1f1f6a5ac8b165b565505670e9b81a73803dd36a",
+    "https://deno.land/x/sqlite@v3.3.0/src/error.ts": "abf9df169951faf8c21a68d99ef9efd257c788c19784f27dd147507fbdfe5fe7",
+    "https://deno.land/x/sqlite@v3.3.0/src/query.ts": "df4d3d6b23d52b36243dd47c07ed6ed7cd23f7834a0f6a2f2c6dbffba63d4c28",
+    "https://deno.land/x/sqlite@v3.3.0/src/wasm.ts": "e79d0baa6e42423257fb3c7cc98091c54399254867e0f34a09b5bdef37bd9487",
+    "https://deno.land/x/websql@1.3.2/deps.ts": "2bda07c0ee0eae5f23b5dde415c983c59fb945256f5a9026402eb9118945c025",
+    "https://deno.land/x/websql@1.3.2/mod.ts": "e7a44b9f376761e5592facd30ed27acae47633275a32eed57cd64f16a461222f",
+    "https://deno.land/x/websql@1.3.2/src/Database.ts": "ed5f8ae33165d2dd9c3ea1be0b427377628f9437bfe49bfabc32efb3908dc1d5",
+    "https://deno.land/x/websql@1.3.2/src/SQLResultSet.ts": "fcd83582439c0032794fa26bbbe9e47790467fa5ef1cba1c8a9fddb334f23bf1",
+    "https://deno.land/x/websql@1.3.2/src/SQLResultSetRowList.ts": "d13bda459cc73bc7e4d596a0411f1e4647d1204a8fddfd42a51720a20d4bf562",
+    "https://deno.land/x/websql@1.3.2/src/SQLTransaction.ts": "bda17665d54793976957af94a300834e5f07ee546d67e919f14da2a7f77fc797",
+    "https://deno.land/x/websql@1.3.2/src/SQLiteDBCache.ts": "0c5a67598e39e54c317b40fff3ffc9945e5a9ed0b0c91b5d8a2b379d59c4f4a4",
     "https://esm.sh/*@preact/signals-core@1.5.1": "382e1e909d94792c655d35c72854d3a06167442bd2e81190e3a682194163d8c8",
     "https://esm.sh/*@preact/signals@1.2.2": "8b174b406f1c00fdf3930fbb4ddc556162e6fd0dfe84a5ec300e9ac1776cbf42",
     "https://esm.sh/preact@10.22.0": "55397119dec12d6ee0c5a3160753851a7ce136f14767bbb1ec0fa511cf82ad16",

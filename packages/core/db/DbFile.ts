@@ -21,20 +21,51 @@ import { SYSTEM_DB } from "./metadataSchemas.ts"
 import * as schemas from "./metadataSchemas.ts"
 
 import { IndexManager } from "./IndexManager.ts"
-import { getTableConfig, TableManager } from "./TableManager.ts"
+import { getHeapFileTableConfig, TableManager } from "./TableManager.ts"
 import { DBSchema, IDBSchema } from "../schema/DBSchema.ts"
 import type { Simplify } from "type-fest"
 import { Json } from "../types.ts"
+import { IndexedDBBackedBufferPool } from "../pages/IndexedDBBackedBufferPool.ts"
+import { IndexedDBWrapper } from "../pages/indexedDBHelpers.ts"
+import type { Promisable } from "type-fest"
+import { IMigrationHelper, MigrationHelper } from "./MigrationHelper.ts"
 
 const headerStruct = Struct.record({
   pageSize: [0, Struct.uint32],
   headerPageId: [1, Struct.bigUint64],
 })
 
-export class DbFile {
+export interface IDbFile {
+  getOrCreateTable<SchemaT extends SomeTableSchema>(
+    schema: SchemaT,
+    options?: { db?: string },
+  ): Promise<HeapFileTableInfer<SchemaT>>
+  renameTable(
+    oldTableName: string,
+    newTableName: string,
+    options?: { db?: string },
+  ): Promise<void>
+}
+
+class DBManager {
+  constructor(readonly dbsTable: HeapFileTableInfer<typeof schemas.dbDbs>) {}
+  async getOrCreateDB(name: string) {
+    const existing = await this.dbsTable.lookupUnique("name", name)
+    if (existing == null) {
+      return await this.dbsTable.insertAndReturn({ name, version: 0 })
+    }
+    return existing
+  }
+  async setDBVersion(name: string, version: number) {
+    await this.dbsTable.updateWhere("name", name, { version })
+  }
+}
+
+export class DbFile implements IDbFile {
   private constructor(
     readonly bufferPool: IBufferPool,
     readonly dbPageIdsTable: HeapFileTableInfer<typeof schemas.dbPageIds>,
+    readonly dbManager: DBManager,
     readonly indexManager: IndexManager,
     readonly tableManager: TableManager,
   ) {}
@@ -154,6 +185,26 @@ export class DbFile {
           needsCreation: false,
         }
       }
+    } else if (config.type === "indexeddb") {
+      const prefix = config.name
+      const wrapper = await IndexedDBWrapper.open(prefix, config.indexedDB)
+      const bufferPool = await IndexedDBBackedBufferPool.create(wrapper)
+      const header = await wrapper.getKeyVal<bigint>("header")
+      if (header == null) {
+        const headerPageId = bufferPool.allocatePage()
+        await wrapper.setKeyVal("header", headerPageId)
+        storageLayer = {
+          bufferPool,
+          headerPageId,
+          needsCreation: true,
+        }
+      } else {
+        storageLayer = {
+          bufferPool,
+          headerPageId: header,
+          needsCreation: false,
+        }
+      }
     } else {
       throw new Error(`Unknown storage type`)
     }
@@ -161,9 +212,8 @@ export class DbFile {
     const { bufferPool, headerPageId, needsCreation } = storageLayer
 
     const dbPageIdsTable = new Table(
-      getTableConfig(
+      getHeapFileTableConfig(
         bufferPool,
-        SYSTEM_DB,
         schemas.dbPageIds,
         { heapPageId: headerPageId, id: "$dbPageIds" },
       ),
@@ -179,9 +229,8 @@ export class DbFile {
       return pageId
     }
     const dbIndexesTable = new Table(
-      getTableConfig(
+      getHeapFileTableConfig(
         bufferPool,
-        SYSTEM_DB,
         schemas.dbIndexes,
         {
           heapPageId: await getOrCreatePageIdForPageType("indexesTable"),
@@ -189,10 +238,20 @@ export class DbFile {
         },
       ),
     )
-    const dbTablesTable = new Table(
-      getTableConfig(
+    const dbDbsTable = new Table(
+      getHeapFileTableConfig(
         bufferPool,
-        SYSTEM_DB,
+        schemas.dbDbs,
+        {
+          heapPageId: await getOrCreatePageIdForPageType("dbsTable"),
+          id: "$dbDbs",
+        },
+      ),
+    )
+
+    const dbTablesTable = new Table(
+      getHeapFileTableConfig(
+        bufferPool,
         schemas.dbTables,
         {
           heapPageId: await getOrCreatePageIdForPageType("tablesTable"),
@@ -204,6 +263,7 @@ export class DbFile {
     const dbFile = new DbFile(
       bufferPool,
       dbPageIdsTable,
+      new DBManager(dbDbsTable),
       indexManager,
       new TableManager(bufferPool, dbTablesTable, indexManager),
     )
@@ -239,18 +299,39 @@ export class DbFile {
 
   async getDBModel<DBSchemaT extends DBSchema>(
     dbSchema: DBSchemaT,
+    version: number = 1,
+    onUpgradeNeeded?: (
+      helper: IMigrationHelper<DBSchemaT>,
+    ) => Promisable<void>,
   ): Promise<DBModel<DBSchemaT>> {
-    const tables: Record<string, HeapFileTableInfer<SomeTableSchema>> = {}
-    for (const schema of Object.values(dbSchema.schemas)) {
-      tables[schema.name] = await this.getOrCreateTable(schema, {
-        db: dbSchema.name,
-      })
+    const dbRecord = await this.dbManager.getOrCreateDB(dbSchema.name)
+    const migrationHelper = new MigrationHelper(
+      this,
+      dbRecord.version,
+      dbSchema,
+    )
+    if (version < 1) {
+      throw new Error("Version must be greater than 0")
     }
-    return tables as {
-      [K in keyof DBSchemaT["schemas"]]: HeapFileTableInfer<
-        DBSchemaT["schemas"][K]
-      >
+    if (dbRecord.version > version) {
+      throw new Error(
+        `Database version is ${dbRecord.version} but the model requires ${version}`,
+      )
     }
+    if (dbRecord.version === 0) {
+      await migrationHelper.addMissingTables()
+      await this.dbManager.setDBVersion(dbSchema.name, version)
+      return migrationHelper.getModel()
+    } else if (dbRecord.version < version) {
+      if (onUpgradeNeeded == null) {
+        throw new Error(
+          `Database version is ${dbRecord.version} but the model requires ${version}. No upgrade function provided`,
+        )
+      }
+      await onUpgradeNeeded(migrationHelper)
+      await this.dbManager.setDBVersion(dbSchema.name, version)
+    }
+    return migrationHelper.getModel()
   }
 
   async getSchemasOrThrow(db: string, tableName: string): Promise<{
@@ -324,33 +405,6 @@ export class DbFile {
   ): Promise<void> {
     return await this.tableManager.renameTable(db, oldTableName, newTableName)
   }
-
-  async migrate<M extends Migration>(migration: M): Promise<M> {
-    // TODO: Lock the database
-    const migrations = await this.getOrCreateTable(schemas.dbMigrations, {
-      db: SYSTEM_DB,
-    })
-    const existingMigration = await migrations.lookupUnique(
-      "name",
-      migration.name,
-    )
-    if (existingMigration) {
-      return migration
-    }
-    await migration.migrate(this)
-    await migrations.insert({
-      name: migration.name,
-      db: migration.db,
-      completedAt: new Date(),
-    })
-    return migration
-  }
-}
-
-type Migration = {
-  db: string
-  name: string
-  migrate: (db: DbFile) => Promise<void>
 }
 
 /**
@@ -361,6 +415,8 @@ export type DBModel<DBSchemaT extends IDBSchema> = Simplify<
     [K in keyof DBSchemaT["schemas"]]: HeapFileTableInfer<
       DBSchemaT["schemas"][K]
     >
+  } & {
+    $schema: DBSchemaT
   }
 >
 
@@ -374,6 +430,10 @@ export type StorageConfig = {
 } | {
   type: "localstorage"
   prefix?: string
+} | {
+  type: "indexeddb"
+  name: string
+  indexedDB?: IDBFactory
 }
 
 async function openFile(

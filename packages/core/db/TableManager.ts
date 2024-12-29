@@ -108,9 +108,8 @@ export class TableManager {
     return {
       tableRecord,
       storage: {
-        ...getTableConfig(
+        ...getHeapFileTableConfig(
           this.bufferPool,
-          db,
           schema,
           tableRecord,
           this.indexManager,
@@ -254,13 +253,12 @@ export class TableManager {
   }
 }
 
-export function getTableConfig<
+export function getHeapFileTableConfig<
   N extends string,
   C extends StoredColumnRecord,
   CC extends ComputedColumnRecord,
 >(
   bufferPool: IBufferPool,
-  db: string,
   schema: TableSchema<N, C, CC>,
   tableRecord: Pick<TableRecord, "id" | "heapPageId">,
   indexManager?: IndexManager,
@@ -288,7 +286,6 @@ export function getTableConfig<
 
   const indexProvider = new HeapFileBackedIndexProvider(
     bufferPool,
-    db,
     schema,
     tableRecord.id,
     data,
