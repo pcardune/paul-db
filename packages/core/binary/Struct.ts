@@ -4,6 +4,10 @@ import { copy } from "@std/bytes/copy"
 import { decodeBase64, encodeBase64 } from "@std/encoding"
 import type { UnknownRecord } from "type-fest"
 
+export type ValueOfStruct<T extends IStruct<any>> = T extends IStruct<infer V>
+  ? V
+  : never
+
 class NoSpaceError extends Error {}
 export abstract class IStruct<ValueT> {
   abstract sizeof(value: ValueT): number
@@ -542,6 +546,144 @@ function record<V extends UnknownRecord>(
   })
 }
 
+export function union<V extends Record<string, [number, IStruct<any>]>>(
+  structs: V,
+): IStruct<
+  { [K in keyof V]: { type: K; value: ValueOfStruct<V[K][1]> } }[keyof V]
+> {
+  const byMarker = new Map<
+    number,
+    { typeName: keyof V; struct: IStruct<any> }
+  >()
+  for (const [typeName, [marker, struct]] of Object.entries(structs)) {
+    if (byMarker.has(marker)) {
+      throw new Error(`Duplicate marker ${marker}`)
+    }
+    byMarker.set(marker, { typeName: typeName as keyof V, struct })
+  }
+
+  return new VariableWidthStruct<
+    { [K in keyof V]: { type: K; value: ValueOfStruct<V[K][1]> } }[keyof V]
+  >({
+    sizeof: (value) => {
+      return 2 + structs[value.type][1].sizeof(value.value)
+    },
+    emptyValue: () => {
+      return {
+        type: Object.keys(structs)[0] as keyof V,
+        value: structs[Object.keys(structs)[0]][1].emptyValue(),
+      }
+    },
+    toJSON: (value) => {
+      return {
+        type: value.type as string,
+        value: structs[value.type][1].toJSON(value.value),
+      }
+    },
+    fromJSON: (json) => {
+      if (typeof json !== "object" || json === null) {
+        throw new Error("Expected an object")
+      }
+      if ("type" in json === false) {
+        throw new Error("Expected an object with a type property")
+      }
+      const type = json.type
+      if (typeof type !== "string") {
+        throw new Error("Expected a string type")
+      }
+      const struct = structs[type]
+      if (struct == null) {
+        throw new Error(`Unknown type ${type}`)
+      }
+      return {
+        type,
+        value: struct[1].fromJSON(json.value),
+      }
+    },
+    read: (view) => {
+      const type = view.getUint16(0)
+      const struct = byMarker.get(type)
+      if (struct == null) {
+        throw new Error(`Unknown type ${type}`)
+      }
+      return {
+        type: struct.typeName,
+        value: struct.struct.readAt(view, 2),
+      }
+    },
+    write: (value, view) => {
+      view.setUint16(0, structs[value.type][0])
+      structs[value.type][1].writeAt(value.value, view, 2)
+    },
+  })
+}
+
+export function fixedSizeUnion<
+  V extends Record<string, [number, FixedWidthStruct<any>]>,
+>(
+  structs: V,
+): FixedWidthStruct<
+  { [K in keyof V]: { type: K; value: ValueOfStruct<V[K][1]> } }[keyof V]
+> {
+  const byMarker = new Map<
+    number,
+    { typeName: keyof V; struct: IStruct<any> }
+  >()
+  for (const [typeName, [marker, struct]] of Object.entries(structs)) {
+    if (byMarker.has(marker)) {
+      throw new Error(`Duplicate marker ${marker}`)
+    }
+    byMarker.set(marker, { typeName: typeName as keyof V, struct })
+  }
+
+  return new FixedWidthStruct<
+    { [K in keyof V]: { type: K; value: ValueOfStruct<V[K][1]> } }[keyof V]
+  >({
+    size: 2 + Math.max(...Object.values(structs).map((s) => s[1].size)),
+    toJSON: (value) => {
+      return {
+        type: value.type as string,
+        value: structs[value.type][1].toJSON(value.value),
+      }
+    },
+    fromJSON: (json) => {
+      if (typeof json !== "object" || json === null) {
+        throw new Error("Expected an object")
+      }
+      if ("type" in json === false) {
+        throw new Error("Expected an object with a type property")
+      }
+      const type = json.type
+      if (typeof type !== "string") {
+        throw new Error("Expected a string type")
+      }
+      const struct = structs[type]
+      if (struct == null) {
+        throw new Error(`Unknown type ${type}`)
+      }
+      return {
+        type,
+        value: struct[1].fromJSON(json.value),
+      }
+    },
+    read: (view) => {
+      const type = view.getUint16(0)
+      const struct = byMarker.get(type)
+      if (struct == null) {
+        throw new Error(`Unknown type ${type}`)
+      }
+      return {
+        type: struct.typeName,
+        value: struct.struct.readAt(view, 2),
+      }
+    },
+    write: (value, view) => {
+      view.setUint16(0, structs[value.type][0])
+      structs[value.type][1].writeAt(value.value, view, 2)
+    },
+  })
+}
+
 const unicodeStringStruct = new VariableWidthStruct<string>({
   emptyValue: () => "",
   toJSON: (value) => value,
@@ -710,4 +852,6 @@ export const Struct = {
     (json) => JSON.parse(json),
     { toJSON: (json) => json, fromJSON: (json) => json },
   ),
+  union,
+  fixedSizeUnion,
 }

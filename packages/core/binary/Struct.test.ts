@@ -1,7 +1,12 @@
 import { describe, it } from "@std/testing/bdd"
-import { FixedWidthStruct, Struct, VariableWidthStruct } from "./Struct.ts"
+import {
+  FixedWidthStruct,
+  Struct,
+  ValueOfStruct,
+  VariableWidthStruct,
+} from "./Struct.ts"
 import { expect } from "@std/expect"
-import { WriteableDataView } from "./dataview.ts"
+import { ReadonlyDataView, WriteableDataView } from "./dataview.ts"
 
 const pointStruct = new FixedWidthStruct<{ x: number; y: number }>({
   toJSON: (value) => value,
@@ -276,5 +281,116 @@ describe("bytes", () => {
     expect(Struct.bytes.fromJSON("AQIDBAU=")).toEqual(
       new Uint8Array([1, 2, 3, 4, 5]),
     )
+  })
+})
+
+describe("Union Struct", () => {
+  const personStruct = Struct.record({
+    name: [0, Struct.unicodeStringStruct],
+    age: [1, Struct.uint32],
+  })
+
+  const catStruct = Struct.record({
+    name: [0, Struct.unicodeStringStruct],
+    lives: [1, Struct.uint32],
+    likesTreats: [2, Struct.boolean],
+  })
+
+  const someEntityStruct = Struct.union({
+    person: [0, personStruct],
+    cat: [1, catStruct],
+  })
+
+  type SomeEntity = ValueOfStruct<typeof someEntityStruct>
+
+  it("lets you read and write union values", () => {
+    const alice: SomeEntity = {
+      type: "person",
+      value: { name: "Alice", age: 30 },
+    }
+    const whiskers: SomeEntity = {
+      type: "cat",
+      value: { name: "Whiskers", lives: 9, likesTreats: true },
+    }
+    expect(someEntityStruct.sizeof(alice)).toBe(
+      2 + 4 + personStruct.sizeof(alice.value),
+    )
+    expect(someEntityStruct.sizeof(whiskers)).toBe(
+      2 + 4 + catStruct.sizeof(whiskers.value),
+    )
+    const aliceData = someEntityStruct.toUint8Array(alice)
+    const whiskersData = someEntityStruct.toUint8Array(whiskers)
+
+    expect(someEntityStruct.readAt(new ReadonlyDataView(aliceData.buffer), 0))
+      .toEqual(alice)
+    expect(
+      someEntityStruct.readAt(new ReadonlyDataView(whiskersData.buffer), 0),
+    ).toEqual(whiskers)
+
+    expect(someEntityStruct.toJSON(alice)).toEqual({
+      type: "person",
+      value: { name: "Alice", age: 30 },
+    })
+    expect(someEntityStruct.toJSON(whiskers)).toEqual({
+      type: "cat",
+      value: { name: "Whiskers", lives: 9, likesTreats: true },
+    })
+
+    expect(someEntityStruct.emptyValue()).toEqual({
+      type: "person",
+      value: { name: "", age: 0 },
+    })
+  })
+})
+
+describe("Fixed Size Union Struct", () => {
+  const personStruct = Struct.record({
+    age: [1, Struct.uint32],
+  })
+
+  const catStruct = Struct.record({
+    lives: [1, Struct.uint32],
+    likesTreats: [2, Struct.boolean],
+  })
+
+  const someEntityStruct = Struct.fixedSizeUnion({
+    person: [0, personStruct],
+    cat: [1, catStruct],
+  })
+
+  type SomeEntity = ValueOfStruct<typeof someEntityStruct>
+
+  it("lets you read and write union values", () => {
+    const alice: SomeEntity = {
+      type: "person",
+      value: { age: 30 },
+    }
+    const whiskers: SomeEntity = {
+      type: "cat",
+      value: { lives: 9, likesTreats: true },
+    }
+    expect(someEntityStruct.size).toBe(2 + catStruct.size)
+    const aliceData = someEntityStruct.toUint8Array(alice)
+    const whiskersData = someEntityStruct.toUint8Array(whiskers)
+
+    expect(someEntityStruct.readAt(new ReadonlyDataView(aliceData.buffer), 0))
+      .toEqual(alice)
+    expect(
+      someEntityStruct.readAt(new ReadonlyDataView(whiskersData.buffer), 0),
+    ).toEqual(whiskers)
+
+    expect(someEntityStruct.toJSON(alice)).toEqual({
+      type: "person",
+      value: { age: 30 },
+    })
+    expect(someEntityStruct.toJSON(whiskers)).toEqual({
+      type: "cat",
+      value: { lives: 9, likesTreats: true },
+    })
+
+    expect(someEntityStruct.emptyValue()).toEqual({
+      type: "person",
+      value: { age: 0 },
+    })
   })
 })
