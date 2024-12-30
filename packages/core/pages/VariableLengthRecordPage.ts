@@ -38,6 +38,11 @@ export class ReadonlyVariableLengthRecordPage {
         slotIndex,
       }
     },
+    getMaxAllocSize(pageSize: number) {
+      return new ReadonlyVariableLengthRecordPage(
+        new ReadonlyDataView(new ArrayBuffer(pageSize)),
+      ).freeSpace
+    },
   }
 
   /**
