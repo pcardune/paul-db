@@ -22,7 +22,6 @@ export interface IBufferPool {
    */
   getPageView(pageId: PageId): Promisable<ReadonlyDataView>
 
-  // getWriteablePage(pageId: PageId): Promise<WriteablePage>
   writeToPage<R>(
     pageId: PageId,
     writer: (view: WriteablePage) => Promisable<R>,
@@ -50,11 +49,12 @@ export class InMemoryBufferPool implements IBufferPool {
 
   freePages(pageIds: PageId[]): void {
     for (const pageId of pageIds) {
-      this.freePage(pageId)
+      this.pages.delete(pageId)
+      this.freeList.push(pageId)
     }
   }
   freePage(pageId: PageId): void {
-    this.freeList.push(pageId)
+    this.freePages([pageId])
   }
 
   private getPage(pageId: PageId): Uint8Array {
