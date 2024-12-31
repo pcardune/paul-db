@@ -1,9 +1,11 @@
 import { AsyncIterableWrapper } from "../async.ts"
-import { IStruct, Struct } from "../binary/Struct.ts"
+import { ReadonlyDataView } from "../binary/dataview.ts"
+import { FixedWidthStruct, IStruct, Struct } from "../binary/Struct.ts"
 import { Droppable, IDroppable } from "../droppable.ts"
 import { InMemoryIndexProvider } from "../indexes/IndexProvider.ts"
 import { IBufferPool, PageId } from "../pages/BufferPool.ts"
 import { HeaderPageRef, HeapPageFile } from "../pages/HeapPageFile.ts"
+import { LinkedPageList } from "../pages/LinkedPageList.ts"
 import {
   ReadonlyVariableLengthRecordPage,
   VariableLengthRecordPageAllocInfo,
@@ -249,27 +251,50 @@ export class InMemoryTableStorage<RowId, RowData>
 }
 
 export type HeapFileRowId = { pageId: PageId; slotIndex: number }
+
+type NormalHeader = {
+  type: "normal"
+  value: { canonical: boolean }
+}
+type ForwardedHeader = {
+  type: "forwarded"
+  value: { canonical: boolean; forwardRowId: HeapFileRowId }
+}
+
+type OversizedRowHeader = {
+  type: "oversized"
+  value: { canonical: boolean; headPageId: PageId }
+}
 type HeapFileEntry<RowData> = {
-  header: {
-    canonical: boolean
-    forwardRowId: HeapFileRowId | null
-    schemaId: number
-  }
+  header: NormalHeader | ForwardedHeader | OversizedRowHeader
   rowData: RowData
 }
-export const heapFileRowIdStruct: IStruct<HeapFileRowId> = Struct.record({
-  pageId: [0, Struct.bigUint64],
-  slotIndex: [1, Struct.uint32],
-})
-const headerStruct: IStruct<HeapFileEntry<unknown>["header"]> = Struct.record({
-  forward: [0, Struct.boolean],
-  forwardRowId: [1, heapFileRowIdStruct.nullable()],
-  schemaId: [2, Struct.uint32],
-  canonical: [3, Struct.boolean],
-})
+export const heapFileRowIdStruct: FixedWidthStruct<HeapFileRowId> = Struct
+  .record({
+    pageId: [0, Struct.bigUint64],
+    slotIndex: [1, Struct.uint32],
+  })
+const headerStruct: IStruct<HeapFileEntry<unknown>["header"]> = Struct
+  .fixedSizeUnion({
+    normal: [0, Struct.record({ canonical: [0, Struct.boolean] })],
+    forwarded: [
+      1,
+      Struct.record({
+        canonical: [0, Struct.boolean],
+        forwardRowId: [1, heapFileRowIdStruct],
+      }),
+    ],
+    oversized: [
+      2,
+      Struct.record({
+        canonical: [0, Struct.boolean],
+        headPageId: [1, Struct.bigUint64],
+      }),
+    ],
+  })
 export class HeapFileTableStorage<RowData>
   implements ITableStorage<HeapFileRowId, RowData> {
-  entryStruct: IStruct<HeapFileEntry<RowData>>
+  // entryStruct: IStruct<HeapFileEntry<RowData>>
 
   private heapPageFile: HeapPageFile<VariableLengthRecordPageAllocInfo>
   private droppable: Droppable
@@ -280,10 +305,10 @@ export class HeapFileTableStorage<RowData>
     readonly recordStruct: IStruct<RowData>,
     private schemaId: number,
   ) {
-    this.entryStruct = Struct.record({
-      header: [0, headerStruct],
-      rowData: [1, this.recordStruct],
-    })
+    // this.entryStruct = Struct.record({
+    //   header: [0, headerStruct],
+    //   rowData: [1, this.recordStruct],
+    // })
     this.heapPageFile = new HeapPageFile(
       bufferPool,
       pageId,
@@ -344,6 +369,8 @@ export class HeapFileTableStorage<RowData>
     id: HeapFileRowId,
   ): Promise<
     {
+      header: HeapFileEntry<RowData>["header"] | null
+      forwardHeader: HeapFileEntry<RowData>["header"] | null
       canonicalId: HeapFileRowId | null
       terminalId: HeapFileRowId
       rowData: RowData | undefined
@@ -351,33 +378,84 @@ export class HeapFileTableStorage<RowData>
   > {
     const view = await this.getRecordView(id)
     if (view == null) {
-      return { canonicalId: id, terminalId: id, rowData: undefined }
-    }
-    const entry = this.entryStruct.readAt(view, 0)
-    const canonicalId = entry.header.canonical ? id : null
-    if (entry.header.forwardRowId == null) {
       return {
-        canonicalId,
+        header: null,
+        forwardHeader: null,
+        canonicalId: id,
         terminalId: id,
-        rowData: entry.rowData,
-      }
-    }
-    const forwardView = await this.getRecordView(entry.header.forwardRowId)
-    if (forwardView == null) {
-      return {
-        canonicalId,
-        terminalId: entry.header.forwardRowId,
         rowData: undefined,
       }
     }
-    const forwardEntry = this.entryStruct.readAt(forwardView, 0)
-    if (forwardEntry.header.forwardRowId != null) {
+    const header = headerStruct.readAt(view, 0)
+
+    const canonicalId = header.value.canonical ? id : null
+    if (header.type !== "forwarded") {
+      let rowData: RowData
+      if (header.type === "normal") {
+        rowData = this.recordStruct.readAt(view, headerStruct.sizeof(header))
+      } else if (header.type === "oversized") {
+        const rawData = await new LinkedPageList(
+          this.bufferPool,
+          header.value.headPageId,
+        ).readData()
+        rowData = this.recordStruct.readAt(
+          new ReadonlyDataView(rawData.buffer),
+          0,
+        )
+      } else {
+        // @ts-expect-error - this should be exhaustive and never run.
+        throw new Error(`Unexpected header type: ${header.type}`)
+      }
+
+      return {
+        header,
+        forwardHeader: null,
+        canonicalId,
+        terminalId: id,
+        rowData,
+      }
+    }
+    const forwardView = await this.getRecordView(
+      header.value.forwardRowId,
+    )
+    if (forwardView == null) {
+      return {
+        header,
+        forwardHeader: null,
+        canonicalId,
+        terminalId: header.value.forwardRowId,
+        rowData: undefined,
+      }
+    }
+    const forwardHeader = headerStruct.readAt(forwardView, 0)
+    if (forwardHeader.type === "forwarded") {
       throw new Error(`Forward chain too long`)
     }
+    let rowData: RowData
+    if (forwardHeader.type === "normal") {
+      rowData = this.recordStruct.readAt(
+        forwardView,
+        headerStruct.sizeof(forwardHeader),
+      )
+    } else if (forwardHeader.type === "oversized") {
+      const rawData = await new LinkedPageList(
+        this.bufferPool,
+        forwardHeader.value.headPageId,
+      ).readData()
+      rowData = this.recordStruct.readAt(
+        new ReadonlyDataView(rawData.buffer),
+        0,
+      )
+    } else {
+      // @ts-expect-error - this should be exhaustive and never run.
+      throw new Error(`Unexpected header type: ${forwardHeader.type}`)
+    }
     return {
+      header,
+      forwardHeader,
       canonicalId,
-      terminalId: entry.header.forwardRowId,
-      rowData: forwardEntry.rowData,
+      terminalId: header.value.forwardRowId,
+      rowData: rowData,
     }
   }
 
@@ -414,58 +492,114 @@ export class HeapFileTableStorage<RowData>
     // two cases:
     // case 1: this is a shallow entry
     if (isShallow) {
-      const newEntry: HeapFileEntry<RowData> = {
-        header: {
-          canonical: true,
-          forwardRowId: null,
-          schemaId: this.schemaId,
-        },
-        rowData: data,
+      const newHeader: HeapFileEntry<RowData>["header"] = {
+        type: "normal",
+        value: { canonical: true },
       }
+      const newSize = headerStruct.sizeof(newHeader) +
+        this.recordStruct.sizeof(data)
       // case 1.1: the new record fits the existing slot
-      if (this.entryStruct.sizeof(newEntry) <= terminalSlot.length) {
+      if (newSize <= terminalSlot.length) {
         await this.bufferPool.writeToPage(
           terminal.terminalId.pageId,
           (view) => {
-            this.entryStruct.writeAt(newEntry, view, terminalSlot.offset)
+            headerStruct.writeAt(newHeader, view, terminalSlot.offset)
+            this.recordStruct.writeAt(
+              data,
+              view,
+              terminalSlot.offset + headerStruct.sizeof(newHeader),
+            )
+          },
+        )
+        if (terminal.header?.type === "oversized") {
+          // the old record was oversized, so we need to free it
+          await new LinkedPageList(
+            this.bufferPool,
+            terminal.header.value.headPageId,
+          ).drop()
+        }
+        return terminal.canonicalId
+      }
+      // case 1.2: the new record does not fit the existing slot
+      if (newSize > this.heapPageFile.maxAllocSize) {
+        // case 1.2.1: the new record is oversized
+        let linkedPageList: LinkedPageList
+        if (terminal.header?.type === "oversized") {
+          // the existing record is oversized too, so we can just reuse it
+          linkedPageList = new LinkedPageList(
+            this.bufferPool,
+            terminal.header.value.headPageId,
+          )
+        } else {
+          linkedPageList = new LinkedPageList(
+            this.bufferPool,
+            await this.bufferPool.allocatePage(),
+          )
+        }
+        await linkedPageList.writeData(this.recordStruct.toUint8Array(data))
+        const oversizedHeader: HeapFileEntry<RowData>["header"] = {
+          type: "oversized",
+          value: { canonical: true, headPageId: linkedPageList.headPageId },
+        }
+        if (headerStruct.sizeof(oversizedHeader) > terminalSlot.length) {
+          throw new Error(
+            "Can't even store the oversized header in existing slot. This should never happen.",
+          )
+        }
+        await this.bufferPool.writeToPage(
+          terminal.canonicalId.pageId,
+          (view) => {
+            headerStruct.writeAt(oversizedHeader, view, terminalSlot.offset)
           },
         )
         return terminal.canonicalId
       }
-      // case 1.2: the new record does not fit the existing slot
+      // case 1.2.2: the new record is not oversized
       const terminalId = await this._insert(data, { canonical: false })
       await this.bufferPool.writeToPage(terminal.canonicalId.pageId, (view) => {
-        this.entryStruct.writeAt(
+        headerStruct.writeAt(
           {
-            header: {
-              canonical: true,
-              forwardRowId: terminalId,
-              schemaId: this.schemaId,
-            },
-            rowData: this.recordStruct.emptyValue(),
+            type: "forwarded",
+            value: { canonical: true, forwardRowId: terminalId },
           },
           view,
           terminalSlot.offset,
         )
       })
+      if (terminal.header?.type === "oversized") {
+        // the old record was oversized, so we need to free it
+        await new LinkedPageList(
+          this.bufferPool,
+          terminal.header.value.headPageId,
+        ).drop()
+      }
       return terminal.canonicalId
     }
 
     // case 2: this is a forwarded entry
-    const newEntry: HeapFileEntry<RowData> = {
-      header: {
-        canonical: false,
-        forwardRowId: null,
-        schemaId: this.schemaId,
-      },
-      rowData: data,
+    const newHeader: HeapFileEntry<RowData>["header"] = {
+      type: "normal",
+      value: { canonical: false },
     }
-
-    if (this.entryStruct.sizeof(newEntry) <= terminalSlot.length) {
+    const newSize = headerStruct.sizeof(newHeader) +
+      this.recordStruct.sizeof(data)
+    if (newSize <= terminalSlot.length) {
       // case 2.1: this is a forwarded entry, and the new record fits the existing slot
       await this.bufferPool.writeToPage(terminal.terminalId.pageId, (view) => {
-        this.entryStruct.writeAt(newEntry, view, terminalSlot.offset)
+        headerStruct.writeAt(newHeader, view, terminalSlot.offset)
+        this.recordStruct.writeAt(
+          data,
+          view,
+          terminalSlot.offset + headerStruct.sizeof(newHeader),
+        )
       })
+      if (terminal.forwardHeader?.type === "oversized") {
+        // the old record was oversized, so we need to free it
+        await new LinkedPageList(
+          this.bufferPool,
+          terminal.forwardHeader.value.headPageId,
+        ).drop()
+      }
       return terminal.canonicalId
     }
     // case 2.2: this is a forwarded entry, and the new record does not fit the existing slot
@@ -474,6 +608,13 @@ export class HeapFileTableStorage<RowData>
       const recordPage = new WriteableVariableLengthRecordPage(view)
       recordPage.freeSlot(terminal.terminalId.slotIndex)
     })
+    if (terminal.forwardHeader?.type === "oversized") {
+      // the old record was oversized, so we need to free it
+      await new LinkedPageList(
+        this.bufferPool,
+        terminal.forwardHeader.value.headPageId,
+      ).drop()
+    }
     // insert the new record
     const terminalId = await this._insert(data, { canonical: false })
     // update the forward record
@@ -483,14 +624,13 @@ export class HeapFileTableStorage<RowData>
       .getSlotEntry(terminal.canonicalId.slotIndex)
 
     await this.bufferPool.writeToPage(terminal.canonicalId.pageId, (view) => {
-      this.entryStruct.writeAt(
+      headerStruct.writeAt(
         {
-          header: {
+          type: "forwarded",
+          value: {
             canonical: true,
             forwardRowId: terminalId,
-            schemaId: this.schemaId,
           },
-          rowData: this.recordStruct.emptyValue(),
         },
         view,
         canoncalSlot.offset,
@@ -503,16 +643,35 @@ export class HeapFileTableStorage<RowData>
     data: RowData,
     { canonical }: { canonical: boolean },
   ): Promise<HeapFileRowId> {
-    const entry: HeapFileEntry<RowData> = {
-      header: {
-        canonical,
-        forwardRowId: null,
-        schemaId: this.schemaId,
-      },
-      rowData: data,
+    const header: HeapFileEntry<RowData>["header"] = {
+      type: "normal",
+      value: { canonical },
     }
-    const numBytes = this.entryStruct.sizeof(entry)
-    // const serialized = this.serializer.serialize(data)
+    const numBytes = headerStruct.sizeof(header) +
+      this.recordStruct.sizeof(data)
+
+    if (numBytes > this.heapPageFile.maxAllocSize) {
+      // Well, we can't fit this record in a single page, so we'll just
+      // split the record up across multiple pages.
+      const linkedPageListHead = await this.bufferPool.allocatePage()
+      const linkedPageList = new LinkedPageList(
+        this.bufferPool,
+        linkedPageListHead,
+      )
+      await linkedPageList.writeData(this.recordStruct.toUint8Array(data))
+
+      const oversizedHeader: HeapFileEntry<RowData>["header"] = {
+        type: "oversized",
+        value: { canonical, headPageId: linkedPageListHead },
+      }
+      const { pageId, allocInfo: { slot, slotIndex } } = await this.heapPageFile
+        .allocateSpace(headerStruct.sizeof(oversizedHeader))
+      await this.bufferPool.writeToPage(pageId, (view) => {
+        headerStruct.writeAt(oversizedHeader, view, slot.offset)
+      })
+      return { pageId, slotIndex }
+    }
+
     const { pageId, allocInfo: { slot, slotIndex } } = await this.heapPageFile
       .allocateSpace(numBytes)
     if (slot.length < numBytes) {
@@ -521,7 +680,12 @@ export class HeapFileTableStorage<RowData>
       throw new Error("Record too large")
     }
     await this.bufferPool.writeToPage(pageId, (view) => {
-      this.entryStruct.writeAt(entry, view, slot.offset)
+      headerStruct.writeAt(header, view, slot.offset)
+      this.recordStruct.writeAt(
+        data,
+        view,
+        slot.offset + headerStruct.sizeof(header),
+      )
     })
     return { pageId, slotIndex }
   }

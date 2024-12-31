@@ -40,15 +40,16 @@ export function generateTestFilePath(
 }
 
 export function spyOnBufferPool(bufferPool: IBufferPool, trace = false) {
-  const alllocatePage = bufferPool.allocatePage.bind(bufferPool)
-  const allocatePage = stub(bufferPool, "allocatePage", async () => {
-    const pageId = await alllocatePage()
+  const originalAllocatePage = bufferPool.allocatePage.bind(bufferPool)
+  const myAllocate = async () => {
+    const pageId = await originalAllocatePage()
     if (trace) {
       console.trace("allocatePage", pageId)
     }
     return pageId
-  })
-  const freePages = spy(bufferPool, "freePages")
+  }
+  let allocatePage = stub(bufferPool, "allocatePage", myAllocate)
+  let freePages = spy(bufferPool, "freePages")
   return {
     allocatePage,
     freePages,
@@ -64,6 +65,16 @@ export function spyOnBufferPool(bufferPool: IBufferPool, trace = false) {
       return freePages.calls.flatMap((c) => c.args[0]).sort((a, b) =>
         Number(a - b)
       )
+    },
+    restore() {
+      allocatePage.restore()
+      freePages.restore()
+    },
+    reset() {
+      allocatePage.restore()
+      freePages.restore()
+      allocatePage = stub(bufferPool, "allocatePage", myAllocate)
+      freePages = spy(bufferPool, "freePages")
     },
   }
 }

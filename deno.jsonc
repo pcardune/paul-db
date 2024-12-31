@@ -2,7 +2,7 @@
   "workspace": ["./packages/core", "./packages/cli", "./packages/sql"],
   "tasks": {
     "dev": "deno run --watch main.ts",
-    "coverage": "deno test --coverage && deno coverage --lcov --output=coverage/cov.lcov coverage && genhtml -o coverage/html coverage/cov.lcov",
+    "coverage": "deno test --allow-all --coverage && deno coverage --lcov --output=coverage/cov.lcov coverage && genhtml -o coverage/html coverage/cov.lcov",
     "test": "deno test --doc --allow-all",
     "ci": "deno fmt --check && deno test --doc --allow-all && deno publish --dry-run"
   },

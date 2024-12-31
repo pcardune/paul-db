@@ -41,6 +41,7 @@ describe("HeapPageFile", () => {
           pageView.setUint32(0, newFreeSpace)
           return { freeSpace: newFreeSpace }
         },
+        getMaxAllocSize: (pageSize) => pageSize - 4,
       },
     )
   })

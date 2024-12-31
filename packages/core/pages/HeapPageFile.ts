@@ -76,10 +76,24 @@ class HeaderPageRef {
  * This interface abstracts over these differences.
  */
 export type PageSpaceAllocator<AllocInfo extends { freeSpace: number }> = {
+  /**
+   * Allocate space in the given page and return information about the
+   * allocation, including the amount of free space remaining in the page.
+   *
+   * @param pageView The page to allocate space in.
+   * @param numBytes The number of bytes to allocate.
+   * @returns Information about the allocation.
+   */
   allocateSpaceInPage: (
     pageView: WriteableDataView,
     numBytes: number,
   ) => AllocInfo | Promise<AllocInfo>
+
+  /**
+   * The maximum number of bytes that can be allocated in a single call to
+   * `allocateSpaceInPage`.
+   */
+  getMaxAllocSize(pageSize: number): number
 }
 
 export type { HeaderPageRef }
@@ -138,6 +152,10 @@ export class HeapPageFile<AllocInfo extends { freeSpace: number }>
 
   get headerPageRef(): HeaderPageRef {
     return this._headerPageRef
+  }
+
+  get maxAllocSize(): number {
+    return this.allocator.getMaxAllocSize(this.bufferPool.pageSize)
   }
 
   /**
