@@ -190,6 +190,27 @@ export class Mutex {
    * Acquire the lock. If the lock is already held, this will wait until it is
    * released.
    *
+   * @returns A disposable object that releases the lock when disposed.
+   *
+   * ```ts
+   * const mutex = new Mutex()
+   * {
+   *   using _lock = await mutex.useLock()
+   *   // do something with the lock
+   * }
+   * ```
+   */
+  async useLock(): Promise<{ [Symbol.dispose]: () => void }> {
+    await this.acquire()
+    return {
+      [Symbol.dispose]: () => this.release(),
+    }
+  }
+
+  /**
+   * Acquire the lock. If the lock is already held, this will wait until it is
+   * released.
+   *
    * @returns A promise that resolves when the lock is acquired.
    */
   acquire(): Promise<void> {

@@ -35,6 +35,8 @@ export interface IQueryPlanNode<T extends RowData = RowData> {
    * Executes the query plan and returns an async iterable of the results
    */
   execute(ctx: ExecutionContext | PaulDB): AsyncIterableWrapper<T>
+
+  children(): IQueryPlanNode[]
 }
 
 /**
@@ -55,6 +57,8 @@ export abstract class AbstractQueryPlan<T extends RowData>
    * @ignore
    */
   abstract getIter(ctx: ExecutionContext): Promisable<AsyncIterableWrapper<T>>
+
+  abstract children(): IQueryPlanNode[]
 
   /**
    * Executes the query plan and returns an async iterable of the results
@@ -117,6 +121,10 @@ export class TableScan<T extends RowData> extends AbstractQueryPlan<T> {
     }
   }
 
+  override children(): IQueryPlanNode[] {
+    return []
+  }
+
   /**
    * @ignore
    */
@@ -169,6 +177,11 @@ export class Aggregate<T extends UnknownRecord, AliasT extends string>
       alias: this.alias,
     }
   }
+
+  override children(): IQueryPlanNode[] {
+    return [this.child]
+  }
+
   /**
    * @ignore
    */
@@ -221,6 +234,11 @@ export class Filter<T extends RowData = RowData> extends AbstractQueryPlan<T> {
   ) {
     super()
   }
+
+  override children(): IQueryPlanNode[] {
+    return [this.child]
+  }
+
   /**
    * Returns a human-readable description of the query plan
    */
@@ -266,6 +284,11 @@ export class GroupBy<
   ) {
     super()
   }
+
+  override children(): IQueryPlanNode[] {
+    return [this.child]
+  }
+
   override getIter(
     ctx: ExecutionContext,
   ): AsyncIterableWrapper<
@@ -362,6 +385,11 @@ export class Select<Alias extends string, T extends UnknownRecord>
   ) {
     super()
   }
+
+  override children(): IQueryPlanNode[] {
+    return [this.child]
+  }
+
   /**
    * Returns a human-readable description of the query plan
    */
@@ -428,6 +456,10 @@ export class Limit<T extends RowData = RowData> extends AbstractQueryPlan<T> {
   constructor(readonly child: IQueryPlanNode<T>, readonly limit: number) {
     super()
   }
+
+  override children(): IQueryPlanNode[] {
+    return [this.child]
+  }
   /**
    * Returns a human-readable description of the query plan
    */
@@ -475,6 +507,9 @@ export class Join<
     readonly predicate: Expr<ColumnType<boolean>>,
   ) {
     super()
+  }
+  override children(): IQueryPlanNode[] {
+    return [this.left, this.right]
   }
   /**
    * Returns a human-readable description of the query plan
@@ -536,6 +571,11 @@ export class LeftJoin<
   ) {
     super()
   }
+
+  override children(): IQueryPlanNode[] {
+    return [this.left, this.right]
+  }
+
   /**
    * Returns a human-readable description of the query plan
    */
@@ -592,6 +632,10 @@ export class OrderBy<T extends RowData = RowData> extends AbstractQueryPlan<T> {
     readonly orderBy: { expr: Expr<any>; direction: "ASC" | "DESC" }[],
   ) {
     super()
+  }
+
+  override children(): IQueryPlanNode[] {
+    return [this.child]
   }
 
   /**

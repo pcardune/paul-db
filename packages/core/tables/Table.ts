@@ -8,7 +8,7 @@ import {
   TableSchema,
 } from "../schema/TableSchema.ts"
 import { ITableStorage } from "./TableStorage.ts"
-import { AsyncIterableWrapper } from "../async.ts"
+import { AsyncIterableWrapper, Mutex } from "../async.ts"
 import * as Column from "../schema/columns/index.ts"
 import type { Promisable } from "type-fest"
 import { SerialIdGenerator } from "../serial.ts"
@@ -51,6 +51,17 @@ export type TableConfig<
   droppable?: IDroppable
 }
 
+type WriteEvent<SchemaT extends SomeTableSchema> = {
+  event: "insert"
+  record: StoredRecordForTableSchema<SchemaT>
+} | {
+  event: "update"
+  newRecord: StoredRecordForTableSchema<SchemaT>
+} | {
+  event: "delete"
+  deletedRecord: StoredRecordForTableSchema<SchemaT>
+}
+
 export class Table<
   RowIdT,
   N extends string,
@@ -68,6 +79,7 @@ export class Table<
   private serialIdGenerator?: SerialIdGenerator
   private indexProvider: IndexProvider<RowIdT>
   private droppable: Droppable
+  private writeMutex = new Mutex()
 
   constructor(
     init: TableConfig<
@@ -91,42 +103,71 @@ export class Table<
     return this.droppable.drop()
   }
 
+  private subscriptions = new Set<
+    (event: WriteEvent<TableSchema<N, C, CC>>) => void
+  >()
+  subscribe(fn: (event: WriteEvent<TableSchema<N, C, CC>>) => void): void {
+    this.subscriptions.add(fn)
+  }
+  unsubscribe(fn: (event: WriteEvent<TableSchema<N, C, CC>>) => void): void {
+    this.subscriptions.delete(fn)
+  }
+  private emit(event: WriteEvent<TableSchema<N, C, CC>>): void {
+    for (const fn of this.subscriptions) {
+      fn(event)
+    }
+  }
+
   async insertManyAndReturn(
     records: InsertRecordForTableSchema<this["schema"]>[],
   ): Promise<StoredRecordForTableSchema<this["schema"]>[]> {
     this.droppable.assertNotDropped("Table has been dropped")
+    using _lock = await this.writeMutex.useLock()
 
     const rows: StoredRecordForTableSchema<this["schema"]>[] = []
     for (const record of records) {
-      rows.push(await this.insertAndReturn(record))
+      const rowId = await this._insert(record)
+      rows.push(
+        await this.data.get(rowId) as StoredRecordForTableSchema<
+          this["schema"]
+        >,
+      )
     }
     return rows
   }
 
   async insertMany(
     records: InsertRecordForTableSchema<this["schema"]>[],
-  ): Promise<RowIdT[]> {
+  ): Promise<void> {
     this.droppable.assertNotDropped("Table has been dropped")
+    using _lock = await this.writeMutex.useLock()
 
-    const rowIds: RowIdT[] = []
     for (const record of records) {
-      rowIds.push(await this.insert(record))
+      await this._insert(record)
     }
-    return rowIds
   }
 
   async insertAndReturn(
     record: InsertRecordForTableSchema<this["schema"]>,
   ): Promise<StoredRecordForTableSchema<this["schema"]>> {
     this.droppable.assertNotDropped("Table has been dropped")
+    using _lock = await this.writeMutex.useLock()
 
-    const id = await this.insert(record)
+    const id = await this._insert(record)
     return this.data.get(id) as Promise<
       StoredRecordForTableSchema<this["schema"]>
     >
   }
 
   async insert(
+    record: InsertRecordForTableSchema<this["schema"]>,
+  ): Promise<void> {
+    this.droppable.assertNotDropped("Table has been dropped")
+    using _lock = await this.writeMutex.useLock()
+    await this._insert(record)
+  }
+
+  async _insert(
     record: InsertRecordForTableSchema<this["schema"]>,
   ): Promise<RowIdT> {
     this.droppable.assertNotDropped("Table has been dropped")
@@ -189,9 +230,10 @@ export class Table<
       }
     }
 
-    const id = await this.data.insert(
-      record as any,
-    )
+    const storedRecord = record as unknown as StoredRecordForTableSchema<
+      this["schema"]
+    >
+    const id = await this.data.insert(storedRecord)
     for (const column of this.schema.columns) {
       const index = await this.indexProvider.getIndexForColumn(column.name)
       if (index) {
@@ -209,10 +251,11 @@ export class Table<
       }
     }
     await this.data.commit()
+    this.emit({ event: "insert", record: storedRecord })
     return id
   }
 
-  get(
+  _get(
     id: RowIdT,
   ): Promisable<StoredRecordForTableSchema<this["schema"]> | undefined> {
     this.droppable.assertNotDropped("Table has been dropped")
@@ -221,7 +264,7 @@ export class Table<
       | undefined
   }
 
-  async set(
+  async _set(
     id: RowIdT,
     newRecord: StoredRecordForTableSchema<this["schema"]>,
   ): Promise<RowIdT> {
@@ -261,15 +304,17 @@ export class Table<
     }
 
     await this.data.commit()
+    this.emit({ event: "update", newRecord })
     return newRowId
   }
 
   async updateWhere<IName extends Column.FindIndexedNames<C & CC>>(
     indexName: IName,
     value: Column.GetInput<(C & CC)[IName]>,
-    updatedValue: Partial<StoredRecordForTableSchema<this["schema"]>>,
+    updatedValue: Partial<StoredRecordForTableSchema<TableSchema<N, C, CC>>>,
   ): Promise<void> {
     this.droppable.assertNotDropped("Table has been dropped")
+    using _lock = await this.writeMutex.useLock()
 
     const index = await this.indexProvider.getIndexForColumn(
       indexName as string,
@@ -279,11 +324,11 @@ export class Table<
     }
     const ids = await this._lookupInIndex(indexName, value)
     for (const id of ids) {
-      const data = await this.get(id)
+      const data = await this._get(id)
       if (!data) {
         throw new Error(`Record not found for id ${id}`)
       }
-      await this.set(id, { ...data, ...updatedValue })
+      await this._set(id, { ...data, ...updatedValue })
     }
   }
 
@@ -292,6 +337,7 @@ export class Table<
     value: Column.GetInput<(C & CC)[IName]>,
   ): Promise<void> {
     this.droppable.assertNotDropped("Table has been dropped")
+    using _lock = await this.writeMutex.useLock()
 
     const index = await this.indexProvider.getIndexForColumn(
       indexName as string,
@@ -302,11 +348,11 @@ export class Table<
     const ids = await this._lookupInIndex(indexName, value)
 
     for (const id of ids) {
-      await this.remove(id)
+      await this._remove(id)
     }
   }
 
-  async remove(id: RowIdT): Promise<void> {
+  async _remove(id: RowIdT): Promise<void> {
     this.droppable.assertNotDropped("Table has been dropped")
 
     const oldRecord = await this.data.get(id)
@@ -322,6 +368,7 @@ export class Table<
     }
     await this.data.remove(id)
     await this.data.commit()
+    this.emit({ event: "delete", deletedRecord: oldRecord })
   }
 
   async lookupUniqueOrThrow<IName extends Column.FindUniqueNames<C & CC>>(

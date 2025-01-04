@@ -54,7 +54,7 @@ export class DBFileSerialIdGenerator implements SerialIdGenerator {
       const { rowId, sequenceRecord } = cached
       const updated = { ...sequenceRecord, value: sequenceRecord.value + 1 }
       this._cache.set(columnName, { rowId, sequenceRecord: updated })
-      await sequenceTable.set(rowId, updated)
+      await sequenceTable._set(rowId, updated)
       return updated.value
     }
 
@@ -72,13 +72,13 @@ export class DBFileSerialIdGenerator implements SerialIdGenerator {
       )
     }
     using _lock = await this.acquireLock(columnName)
-    const sequenceRecord = await sequenceTable.get(sequenceRecordIds[0])
+    const sequenceRecord = await sequenceTable._get(sequenceRecordIds[0])
     if (sequenceRecord == null) {
       throw new Error(
         `Sequence record ${sequenceRecordIds[0]} not found for ${sequenceName}`,
       )
     }
-    await sequenceTable.set(sequenceRecordIds[0], {
+    await sequenceTable._set(sequenceRecordIds[0], {
       ...sequenceRecord,
       value: sequenceRecord.value + 1,
     })

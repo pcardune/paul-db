@@ -1,6 +1,7 @@
 import { exists } from "@std/fs/exists"
 import { DbFile, DBModel, IDbFile } from "./db/DbFile.ts"
 import type { RowData } from "./query/QueryPlanNode.ts"
+import type { Promisable } from "type-fest"
 import * as path from "@std/path"
 import { IPlanBuilder, QueryBuilder } from "./query/QueryBuilder.ts"
 import { AsyncIterableWrapper } from "./async.ts"
@@ -9,6 +10,8 @@ import type { Simplify } from "type-fest"
 import { TableNotFoundError } from "./errors.ts"
 import { SomeTableSchema } from "./schema/TableSchema.ts"
 import { IMigrationHelper } from "./db/MigrationHelper.ts"
+import { IQueryPlanNode } from "./query/QueryPlanNode.ts"
+import { TableScan } from "./query/QueryPlanNode.ts"
 
 /**
  * Remove all symbol keys from an object. These show up when
@@ -143,6 +146,16 @@ export class PaulDB {
           | IPlanBuilder<T>
           | ((schema: QueryBuilder<DBSchemaT>) => IPlanBuilder<T>),
       ) => AsyncIterableWrapper<Clean<T extends { "$0": infer U } ? U : T>>
+      $subscribe: <T extends RowData>(
+        plan:
+          | IPlanBuilder<T>
+          | ((schema: QueryBuilder<DBSchemaT>) => IPlanBuilder<T>),
+        handler: (
+          data: AsyncIterableWrapper<
+            Clean<T extends { "$0": infer U } ? U : T>
+          >,
+        ) => void,
+      ) => void
     }
   > {
     const model = await this._dbFile.getDBModel(
@@ -164,6 +177,42 @@ export class PaulDB {
         return plan.plan().execute(this).map((rowData) =>
           "$0" in rowData ? rowData.$0 : rowData
         ) as AsyncIterableWrapper<T extends { "$0": infer U } ? U : T>
+      },
+      $subscribe: <T extends RowData>(
+        plan:
+          | IPlanBuilder<T>
+          | ((schema: QueryBuilder<DBSchemaT>) => IPlanBuilder<T>),
+        handler: (
+          data: AsyncIterableWrapper<
+            Clean<T extends { "$0": infer U } ? U : T>
+          >,
+        ) => Promisable<void>,
+      ): void => {
+        function getNode() {
+          if (typeof plan === "function") {
+            return plan(dbSchema.query()).plan()
+          }
+          return plan.plan()
+        }
+        const node = getNode()
+        function findTables(node: IQueryPlanNode): string[] {
+          if (node instanceof TableScan) {
+            return [node.table]
+          }
+          return node.children().flatMap(findTables)
+        }
+        const tables = new Set(findTables(node))
+        const tableEventHandler = () => {
+          handler(
+            node.execute(this).map((rowData) =>
+              "$0" in rowData ? rowData.$0 : rowData
+            ) as AsyncIterableWrapper<T extends { "$0": infer U } ? U : T>,
+          )
+        }
+        for (const table of tables) {
+          model[table].subscribe(tableEventHandler)
+        }
+        tableEventHandler()
       },
     }
     return result
