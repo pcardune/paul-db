@@ -821,7 +821,7 @@ export const Struct = {
   tuple,
   record,
   bytes,
-  timestamp: int32.wrap<Date>(
+  timestamp: float64.wrap<Date>(
     (date) => date.getTime(),
     (time) => new Date(time),
     {

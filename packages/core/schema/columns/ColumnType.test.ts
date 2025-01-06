@@ -1,5 +1,6 @@
 import { expect } from "@std/expect"
 import { ColumnTypes, getColumnTypeFromString } from "./ColumnType.ts"
+import { ReadonlyDataView } from "../../binary/dataview.ts"
 
 Deno.test("string/TEXT columns", () => {
   const stringColumn = ColumnTypes.string()
@@ -7,6 +8,17 @@ Deno.test("string/TEXT columns", () => {
   // @ts-expect-error - 123 obviously isn't a string
   expect(stringColumn.isValid(123)).toBe(false)
   expect(getColumnTypeFromString("string").name).toEqual("string")
+})
+
+Deno.test("timestamp columns", () => {
+  const dateColumn = ColumnTypes.timestamp()
+  const date = new Date()
+  const buffer = dateColumn.serializer?.toUint8Array(date)
+  expect(
+    dateColumn.serializer?.readAt(new ReadonlyDataView(buffer!.buffer), 0)
+      .getTime(),
+  )
+    .toEqual(date.getTime())
 })
 
 Deno.test("array columns", () => {
