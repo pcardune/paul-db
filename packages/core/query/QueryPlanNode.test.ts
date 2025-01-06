@@ -18,6 +18,7 @@ import { PaulDB, schema as s } from "../exports/mod.ts"
 import { ArrayColumnType, ColumnTypes } from "../schema/columns/ColumnType.ts"
 import { assertTrue, TypeEquals } from "../testing.ts"
 import { ColumnNames, SchemasForTQB, TQBTableNames } from "./QueryBuilder.ts"
+import { spy } from "@std/testing/mock"
 import type { IsEqual } from "type-fest"
 
 async function init() {
@@ -782,5 +783,34 @@ Deno.test("QueryBuilder.with()", async () => {
   expect(await model.$query(aggregatedQuery).toArray()).toEqual([
     { category: "fruit", totalPrice: 1.75 },
     { category: "veg", totalPrice: 0.75 },
+  ])
+})
+
+Deno.test("Query subscriptions", async () => {
+  const { model } = await init()
+  const onChange = spy()
+  model.$subscribe(
+    (q) =>
+      q.from("cats")
+        .select({
+          catName: (t) => t.column("cats.name"),
+          age: (t) => t.column("cats.age"),
+        }),
+    onChange,
+  )
+  expect(onChange.calls.length).toEqual(1)
+  expect(await onChange.calls[0].args[0].toArray()).toEqual([
+    { age: 3, catName: "fluffy" },
+    { age: 5, catName: "mittens" },
+    { age: 16, catName: "Mr. Blue" },
+  ])
+
+  await model.cats.insert({ name: "Whiskers", age: 7 })
+  expect(onChange.calls.length).toEqual(2)
+  expect(await onChange.calls[1].args[0].toArray()).toEqual([
+    { age: 3, catName: "fluffy" },
+    { age: 5, catName: "mittens" },
+    { age: 16, catName: "Mr. Blue" },
+    { age: 7, catName: "Whiskers" },
   ])
 })

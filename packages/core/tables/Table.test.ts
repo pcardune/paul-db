@@ -25,24 +25,24 @@ describe("Create, Read, and Delete", () => {
   it("lets you insert and retrieve records", async () => {
     const people = new Table(InMemoryTableStorage.forSchema(peopleSchema))
 
-    const aliceId = await people.insert({ name: "Alice", age: 12 })
-    const bobId = await people.insert({ name: "Bob", age: 12 })
-    expect(await people.get(aliceId)).toEqual({
+    const aliceId = await people._insert({ name: "Alice", age: 12 })
+    const bobId = await people._insert({ name: "Bob", age: 12 })
+    expect(await people._get(aliceId)).toEqual({
       name: "Alice",
       age: 12,
     })
-    expect(await people.get(bobId)).toEqual({
+    expect(await people._get(bobId)).toEqual({
       name: "Bob",
       age: 12,
     })
   })
   it("You can delete records", async () => {
     const people = new Table(InMemoryTableStorage.forSchema(peopleSchema))
-    const aliceId = await people.insert({ name: "Alice", age: 12 })
-    const bobId = await people.insert({ name: "Bob", age: 12 })
-    await people.remove(aliceId)
-    expect(await people.get(aliceId)).toBeUndefined()
-    expect(await people.get(bobId)).toEqual({
+    const aliceId = await people._insert({ name: "Alice", age: 12 })
+    const bobId = await people._insert({ name: "Bob", age: 12 })
+    await people._remove(aliceId)
+    expect(await people._get(aliceId)).toBeUndefined()
+    expect(await people._get(bobId)).toEqual({
       name: "Bob",
       age: 12,
     })
@@ -283,14 +283,14 @@ Deno.test("HeapFileTableStorage", async (t) => {
   const otherRowIds: HeapFileRowId[] = []
 
   await t.step(".insert()", async () => {
-    aliceRowId = await people.insert({
+    aliceRowId = await people._insert({
       firstName: "Alice",
       lastName: "Jones",
       age: 25,
       likesIceCream: true,
     })
     for (let i = 2; i <= 1000; i++) {
-      const rowId = await people.insert({
+      const rowId = await people._insert({
         firstName: `Person ${i}`,
         lastName: `Lastname ${i}`,
         age: i,
@@ -301,8 +301,8 @@ Deno.test("HeapFileTableStorage", async (t) => {
   })
 
   await t.step(".set()", async () => {
-    const alice = await people.get(aliceRowId)
-    let newRowId = await people.set(aliceRowId, { ...alice!, age: 26 })
+    const alice = await people._get(aliceRowId)
+    let newRowId = await people._set(aliceRowId, { ...alice!, age: 26 })
 
     // the row id should stay the same because the record fits into
     // the existing slot
@@ -315,19 +315,21 @@ Deno.test("HeapFileTableStorage", async (t) => {
       likesIceCream: true,
     })
 
-    newRowId = await people.set(aliceRowId, {
+    newRowId = await people._set(aliceRowId, {
       ...alice!,
       age: 27,
       lastName: "from the books about wonderland",
     })
     expect(newRowId).toEqual(aliceRowId)
-    expect(await people.get(aliceRowId), "old row id will still work").toEqual({
-      id: 1,
-      firstName: "Alice",
-      lastName: "from the books about wonderland",
-      age: 27,
-      likesIceCream: true,
-    })
+    expect(await people._get(aliceRowId), "old row id will still work").toEqual(
+      {
+        id: 1,
+        firstName: "Alice",
+        lastName: "from the books about wonderland",
+        age: 27,
+        likesIceCream: true,
+      },
+    )
     expect(
       await people.lookupUnique("id", 1),
       "looking up from an index will work",
@@ -340,7 +342,7 @@ Deno.test("HeapFileTableStorage", async (t) => {
     })
 
     // we can still find the next record that was inserted
-    expect(await people.get(otherRowIds[0])).toEqual({
+    expect(await people._get(otherRowIds[0])).toEqual({
       id: 2,
       age: 2,
       firstName: "Person 2",
@@ -359,7 +361,7 @@ Deno.test("HeapFileTableStorage", async (t) => {
       await t.step(
         "Table.get()",
         async () => {
-          expect(await people.get(aliceRowId)).toEqual({
+          expect(await people._get(aliceRowId)).toEqual({
             id: 1,
             firstName: "Alice",
             lastName: "from the books about wonderland",
