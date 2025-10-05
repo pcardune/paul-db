@@ -37,7 +37,7 @@ export class IndexedDBWrapper {
       const tx = this.db.transaction("pages", "readwrite")
       const store = tx.objectStore("pages")
       for (const pageId of pageIds) {
-        store.delete(Struct.bigUint64.toUint8Array(pageId))
+        store.delete(Struct.bigUint64.toArrayBuffer(pageId))
       }
       tx.oncomplete = () => {
         resolve()
@@ -52,7 +52,7 @@ export class IndexedDBWrapper {
     return new Promise((resolve, reject) => {
       const tx = this.db.transaction("pages")
       const store = tx.objectStore("pages")
-      const req = store.get(Struct.bigUint64.toUint8Array(pageId))
+      const req = store.get(Struct.bigUint64.toArrayBuffer(pageId))
       req.onsuccess = () => {
         resolve(req.result)
       }
@@ -67,7 +67,7 @@ export class IndexedDBWrapper {
       const tx = this.db.transaction("pages", "readwrite")
       const store = tx.objectStore("pages")
       for (const { pageId, data } of pages) {
-        store.put(data, Struct.bigUint64.toUint8Array(pageId))
+        store.put(data, Struct.bigUint64.toArrayBuffer(pageId))
       }
       tx.oncomplete = () => {
         resolve()

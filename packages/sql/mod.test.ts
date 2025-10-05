@@ -1,6 +1,6 @@
 import { PaulDB } from "@paul-db/core"
 import { SQLExecutor } from "./mod.ts"
-import { expect } from "jsr:@std/expect"
+import { expect } from "jsr:@std/expect@1.0.9"
 
 async function getExecutor() {
   const db = await PaulDB.inMemory()

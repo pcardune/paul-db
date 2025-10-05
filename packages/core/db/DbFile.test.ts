@@ -151,7 +151,9 @@ Deno.test("DbFile.createTable() and schema changes", async (t) => {
       db,
       users: model.users,
       model,
-      [Symbol.dispose]: db[Symbol.dispose].bind(db),
+      [Symbol.dispose]: () => {
+        db[Symbol.dispose]()
+      },
     }
   }
 
@@ -340,7 +342,7 @@ Deno.test("local storage buffer pool", async () => {
   }
 })
 
-import indexedDB from "npm:fake-indexeddb"
+import indexedDB from "npm:fake-indexeddb@6.2.2"
 
 Deno.test("IndexedDB buffer pool", async () => {
   const dbName = "test" + Math.random()

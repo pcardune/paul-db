@@ -1207,7 +1207,7 @@ export class EmptyExprBuilder<TQB extends ITQB = ITQB>
       Object.entries(tqb.tableSchemas).map(([schemaName, schema]) => [
         schemaName,
         Object.fromEntries(
-          Object.entries(schema.columnsByName).map(([colName, col]) => [
+          Object.entries(schema.columnsByName).map(([colName, _col]) => [
             colName,
             this.column(
               schemaName as Extract<keyof TQB["tableSchemas"], string>,

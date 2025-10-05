@@ -24,12 +24,16 @@ export abstract class IStruct<ValueT> {
   abstract fromJSON(json: Json): ValueT
   abstract emptyValue(): ValueT
 
-  toUint8Array(value: ValueT): Uint8Array {
+  toArrayBuffer(value: ValueT): ArrayBuffer {
     const size = this.sizeof(value)
     const buffer = new ArrayBuffer(size)
     const view = new WriteableDataView(buffer)
     this.writeAt(value, view, 0)
-    return new Uint8Array(buffer)
+    return buffer
+  }
+
+  toUint8Array(value: ValueT): Uint8Array {
+    return new Uint8Array(this.toArrayBuffer(value))
   }
 
   static NoSpaceError: typeof NoSpaceError = NoSpaceError

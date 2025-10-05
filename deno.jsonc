@@ -1,5 +1,9 @@
 {
-  "workspace": ["./packages/core", "./packages/cli", "./packages/sql"],
+  "workspace": [
+    "./packages/core",
+    "./packages/cli",
+    "./packages/sql"
+  ],
   "tasks": {
     "dev": "deno run --watch main.ts",
     "coverage": "deno test --allow-all --coverage && deno coverage --lcov --output=coverage/cov.lcov coverage && genhtml -o coverage/html coverage/cov.lcov",
@@ -21,17 +25,29 @@
   },
   "fmt": {
     "semiColons": false,
-    "exclude": ["**/*.yml"]
+    "exclude": [
+      "**/*.yml"
+    ]
   },
   "lint": {
     "rules": {
-      "tags": ["recommended"]
+      "tags": [
+        "recommended"
+      ],
+      "exclude": [
+        "no-explicit-any"
+      ]
     }
   },
   "nodeModulesDir": "auto",
   "compilerOptions": {
     "jsx": "react-jsx",
     "jsxImportSource": "preact",
-    "lib": ["dom", "dom.iterable", "dom.asynciterable", "deno.ns"]
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "dom.asynciterable",
+      "deno.ns"
+    ]
   }
 }

@@ -2,7 +2,7 @@ import { expect } from "@std/expect"
 import { IndexedDBTableStorage } from "./IndexedDBTableStorage.ts"
 
 async function makeIndexedDBStorage() {
-  const { default: indexedDB } = await import("npm:fake-indexeddb")
+  const { default: indexedDB } = await import("npm:fake-indexeddb@6.2.2")
 
   const dbName = "testDB"
   const tableName = "testTable"
